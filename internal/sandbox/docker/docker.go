@@ -62,7 +62,7 @@ var (
 
 func ensureMobyClient() error {
 	mobyClientOnce.Do(func() {
-		mobyClient, errMobyClient = client.New(client.FromEnv)
+		mobyClient, errMobyClient = client.New(clientOptions()...)
 	})
 	return errMobyClient
 }
