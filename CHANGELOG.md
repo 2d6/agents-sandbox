@@ -19,6 +19,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- Bugfix: the Docker endpoint is now resolved like the `docker` CLI resolves it — `DOCKER_HOST` first, then
+  the active docker context (`DOCKER_CONTEXT` or the CLI's `currentContext`), then the default socket.
+  colima and Docker Desktop setups that publish their socket through a docker context no longer need a
+  manual `DOCKER_HOST` export, and the `doctor` hint now points at `docker context ls` (#67).
 - Bugfix: home mappings, agent-config drop-in copies, and verbatim config-directory mirrors now preserve ordinary Unix
   permission bits, including executable bits on launcher scripts.
 - Bugfix: runner image builds no longer fail on macOS because the host GID 20 (`staff`)

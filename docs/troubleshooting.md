@@ -87,6 +87,24 @@ If Docker Desktop is installed but not running, launch it from Applications. If 
 colima start
 ```
 
+agents-sandbox finds the socket the same way the `docker` CLI does: `DOCKER_HOST` wins, then the active
+docker context, then the default `/var/run/docker.sock`. If `docker info` works but agents-sandbox reports
+the socket as unreachable, check which context is active and where it points:
+
+```
+docker context ls
+```
+
+A context marked `*` that points at a stopped provider explains the failure — switch it with
+`docker context use <name>`, or point agents-sandbox at the socket directly:
+
+```
+export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
+```
+
+Note that `DOCKER_HOST` takes precedence over the active context, so an outdated value in your shell
+profile overrides a correct context.
+
 ## VM won't start
 
 When a VM won't start, check the general troubleshooting steps first.

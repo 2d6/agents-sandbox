@@ -71,7 +71,8 @@ func realCheckDocker(ctx context.Context) error {
 	_, err := docker.Get().Ping(ctx, client.PingOptions{})
 	if err != nil {
 		return fmt.Errorf(
-			"docker API unreachable: %w; ensure Docker Desktop or colima is running, or verify DOCKER_HOST",
+			"docker API unreachable: %w; ensure Docker Desktop or colima is running, "+
+				"then check DOCKER_HOST and the active docker context (docker context ls)",
 			err,
 		)
 	}
