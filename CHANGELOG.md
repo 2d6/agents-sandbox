@@ -10,6 +10,7 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Maintenance: updated the microsandbox Go SDK and managed `msb` runtime to v0.7.3.
 - Self-upgrade: Homebrew-managed installs (the running binary lives under a
   `Cellar` directory) are now detected automatically. The `run`/`shell` update
   check is skipped regardless of `upgrade.mode`, the `msb` runtime-mismatch

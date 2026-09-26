@@ -10,13 +10,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
 func TestInspectRuntimeEqual(t *testing.T) {
-	home := writeRuntimeFixture(t, "0.7.2", true)
+	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -28,8 +31,8 @@ func TestInspectRuntimeEqual(t *testing.T) {
 	if inspection.Relation != RuntimeEqual {
 		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeEqual)
 	}
-	if inspection.InstalledVersion != "0.7.2" {
-		t.Errorf("InstalledVersion = %q, want 0.7.2", inspection.InstalledVersion)
+	if inspection.InstalledVersion != currentMSBVersion() {
+		t.Errorf("InstalledVersion = %q, want %s", inspection.InstalledVersion, currentMSBVersion())
 	}
 }
 
@@ -45,7 +48,7 @@ func TestInspectRuntimeCustomMSBHomeRemainsManaged(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(binDir, "msb"),
-		[]byte("#!/bin/sh\nprintf 'msb 0.7.2\\n'\n"),
+		msbVersionScript(currentMSBVersion()),
 		0o755,
 	); err != nil {
 		t.Fatal(err)
@@ -68,7 +71,7 @@ func TestInspectRuntimeCustomMSBHomeRemainsManaged(t *testing.T) {
 func TestInspectRuntimeUsesPersistedRuntimeHome(t *testing.T) {
 	root := t.TempDir()
 	configuredHome := filepath.Join(root, "configured-runtime")
-	writeRuntimeFiles(t, configuredHome, "0.7.2")
+	writeRuntimeFiles(t, configuredHome, currentMSBVersion())
 	configPath := filepath.Join(root, "config.json")
 	config := fmt.Sprintf(`{"home":%q}`, configuredHome)
 	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
@@ -102,7 +105,7 @@ func TestInspectRuntimeUsesPersistedRuntimePaths(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(msbPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(msbPath, []byte("#!/bin/sh\nprintf 'msb 0.7.2\\n'\n"), 0o755); err != nil {
+	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
@@ -204,7 +207,7 @@ func TestInspectRuntimeMSBOverrideFindsAdjacentLibrary(t *testing.T) {
 	root := t.TempDir()
 	msbPath := filepath.Join(root, "msb")
 	libPath := filepath.Join(root, "libkrunfw.so.5.6.1")
-	if err := os.WriteFile(msbPath, []byte("#!/bin/sh\nprintf 'msb 0.7.2\\n'\n"), 0o755); err != nil {
+	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
@@ -272,8 +275,8 @@ func TestInspectRuntimeNewerAndOlder(t *testing.T) {
 		version string
 		want    Relation
 	}{
-		{name: "newer", version: "0.7.3", want: RuntimeNewer},
-		{name: "older", version: "0.7.1", want: RuntimeOlder},
+		{name: "newer", version: newerMSBVersion(t), want: RuntimeNewer},
+		{name: "older", version: olderMSBVersion(t), want: RuntimeOlder},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -294,7 +297,7 @@ func TestInspectRuntimeNewerAndOlder(t *testing.T) {
 }
 
 func TestInspectRuntimeMissingLibraryIsIncomplete(t *testing.T) {
-	home := writeRuntimeFixture(t, "0.7.2", false)
+	home := writeRuntimeFixture(t, currentMSBVersion(), false)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -315,7 +318,7 @@ func TestInspectRuntimeUsesExplicitMSBPathAndLibrary(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(msbPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(msbPath, []byte("#!/bin/sh\nprintf 'msb 0.7.2\\n'\n"), 0o755); err != nil {
+	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
@@ -359,7 +362,7 @@ func TestInspectRuntimeUnknownVersion(t *testing.T) {
 }
 
 func TestInspectRuntimeVersionCommandFailure(t *testing.T) {
-	home := writeRuntimeFixture(t, "0.7.2", true)
+	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -378,7 +381,7 @@ func TestInspectRuntimeVersionCommandFailure(t *testing.T) {
 
 func TestInspectRuntimeInvalidRequiredVersion(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.2", true)
+	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -432,10 +435,10 @@ func TestInspectRuntimeStatError(t *testing.T) {
 func TestDefaultRuntimeCommandSeams(t *testing.T) {
 	root := t.TempDir()
 	versionPath := filepath.Join(root, "msb-version")
-	if err := os.WriteFile(versionPath, []byte("#!/bin/sh\nprintf 'msb 0.7.2\\n'\n"), 0o755); err != nil {
+	if err := os.WriteFile(versionPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if output, err := runMSBVersion(versionPath); err != nil || output != "msb 0.7.2" {
+	if output, err := runMSBVersion(versionPath); err != nil || output != "msb "+currentMSBVersion() {
 		t.Fatalf("runMSBVersion() = %q, %v", output, err)
 	}
 	if _, err := runMSBVersion(filepath.Join(root, "missing")); err == nil {
@@ -446,14 +449,26 @@ func TestDefaultRuntimeCommandSeams(t *testing.T) {
 	if err := os.WriteFile(downgradePath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := runMSBDowngrade(context.Background(), downgradePath, "0.7.2", io.Discard, io.Discard); err != nil {
+	if err := runMSBDowngrade(
+		context.Background(),
+		downgradePath,
+		currentMSBVersion(),
+		io.Discard,
+		io.Discard,
+	); err != nil {
 		t.Fatalf("runMSBDowngrade() error = %v", err)
 	}
 	failingDowngrade := filepath.Join(root, "msb-downgrade-fail")
 	if err := os.WriteFile(failingDowngrade, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := runMSBDowngrade(context.Background(), failingDowngrade, "0.7.2", io.Discard, io.Discard); err == nil {
+	if err := runMSBDowngrade(
+		context.Background(),
+		failingDowngrade,
+		currentMSBVersion(),
+		io.Discard,
+		io.Discard,
+	); err == nil {
 		t.Fatal("runMSBDowngrade() failure error = nil")
 	}
 }
@@ -505,7 +520,7 @@ func TestPrepareRuntimeReturnsExistingPreparedState(t *testing.T) {
 
 func TestPrepareRuntimeBraveModeSkipsInstaller(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.3", true)
+	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -542,7 +557,7 @@ func TestPrepareRuntimeBraveModeSkipsInstaller(t *testing.T) {
 
 func TestPrepareRuntimeNonInteractivePrintsIssueURL(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.3", true)
+	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -566,7 +581,7 @@ func TestPrepareRuntimePublicGateUsesRealClient(t *testing.T) {
 	oldReal := runtimeClientIsReal
 	runtimeClientIsReal = func() bool { return true }
 	t.Cleanup(func() { runtimeClientIsReal = oldReal })
-	home := writeRuntimeFixture(t, "0.7.2", true)
+	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -588,7 +603,7 @@ func TestPrepareRuntimeMissingManagedRuntimeInstallsAndValidates(t *testing.T) {
 
 	oldEnsure, oldValidate := ensureRuntime, validateRuntime
 	ensureRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), "0.7.2")
+		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
 		return nil
 	}
 	validateRuntime = func(context.Context) error { return nil }
@@ -635,7 +650,7 @@ func TestPrepareRuntimeMissingManagedRuntimeValidationFails(t *testing.T) {
 
 	oldEnsure, oldValidate := ensureRuntime, validateRuntime
 	ensureRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), "0.7.2")
+		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
 		return nil
 	}
 	validateRuntime = func(context.Context) error { return errors.New("validation failed") }
@@ -672,7 +687,7 @@ func TestPrepareRuntimeRejectsUnknownFutureRelation(t *testing.T) {
 
 func TestPrepareRuntimeEqualValidatesWithoutInstalling(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.2", true)
+	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -699,14 +714,14 @@ func TestPrepareRuntimeEqualValidatesWithoutInstalling(t *testing.T) {
 
 func TestPrepareRuntimeUpgradeMSBAction(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.1", true)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 
 	oldInstall, oldValidate := installRuntime, validateRuntime
 	installRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), "0.7.2")
+		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
 		return nil
 	}
 	validateRuntime = func(context.Context) error { return nil }
@@ -722,7 +737,7 @@ func TestPrepareRuntimeUpgradeMSBAction(t *testing.T) {
 
 func TestPrepareRuntimeDowngradeMSBAction(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.3", true)
+	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -744,7 +759,7 @@ func TestPrepareRuntimeDowngradeMSBAction(t *testing.T) {
 
 func TestPrepareRuntimeLauncherUpgradeRequestsRestart(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.3", true)
+	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -785,7 +800,7 @@ func TestPrepareRuntimePreparedStateShortCircuits(t *testing.T) {
 
 func TestPrepareRuntimeSelectionErrorsAndQuit(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.3", true)
+	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -805,7 +820,7 @@ func TestPrepareRuntimeSelectionErrorsAndQuit(t *testing.T) {
 
 func TestPrepareRuntimeUnknownAction(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.3", true)
+	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -826,7 +841,7 @@ func TestPrepareRuntimeExternalMissingRuntimeOffersIssueAndQuit(t *testing.T) {
 
 func TestPrepareRuntimeLauncherUpgradeLookupAndInstallErrors(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.3", true)
+	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -852,7 +867,7 @@ func TestPrepareRuntimeLauncherUpgradeLookupAndInstallErrors(t *testing.T) {
 
 func TestPrepareRuntimeUpgradeAndValidationErrors(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.1", true)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -870,7 +885,7 @@ func TestPrepareRuntimeUpgradeAndValidationErrors(t *testing.T) {
 
 	resetRuntimeState(t)
 	installRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), "0.7.2")
+		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
 		return nil
 	}
 	validateRuntime = func(context.Context) error { return errors.New("aligned validation failed") }
@@ -881,7 +896,7 @@ func TestPrepareRuntimeUpgradeAndValidationErrors(t *testing.T) {
 
 func TestPrepareRuntimeDowngradeErrors(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.3", true)
+	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -901,7 +916,7 @@ func TestPrepareRuntimeExternalDowngradeIsRejected(t *testing.T) {
 	root := t.TempDir()
 	msbPath := filepath.Join(root, "msb")
 	libPath := filepath.Join(root, "libkrunfw.so.5.6.1")
-	if err := os.WriteFile(msbPath, []byte("#!/bin/sh\nprintf 'msb 0.7.3\\n'\n"), 0o755); err != nil {
+	if err := os.WriteFile(msbPath, msbVersionScript(newerMSBVersion(t)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
@@ -919,7 +934,7 @@ func TestPrepareRuntimeExternalEqualSkipsValidationInstaller(t *testing.T) {
 	root := t.TempDir()
 	msbPath := filepath.Join(root, "msb")
 	libPath := filepath.Join(root, "libkrunfw.so.5.6.1")
-	if err := os.WriteFile(msbPath, []byte("#!/bin/sh\nprintf 'msb 0.7.2\\n'\n"), 0o755); err != nil {
+	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
@@ -937,7 +952,7 @@ func TestPrepareRuntimeExternalEqualSkipsValidationInstaller(t *testing.T) {
 
 func TestPrepareRuntimeValidationErrorOnEqualRuntime(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.2", true)
+	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -950,7 +965,7 @@ func TestPrepareRuntimeValidationErrorOnEqualRuntime(t *testing.T) {
 }
 
 func TestValidatePreparedRuntimeRejectsMisalignedRuntime(t *testing.T) {
-	home := writeRuntimeFixture(t, "0.7.3", true)
+	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -996,7 +1011,7 @@ func TestRuntimeLibraryPathUsesExplicitMSBPathCandidates(t *testing.T) {
 
 func TestPrepareRuntimeBraveAndIssueActions(t *testing.T) {
 	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, "0.7.3", true)
+	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
@@ -1014,8 +1029,8 @@ func TestIssueReportRedactsAbsolutePaths(t *testing.T) {
 	resetRuntimeState(t)
 	inspection := Inspection{
 		AgentsSandboxVersion: "0.2.0",
-		RequiredVersion:      "0.7.2",
-		InstalledVersion:     "0.7.3",
+		RequiredVersion:      currentMSBVersion(),
+		InstalledVersion:     newerMSBVersion(t),
 		MSBHome:              "/home/alice/private-microsandbox",
 		MSBPath:              "/home/alice/private-microsandbox/bin/msb",
 		Relation:             RuntimeNewer,
@@ -1074,10 +1089,10 @@ func TestRuntimeVersionParsingAndComparisonErrors(t *testing.T) {
 			t.Errorf("parseMSBVersion(%q) error = nil", output)
 		}
 	}
-	if _, err := compareRuntimeVersions("nope", "0.7.2"); err == nil {
+	if _, err := compareRuntimeVersions("nope", currentMSBVersion()); err == nil {
 		t.Fatal("compareRuntimeVersions() accepted invalid required version")
 	}
-	if _, err := compareRuntimeVersions("0.7.2", "nope"); err == nil {
+	if _, err := compareRuntimeVersions(currentMSBVersion(), "nope"); err == nil {
 		t.Fatal("compareRuntimeVersions() accepted invalid installed version")
 	}
 }
@@ -1088,8 +1103,8 @@ func TestMismatchChoicesOfferLauncherUpgradeWhenNewerReleaseExists(t *testing.T)
 	t.Cleanup(func() { latestAgentsSandboxVersion = oldLatest })
 
 	choices := mismatchChoices(context.Background(), "0.2.0", Inspection{
-		RequiredVersion:  "0.7.2",
-		InstalledVersion: "0.7.3",
+		RequiredVersion:  currentMSBVersion(),
+		InstalledVersion: newerMSBVersion(t),
 		Relation:         RuntimeNewer,
 	})
 	if !containsChoice(choices, "a") {
@@ -1107,8 +1122,8 @@ func TestMismatchChoicesDoNotOfferSelfUpgradeForHomebrewInstall(t *testing.T) {
 	t.Cleanup(func() { upgrade.InstalledViaHomebrew = oldHomebrew })
 
 	choices := mismatchChoices(context.Background(), "0.2.0", Inspection{
-		RequiredVersion:  "0.7.2",
-		InstalledVersion: "0.7.3",
+		RequiredVersion:  currentMSBVersion(),
+		InstalledVersion: newerMSBVersion(t),
 		Relation:         RuntimeNewer,
 	})
 	if containsChoice(choices, "a") {
@@ -1125,8 +1140,8 @@ func TestMismatchChoicesUseIssueRequestWhenLauncherIsCurrent(t *testing.T) {
 	t.Cleanup(func() { latestAgentsSandboxVersion = oldLatest })
 
 	choices := mismatchChoices(context.Background(), "0.2.0", Inspection{
-		RequiredVersion:  "0.7.2",
-		InstalledVersion: "0.7.3",
+		RequiredVersion:  currentMSBVersion(),
+		InstalledVersion: newerMSBVersion(t),
 		Relation:         RuntimeNewer,
 	})
 	if containsChoice(choices, "a") {
@@ -1139,12 +1154,48 @@ func TestMismatchChoicesUseIssueRequestWhenLauncherIsCurrent(t *testing.T) {
 
 func TestMismatchChoicesDoNotOfferUpgradeForIncompleteRuntime(t *testing.T) {
 	choices := mismatchChoices(context.Background(), "0.2.0", Inspection{
-		RequiredVersion: "0.7.2",
+		RequiredVersion: currentMSBVersion(),
 		Relation:        RuntimeIncomplete,
 	})
 	if containsChoice(choices, "u") {
 		t.Fatal("incomplete runtime must not offer an upgrade action that cannot repair it")
 	}
+}
+
+func currentMSBVersion() string {
+	return msbSdk.SDKVersion()
+}
+
+func newerMSBVersion(t *testing.T) string {
+	t.Helper()
+	version, err := semver.NewVersion(currentMSBVersion())
+	if err != nil {
+		t.Fatalf("parse SDK version: %v", err)
+	}
+	return version.IncPatch().String()
+}
+
+func olderMSBVersion(t *testing.T) string {
+	t.Helper()
+	version, err := semver.NewVersion(currentMSBVersion())
+	if err != nil {
+		t.Fatalf("parse SDK version: %v", err)
+	}
+	if version.Patch() > 0 {
+		return semver.New(version.Major(), version.Minor(), version.Patch()-1, "", "").String()
+	}
+	if version.Minor() > 0 {
+		return semver.New(version.Major(), version.Minor()-1, 0, "", "").String()
+	}
+	if version.Major() > 0 {
+		return semver.New(version.Major()-1, 0, 0, "", "").String()
+	}
+	t.Fatalf("cannot derive older version from %s", currentMSBVersion())
+	return ""
+}
+
+func msbVersionScript(version string) []byte {
+	return []byte("#!/bin/sh\nprintf 'msb " + version + "\\n'\n")
 }
 
 func writeRuntimeFixture(t *testing.T, version string, includeLibrary bool) string {
@@ -1159,7 +1210,7 @@ func writeRuntimeFixture(t *testing.T, version string, includeLibrary bool) stri
 		t.Fatal(err)
 	}
 	msbPath := filepath.Join(binDir, "msb")
-	if err := os.WriteFile(msbPath, []byte("#!/bin/sh\nprintf 'msb %s\\n' '"+version+"'\n"), 0o755); err != nil {
+	if err := os.WriteFile(msbPath, msbVersionScript(version), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if includeLibrary {
@@ -1182,7 +1233,7 @@ func writeRuntimeFiles(t *testing.T, home, version string) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(binDir, "msb"),
-		[]byte("#!/bin/sh\nprintf 'msb "+version+"\\n'\n"),
+		msbVersionScript(version),
 		0o755,
 	); err != nil {
 		t.Fatal(err)
