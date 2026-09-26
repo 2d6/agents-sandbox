@@ -149,6 +149,39 @@ func TestResolveHostIgnoresUnusableContexts(t *testing.T) {
 	}
 }
 
+func TestResolveHostFallsBackToHomeDockerConfig(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".docker")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatalf("mkdir .docker: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configDir, "config.json"),
+		[]byte(`{"currentContext":"colima"}`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+	writeContextMeta(t, configDir, "colima", colimaSocket)
+	t.Setenv(envDockerHost, "")
+	t.Setenv(envDockerConfig, "")
+	t.Setenv("HOME", home)
+
+	if got := resolveHost(); got != colimaSocket {
+		t.Errorf("resolveHost() = %q, want %q", got, colimaSocket)
+	}
+}
+
+func TestResolveHostWithoutResolvableHomeDirectory(t *testing.T) {
+	t.Setenv(envDockerHost, "")
+	t.Setenv(envDockerConfig, "")
+	t.Setenv("HOME", "")
+
+	if got := resolveHost(); got != "" {
+		t.Errorf("resolveHost() = %q, want %q", got, "")
+	}
+}
+
 func TestClientOptionsConnectToActiveContext(t *testing.T) {
 	t.Setenv(envDockerHost, "")
 	configDir := writeDockerConfig(t, "colima")
