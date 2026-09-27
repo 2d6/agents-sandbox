@@ -674,17 +674,18 @@ func BuildSecretState(desired []msbSdk.SecretEntry) state.SecretState {
 // NetworkChanged reports whether the applied network state differs from the
 // desired network policy, comparing content fingerprints. A zero-value applied
 // state indicates "no persisted state yet" (first run or a VM created before
-// network policies existed); it is only considered "changed" when the desired
-// policy is non-empty.
+// network policies existed), so an existing VM must be recreated to apply the
+// secure default.
 func NetworkChanged(applied state.NetworkState, desired network.Policy) bool {
 	if applied.Hash == "" {
-		return !desired.Empty()
+		return true
 	}
 	return applied.Hash != desired.Fingerprint()
 }
 
 // BuildNetworkState computes the fingerprint for the desired network policy.
 func BuildNetworkState(desired network.Policy) state.NetworkState {
+	desired = desired.Effective()
 	return state.NetworkState{
 		Hash:  desired.Fingerprint(),
 		Names: []string{string(desired.Profile)},

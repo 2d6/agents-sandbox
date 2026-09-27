@@ -462,14 +462,14 @@ func TestNetworkProfileEnvVar(t *testing.T) {
 	}
 }
 
-func TestNetworkDefaultEmpty(t *testing.T) {
+func TestNetworkDefaultNone(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if !r.Network().Empty() {
-		t.Error("with no network config, Network() should be Empty (default public)")
+	if got := r.Network(); got.Profile != network.ProfileNone {
+		t.Errorf("with no network config, Network().Profile = %q, want %q", got.Profile, network.ProfileNone)
 	}
 }
 
@@ -490,8 +490,8 @@ func TestNetworkDNSServersEnvVar(t *testing.T) {
 		t.Fatalf("NewResolver: %v", err)
 	}
 	got := r.Network()
-	if got.Profile != "" {
-		t.Fatalf("Network().Profile = %q, want empty (dns-only)", got.Profile)
+	if got.Profile != network.ProfileNone {
+		t.Fatalf("Network().Profile = %q, want none (dns-only)", got.Profile)
 	}
 	if len(got.DNSServers) != 2 || got.DNSServers[0] != "1.1.1.1" || got.DNSServers[1] != "8.8.8.8" {
 		t.Fatalf("Network().DNSServers = %v, want [1.1.1.1 8.8.8.8]", got.DNSServers)

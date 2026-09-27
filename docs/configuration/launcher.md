@@ -82,7 +82,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `auto-stop-on-active-sessions`  | —                        | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                                                              |
 | `auto-stop-timeout`             | —                        | Idle timeout after last client detaches (default: 10s, only in config)                                                                                                                                                    |
 | `auto-stop-max-session-retries` | —                        | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                                                                                                          |
-| `network.profile`               | `--network`              | Network profile: `public`, `private`, `host`, or `none` (see [Networking]({% link configuration/networking.md %}))                                                                                                                                   |
+| `network.profile`               | `--network`              | Network profile: `public`, `private`, `host`, or `none` (default `none`, deny-by-default; see [Networking]({% link configuration/networking.md %}))                                                                                             |
 | `network.egress-allow`          | —                        | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (see [Networking]({% link configuration/networking.md %}))                                                                                                                              |
 | `network.egress-deny`           | —                        | Egress carve-outs, emitted before allow rules (see [Networking]({% link configuration/networking.md %}))                                                                                                                                             
 | `network.dns-servers`           | `--dns`                  | DNS upstream resolvers: bare IP (auto-appends `:53`) or `host:port` (see [Networking]({% link configuration/networking.md %}))                                                                                                                                 |
@@ -112,7 +112,7 @@ auto-stop-on-active-sessions: false
 auto-stop-timeout: "10s"
 auto-stop-max-session-retries: 10
 network:
-  profile: public
+  profile: none
   egress-allow: []
   egress-deny: []
 mounts:

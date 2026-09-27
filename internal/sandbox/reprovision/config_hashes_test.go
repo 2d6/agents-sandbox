@@ -146,8 +146,8 @@ func TestNetworkChanged(t *testing.T) {
 	if !NetworkChanged(state.NetworkState{}, policy) {
 		t.Error("NetworkChanged with empty applied and non-empty desired should be true")
 	}
-	if NetworkChanged(state.NetworkState{}, network.Policy{}) {
-		t.Error("NetworkChanged with empty applied and empty desired should be false")
+	if !NetworkChanged(state.NetworkState{}, network.Policy{}) {
+		t.Error("NetworkChanged with empty applied and empty desired should migrate to the secure default")
 	}
 }
 

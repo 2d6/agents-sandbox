@@ -161,6 +161,16 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	if client.CreatedSandboxes[0] != "agents-sandbox-vm-test" {
 		t.Errorf("expected sandbox name %q, got %q", "agents-sandbox-vm-test", client.CreatedSandboxes[0])
 	}
+	cfg := msbSdk.SandboxConfig{}
+	for _, opt := range client.CreatedSandboxCalls[0].Opts {
+		opt(&cfg)
+	}
+	if cfg.Network == nil {
+		t.Fatal("expected an explicit deny-by-default network config")
+	}
+	if cfg.Network.DefaultEgress != msbSdk.PolicyActionDeny {
+		t.Errorf("default egress = %v, want deny", cfg.Network.DefaultEgress)
+	}
 }
 
 func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {

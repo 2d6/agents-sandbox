@@ -104,7 +104,7 @@ func extractRunOptions(cmd *cobra.Command, ui termio.UI) (options.RunOptions, er
 	}
 
 	// CLI flag wins over resolver/env/config; otherwise use the resolver's
-	// resolved policy (which defaults to public when unset).
+	// resolved policy (which defaults to deny-by-default when unset).
 	if raw, _ := cmd.Flags().GetString(flagNetwork); raw != "" {
 		prof, err := network.ParseProfile(raw)
 		if err != nil {
