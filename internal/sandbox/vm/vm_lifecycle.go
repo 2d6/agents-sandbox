@@ -419,14 +419,12 @@ func createProjectVM(
 		}
 		optsList = append(optsList, msbSdk.WithPortBindings(projectPortBindings(true, hostPort)...))
 	}
-	if !opts.Network.Empty() {
-		netCfg, err := opts.Network.Config()
-		if err != nil {
-			spin.StopError(err)
-			return nil, false, fmt.Errorf("network config: %w", err)
-		}
-		optsList = append(optsList, msbSdk.WithNetwork(netCfg))
+	netCfg, err := opts.Network.Config()
+	if err != nil {
+		spin.StopError(err)
+		return nil, false, fmt.Errorf("network config: %w", err)
 	}
+	optsList = append(optsList, msbSdk.WithNetwork(netCfg))
 	sb, err := client.CreateSandbox(ctx, name, optsList...)
 	if err != nil {
 		spin.StopError(err)

@@ -565,11 +565,10 @@ func (r *Resolver) AutoStopTimeout() time.Duration { return r.cfg.AutoStopTimeou
 func (r *Resolver) AutoStopMaxSessionRetries() int { return r.cfg.AutoStopMaxSessionRetries }
 func (r *Resolver) IdleTimeout() time.Duration     { return r.cfg.IdleTimeout() }
 
-// Network returns the configured network policy, or an empty policy when no
-// network config is set. Callers fall back to the default public profile when
-// the policy is Empty.
+// Network returns the configured network policy, applying the secure default
+// profile when no profile is set.
 func (r *Resolver) Network() network.Policy {
-	return r.cfg.Network
+	return r.cfg.Network.Effective()
 }
 
 // UpgradeMode returns the configured upgrade mode, defaulting to prompt. An

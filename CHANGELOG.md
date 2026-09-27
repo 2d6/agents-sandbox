@@ -8,6 +8,11 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
+### Changed
+
+- Security: VM network egress is now denied by default. Use `--network public`, an explicit `network.profile`, or another
+  network profile to opt into broader access. Existing VMs without a recorded network policy are recreated to apply the secure default.
+
 ## [0.4.0] - 2026-09-26
 
 ### Changed

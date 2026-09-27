@@ -20,6 +20,7 @@ const (
 	ProfilePrivate Profile = "private"
 	ProfileHost    Profile = "host"
 	ProfileNone    Profile = "none"
+	DefaultProfile Profile = ProfileNone
 )
 
 func (p Profile) String() string { return string(p) }
@@ -44,14 +45,24 @@ type Policy struct {
 	DNSServers  []string `mapstructure:"dns-servers"`
 }
 
-// Empty reports whether the policy is unset (zero value), meaning the caller
-// should fall back to the default public profile.
-func (p Policy) Empty() bool { return p.Profile == "" && len(p.DNSServers) == 0 }
+// Empty reports whether the policy is unset (zero value).
+func (p Policy) Empty() bool {
+	return p.Profile == "" && len(p.EgressAllow) == 0 && len(p.EgressDeny) == 0 && len(p.DNSServers) == 0
+}
+
+// Effective applies the secure default profile when no profile was selected.
+func (p Policy) Effective() Policy {
+	if p.Profile == "" {
+		p.Profile = DefaultProfile
+	}
+	return p
+}
 
 // Fingerprint returns a stable SHA-256 hex digest of the policy, for detecting
 // changes across runs. It hashes the profile and the sorted allow/deny/dns
 // lists, independent of the microsandbox SDK's canonical NetworkConfig shape.
 func (p Policy) Fingerprint() string {
+	p = p.Effective()
 	var lines []string
 	lines = append(lines, "profile="+string(p.Profile))
 	for _, d := range p.DNSServers {
@@ -104,13 +115,10 @@ func NormalizeDNSServers(in []string) ([]string, error) {
 //
 // The `none` profile is an allowlist-only policy: egress is deny-by-default,
 // ingress is allowed, and only the gateway-DNS rule plus the explicit
-// egress-allow/egress-deny lists apply. It is not an airgap. A policy with only
-// DNSServers set (no profile) defaults to the public profile.
+// egress-allow/egress-deny lists apply. It is not an airgap. A policy with no
+// profile, including one with only DNSServers set, defaults to none.
 func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
-	profile := p.Profile
-	if profile == "" {
-		profile = ProfilePublic
-	}
+	profile := p.Effective().Profile
 	var cfg *msbSdk.NetworkConfig
 	var err error
 	if profile == ProfileNone {

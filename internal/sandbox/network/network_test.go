@@ -27,6 +27,22 @@ func TestConfigNoneAllowlistBase(t *testing.T) {
 	}
 }
 
+func TestConfigUnsetDefaultsToNone(t *testing.T) {
+	cfg, err := (Policy{}).Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	if cfg.DefaultEgress != msbSdk.PolicyActionDeny {
+		t.Fatalf("unset policy must deny egress by default, got %v", cfg.DefaultEgress)
+	}
+	if cfg.DefaultIngress != msbSdk.PolicyActionAllow {
+		t.Fatalf("unset policy must allow ingress, got %v", cfg.DefaultIngress)
+	}
+	if len(cfg.Rules) != 1 || cfg.Rules[0].Destination != "host" {
+		t.Fatalf("unset policy should only allow gateway DNS, got %+v", cfg.Rules)
+	}
+}
+
 func TestConfigNoneSingleHostAllowlist(t *testing.T) {
 	cfg, err := (Policy{
 		Profile:     ProfileNone,
@@ -315,21 +331,20 @@ func TestConfigDNSWithNoneProfile(t *testing.T) {
 	}
 }
 
-func TestConfigDNSOnlyDefaultsToPublic(t *testing.T) {
+func TestConfigDNSOnlyDefaultsToNone(t *testing.T) {
 	cfg, err := (Policy{DNSServers: []string{"1.1.1.1"}}).Config()
 	if err != nil {
 		t.Fatalf("Config: %v", err)
 	}
-	// A dns-only policy without a profile must not error and must still produce
-	// the public profile's ruleset (public != none deny-by-default).
+	// A dns-only policy without a profile must remain deny-by-default.
 	if cfg.DefaultEgress != msbSdk.PolicyActionDeny {
-		t.Fatalf("public default egress = %v, want deny", cfg.DefaultEgress)
+		t.Fatalf("none default egress = %v, want deny", cfg.DefaultEgress)
 	}
 	if cfg.DNS == nil {
 		t.Fatal("dns-only policy must set DNS")
 	}
-	if len(cfg.Rules) == 0 {
-		t.Fatal("dns-only policy should produce public profile rules")
+	if len(cfg.Rules) != 1 || cfg.Rules[0].Destination != "host" {
+		t.Fatalf("dns-only policy should only allow gateway DNS, got %+v", cfg.Rules)
 	}
 }
 
@@ -351,6 +366,12 @@ func TestPolicyEmpty(t *testing.T) {
 	}
 	if (Policy{DNSServers: []string{"1.1.1.1"}}).Empty() {
 		t.Error("Policy with only DNSServers should not be empty")
+	}
+}
+
+func TestFingerprintEmptyUsesNoneDefault(t *testing.T) {
+	if (Policy{}).Fingerprint() != (Policy{Profile: ProfileNone}).Fingerprint() {
+		t.Fatal("unset policy and explicit none policy must have the same fingerprint")
 	}
 }
 

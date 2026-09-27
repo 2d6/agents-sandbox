@@ -256,8 +256,8 @@ func TestNetworkChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
 
 func TestNetworkChanged_ZeroApplied_EmptyDesired(t *testing.T) {
 	got := reprovision.NetworkChanged(state.NetworkState{}, network.Policy{})
-	if got {
-		t.Error("expected NO change when applied is zero and desired is empty")
+	if !got {
+		t.Error("expected change when applied is zero so the secure default can be applied")
 	}
 }
 
@@ -860,8 +860,9 @@ func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 
 	vm := volume.NewManager(&termio.Mock{})
 	persisted := state.HomeState{
-		HomeVolume:  "vol",
-		ImageDigest: "sha256:same",
+		HomeVolume:   "vol",
+		ImageDigest:  "sha256:same",
+		NetworkState: reprovision.BuildNetworkState(network.Policy{}),
 	}
 
 	ui := termio.NewTestMock(t)
