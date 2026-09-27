@@ -36,14 +36,14 @@ Legend for the first four rows: ✅ = stronger isolation or host-side handling; 
 
 ## Boundary and tradeoffs
 
-| Surface | Behavior                                                                                                                                                                                                    |
-|---|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| VM kernel and root filesystem | Separate from the host, using the microsandbox VM boundary.                                                                                                                                                 |
-| Agent home | Stored in a persistent `/home/dev` volume scoped to the project and agent. Recreating the VM does not remove this volume unless you reset or prune it.                                                      |
-| `/workspace` | The host project directory, mounted read-write in a normal session. Some agents allow you to optionally use a  [worktree-session](/agents-sandbox/branch-sessions.html) for a VM-internal worktree instead. |
-| Other host files | Not visible unless they are copied, provisioned with `home:`, or exposed through an explicit host mount.                                                                                                    |
-| Network | Public egress is the default. Profiles and allow/deny rules can restrict egress; `profile: none` is deny-by-default egress, not a complete air gap.                                                         |
-| Raw credentials | `env.secret` and `env.secret.yaml` keep the real value on the host and expose a placeholder to the guest. This is separate from ordinary file provisioning.                                                 |
+| Surface | Behavior |
+|---------|----------|
+| VM kernel and root filesystem  | Separate from the host, using the microsandbox VM boundary.                                                                                                                                                  |
+| Agent home                | Stored in a persistent `/home/dev` volume scoped to the project and agent. Recreating the VM does not remove this volume unless you reset or prune it.                                                       |
+| `/workspace`              | The host project directory, mounted read-write in a normal session. Some agents allow you to optionally use a  [worktree-session](docs/configuration/branch-sessions.md) for a VM-internal worktree instead. |
+| Other host files          | Not visible unless they are copied, provisioned with `home:`, or exposed through an explicit host mount.                                                                                                     |
+| Network                   | Egress is denied by default. Profiles and allow/deny rules can grant access; `profile: none` is deny-by-default egress, not a complete air gap.                                                              |
+| Raw credentials           | `env.secret` and `env.secret.yaml` keep the real value on the host and expose a placeholder to the guest. This is separate from ordinary file provisioning. |
 
 > **Credential warning:** The convenience setup copies the active agent's host configuration into the VM by default. For
 > opencode, that can include `~/.local/share/opencode/auth.json`. If credentials must not be stored in the VM, set
