@@ -1,6 +1,6 @@
 title: agents-sandbox
 description: >-
-  Launch coding agents (opencode, pi, claude-code) inside a nearly instant microsandbox VM with your project mounted at /workspace.
+  Run supported coding agents inside a local microsandbox VM with a separate guest kernel and your project mounted at /workspace.
 remote_theme: just-the-docs/just-the-docs@v0.10.0
 
 # https://github.com/just-the-docs/just-the-docs

@@ -18,7 +18,9 @@ nav_order: 105
    provisions `home:` mappings, and syncs them into the VM.
 5. **Agent** — Runs the agent's attach command (e.g. `opencode attach`) inside the VM, forwarding any arguments after
    `--` to the AI agent.
-6. **Cleanup** — On exit, the session detaches. The VM-internal worktree is managed by the agent daemon; on subsequent runs it is reused. The host repo is untouched.
+6. **Cleanup** — On exit, the client detaches and the VM remains available for reuse or is stopped by its idle policy. In a
+   normal session `/workspace` is the host repository and remains intentionally shared; only `--worktree` sessions use a
+   VM-internal worktree that leaves the host checkout untouched.
 
 See the [Commands]({% link commands.md %}) reference for the full API and [Configuration]({% link configuration/index.md %}) for tuning
 behavior.
@@ -26,11 +28,12 @@ behavior.
 ## System Context
 
 The following C4 container diagram shows how agents-sandbox relates the host to the microsandbox VM: your project
-directory is bound into the VM as `/workspace`, persistent state lives on a home volume at `/home/dev`, secrets are
-injected host-side only, and one or more clients attach to the server running inside the VM.
+directory is bound into the VM as `/workspace`, persistent state lives on a home volume at `/home/dev`, secret-channel values
+are supplied host-side, and one or more clients attach to the server running inside the VM.
 
 ![agents-sandbox C4 container diagram]({% link diagrams/c4-container.svg %})
 
-`/workspace` and the host CWD are the same files — edits inside the VM appear on the host and vice-versa. Secrets never live in
-the image or in environment dumps inside the VM; they are injected at runtime and visible only as environment variables.
-Multiple clients can attach to the same VM concurrently.
+`/workspace` and the host CWD are the same files — edits inside the VM appear on the host and vice-versa. Values supplied through
+the `env.secret` mechanism do not live in the image or project volume: the guest receives a placeholder and the proxy can
+substitute the real value only for an allowed destination. Credential files copied or provisioned by other means are ordinary
+files in the VM. Multiple clients can attach to the same VM concurrently.

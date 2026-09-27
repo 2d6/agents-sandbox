@@ -91,7 +91,7 @@ Beyond the snippet merge, when running the launcher now **copies the active agen
 host into the VM by default**, driven by a per-agent gitignore-style include-list manifest (provision rules). This means
 your normal agent setup (e.g. an existing opencode config) works without extra configuration.
 
-The drop-in copy is scoped to the agent's settings file, not its runtime state or credentials:
+The drop-in copy is scoped to the agent's settings and, for opencode, its credential file. Runtime state is not copied:
 
 - **opencode** — `~/.config/opencode/**` (excluding `node_modules/`, `package*.json`, and `.gitignore`) plus
   `~/.local/share/opencode/auth.json`.

@@ -6,30 +6,43 @@ nav_order: 10
 
 # Why?
 
-agents-sandbox gives a coding agent a real, hardware-isolated machine to work on — full agent permissions inside a boundary that can't reach your host, and secrets the agent never gets to see.
+Coding agents can inspect a codebase, execute shell commands, install tools, and access network services. That breadth is what
+makes them useful, but it also makes running one directly on a developer workstation a significant trust decision: the agent
+shares the host kernel and can discover whatever the host user can access.
 
-Docker, bubblewrap, seatbelt, and running an agent directly on your host all share your kernel — a kernel bug or `sudo` is enough for an agent to reach your machine. agents-sandbox runs a separate kernel under hypervisor isolation (KVM on Linux, Apple Silicon on macOS), so escaping takes a hypervisor-level bug: a much higher bar.
+agents-sandbox runs the agent in a microsandbox VM with a separate guest kernel and root filesystem. On Linux the VM is backed by
+KVM; on macOS it uses Apple Silicon virtualization. This is a VM boundary rather than a shared-kernel process or container
+boundary. It limits the guest's view of the host, while accepting the residual risk of the VM runtime and hypervisor.
 
-Your project is mounted at `/workspace`, read-write, so the agent works on the same files you do and edits round-trip.
-Everything else on your machine — other projects, your home directory, your keys — simply isn't there, except for what
-you explicitly provision into the VM's home (via the `home:` config key). Secrets are injected at runtime through the secret
-mechanism as environment variables and never written into the VM, so an agent can't leak what it never possessed. Worst
-case, a session is a disposable VM: wipe it, and the host is untouched.
+## The deliberate boundary
 
-It's also yours to shape: the VM's root is defined by a plain `Dockerfile`, so you bring your own base image and tooling like any OCI image you already use — and it's built for coding agents, with support for functionalities like worktree sessions. Just bring your own agent config (e.g. an existing `opencode.json`). Egress and ingress stay under your control with simple profiles and allow/deny lists, from full network access to complete lockdown.
+In a normal run, the host project directory is mounted read-write at `/workspace`. The agent therefore edits the host checkout;
+recreating the VM does not undo those edits. Additional host mounts and files provisioned with `home:` are also deliberate shared
+surfaces. A daemon-based agent's `--worktree` mode moves the working tree inside the VM when the host checkout must remain
+untouched.
 
-|  | Bare agent | Bubblewrap / Seatbelt | Docker (containers) | Docker Sandboxes | **agents-sandbox** |
-|---|---|---|---|---|---|
-| **Isolation boundary** | ❌ none | ⚠️ shared kernel | ⚠️ shared kernel | ✅ full VM (microVM) | **✅ full VM (hypervisor)** |
-| **How hard to hide secrets?** | ❌ nearly impossible | ⚠️ complex per-project rules | ⚠️ manual per-project tweaking | ✅ built-in (proxy; login-required) | **✅ built-in mechanism** |
-| **Agent edits appear in your local files instantly** | ✅ | ✅ | ✅ | ✅ rw mount (clone mode is read-only) | **✅** |
-| **Failure cost vs. recovery** | ❌ high damage, hard to restore | ⚠️ potential host damage | ⚠️ potential host damage | ✅ disposable | **✅ disposable, home can persist** |
-| **Ease of use** | ✅ just run it | ⚠️ craft rules | ⚠️ image + mounts | ✅ one command (Docker account login) | **✅ one command** |
+The agent's `/home/dev` is backed by a persistent volume scoped to the project and agent. It can be kept across VM rebuilds or
+reset separately. The VM root is replaceable, but the project checkout and writable host mounts have their own lifecycles.
 
-> Cells give the typical story for each approach. ✅ = yes / good, ⚠️ = possible but partial / in-between, ❌ = no / poor. "Failure cost vs. recovery" weighs how much damage a rogue agent can cause against how easily you can throw the environment away and start over.
+## Credentials and network access
 
-> **❓ Why not just use Docker Sandboxes?**
->
-> Its microVM isolation is genuinely strong. But it's a trade: a **mandatory Docker account login** for a tool that runs locally, a **closed-source core** (VMM + policy proxy + credential injection) you're trusting as your security boundary, **org-wide controls behind a paid sales tier**, and **narrower reach** (Ubuntu 24.04+ / Apple silicon / Windows 11 only).
->
-> agents-sandbox, by contrast, is **open and account-free**, runs on **any Linux (KVM) and Apple Silicon**, and gives you **one-command disposal** — without the telemetry, login, or vendor lock-in.
+The secret mechanism is not the same as copying a credential file. With `env.secret` or `env.secret.yaml`, the real value stays
+on the host and the guest receives a placeholder; the microsandbox proxy can substitute the value only for an allowed,
+verifiable destination. Ordinary `env`, `home:`, mounts, and files in `/workspace` are not protected by that mechanism.
+
+Host agent configuration is copied by default for convenience. For opencode, this may include
+`~/.local/share/opencode/auth.json`, which means credentials can be present in the VM. Set `provision-host-config: false` and
+use secret-backed configuration when that is not acceptable. Project `.env` files are also visible because `/workspace` is
+shared; they are not hidden by the VM boundary.
+
+Network access defaults to the public profile. The `network:` configuration can restrict egress, and `profile: none` provides
+deny-by-default egress with explicit allow rules. It is not a complete air gap, and network policy does not change which files
+are shared with the guest.
+
+## What this is for
+
+Use agents-sandbox when you want VM-level isolation around local agent execution without moving your project out of the host
+checkout. Use the normal run mode when direct edits are useful; use `--worktree` when the checkout itself must remain untouched.
+
+The project is not a multi-tenant service, a guarantee that shared host paths cannot be changed, or a replacement for deciding
+which files and credentials an agent should be allowed to access.

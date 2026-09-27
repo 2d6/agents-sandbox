@@ -1,7 +1,5 @@
 # agents-sandbox
 
-> **coding agents, supercharged — safely.** Run claude, opencode and pi in a near-instant, hardware-isolated VM — your project at `/workspace`, your secrets safe, your agent free to do its best work.
-
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/inoio/agents-sandbox/blob/main/LICENSE.md)
 [![CI](https://github.com/inoio/agents-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/inoio/agents-sandbox/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/github/go-mod/go-version/inoio/agents-sandbox)](https://go.dev/)
@@ -10,45 +8,82 @@
 [![Security](https://img.shields.io/badge/security-policy-purple.svg)](SECURITY.md)
 [![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://inoio.github.io/agents-sandbox/)
 
-agents-sandbox provides coding agents ([opencode](https://opencode.ai), [pi](https://pi.dev),
-[claude code](https://claude.com/de/product/claude-code)) in a real, hardware-isolated machine to work on —
-full agent permissions inside a boundary that can't reach your host, and secrets the agent never gets to see.
+agents-sandbox allows you to isolate your coding agents from the rest of your dev environment. You are put in control over what parts of your host machine and network environment are available to each agent. agents-sandbox acts as a launcher for [opencode](https://opencode.ai), [opencode2](https://opencode.ai),
+[pi](https://pi.dev), and [Claude Code](https://claude.com/product/claude-code). It builds or reuses a dedicated [microsandbox](https://microsandbox.dev/) VM per
+project and agent, then attaches the selected agent inside that VM.
 
-Docker, bubblewrap, seatbelt, and bare coding agents all share your kernel — a kernel bug or `sudo` is enough for an agent to
-reach your machine. agents-sandbox runs a separate kernel under hypervisor isolation (KVM on Linux, Apple Silicon on
-macOS), so escaping takes a hypervisor-level bug: a much higher bar.
+On top of that, agents-sandbox utilizes the robust secrets management of microsandbox, which significantly reduces the exposure of secrets to the agent. This way, your helpful assistant (or even a rogue agent) won't be able to accidentally publish dev secrets to a public wiki page ;)
 
-Your project is mounted at `/workspace`, read-write, so the agent works on the same files you do and edits round-trip.
-Everything else on your machine — other projects, your home directory, your keys — simply isn't there, except for what
-you explicitly provision into the VM's home (via yaml-based configuration). Secrets are injected at runtime through the secret
-mechanism as environment variables and never written into the VM, so an agent can't leak what it never possessed. Worst
-case, a session is a disposable VM: wipe it, and the host is untouched.
+At the same time, agents-sandbox moves out of the way as much as possible, so that you don't have to adapt to a completely new workflow.
 
-It's also yours to shape: the VM's root is defined by a plain `Dockerfile`, you bring your own base image and tooling like any OCI
-image you already use — and it's purpose-built for the agent, with support for functionalities like worktree sessions (in opencode).
-Egress and ingress stay under your control with simple profiles and allow/deny lists, from full network access to complete lockdown.
+## Comparison
 
-|  | Bare agent                      | Bubblewrap / Seatbelt | Docker (containers) | Docker Sandboxes | **agents-sandbox** |
-|---|---------------------------------|---|---|---|---|
-| **Isolation boundary** | ❌ none                         | ⚠️ shared kernel | ⚠️ shared kernel | ✅ full VM (microVM) | **✅ full VM (hypervisor)** |
-| **How hard to hide secrets?** | ❌ nearly impossible            | ⚠️ complex per-project rules | ⚠️ manual per-project tweaking | ✅ built-in (proxy; login-required) | **✅ built-in mechanism** |
-| **Agent edits appear in your local files instantly** | ✅                              | ✅ | ✅ | ✅ rw mount (clone mode is read-only) | **✅** |
-| **Failure cost vs. recovery** | ❌ high damage, hard to restore | ⚠️ potential host damage | ⚠️ potential host damage | ✅ disposable | **✅ disposable, home can persist** |
-| **Ease of use** | ✅ just run it                  | ⚠️ craft rules | ⚠️ image + mounts | ✅ one command (Docker account login) | **✅ one command** |
+The table compares local execution models, not hosted services. Bubblewrap/Seatbelt and Docker are policy-dependent building
+blocks, so the entries summarize their usual mechanisms rather than assigning a security score.
 
-> Cells give the typical story for each approach. ✅ = yes / good, ⚠️ = possible but partial / in-between, ❌ = no / poor. "Failure cost vs. recovery" weighs how much damage a rogue agent can cause against how easily you can throw the environment away and start over.
+| Category | Direct host execution | Bubblewrap / Seatbelt                                       | Docker containers                                           | Docker Sandboxes                                                   | agents-sandbox                                                   |
+|---|---|-------------------------------------------------------------|-------------------------------------------------------------|--------------------------------------------------------------------|------------------------------------------------------------------|
+| **Isolation boundary** | ❌ No boundary; host kernel and user permissions. | ⚠️ Shared host kernel; policy-defined OS sandbox.           | ⚠️ Shared host kernel; policy-defined OS sandbox.           | ✅ Separate microVM and Linux kernel.                               | ✅ Separate microVM and Linux kernel.                             |
+| **Secrets handling** | ❌ Host environment, files, and agent credentials are available. | ⚠️ No host-only broker; supplied values are visible.        | ⚠️ No host-only broker; supplied values are visible.        | ✅ Host proxy injects credentials; VM sees a sentinel.              | ✅ Host proxy injects credentials; VM sees a sentinel.   |
+| **Filesystem isolation** | ❌ Host user files are accessible. | ⚠️ Private sandbox view; configured host mounts are shared. | ⚠️ Private sandbox view; configured host mounts are shared. | ✅ Private VM; workspace sharing depends on direct/clone/mountless mode. | ✅ Private VM; only workspace directory is read-write by default; |
+| **Network isolation** | ❌ Host network stack. | ⚠️ Manual firewalling.                                      | ⚠️ Manual firewalling.                                      | ✅ Policy-defined network isolation.                                                         | ✅ Policy-defined network isolation.                    |
+| **Platform/OS Support** | Any OS supported by the agent. | Linux (bubblewrap); macOS (Seatbelt/App Sandbox).           | Linux Engine; Docker Desktop on macOS/Windows.              | macOS Apple silicon, Windows 11, Ubuntu 24.04+ with KVM.           | Linux with KVM, macOS Apple Silicon.       |
 
-> **❓ Why not just use Docker Sandboxes?**
->
-> Its microVM isolation is genuinely strong. But it's a trade: a **mandatory Docker account login** for a tool that runs locally, a **closed-source core** (VMM + policy proxy + credential injection) you're trusting as your security boundary, **org-wide controls behind a paid sales tier**, and **narrower reach** (Ubuntu 24.04+ / Apple silicon / Windows 11 only).
->
-> agents-sandbox, by contrast, is **open and account-free**, runs on **any Linux (KVM) and Apple Silicon**, and gives you **one-command disposal** — without the telemetry, login, or vendor lock-in.
+Sources: [bubblewrap](https://github.com/containers/bubblewrap#sandbox-security), [Apple App Sandbox](https://developer.apple.com/documentation/security/app-sandbox),
+[Docker](https://docs.docker.com/engine/security/), and [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/security/). Platform requirements change; check upstream docs.
 
-## Agents
+Legend for the first four rows: ✅ = stronger isolation or host-side handling; ⚠️ = policy-dependent or deliberately shared; ❌ = no isolation in that category. The platform row is descriptive.
 
-agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
-selects the coding-agent profile to run, provision, or manage; `--agent-version` pins the agent version baked into the
-runner image. Four agents ship as built-in profiles:
+## Boundary and tradeoffs
+
+| Surface | Behavior                                                                                                                                                                                                    |
+|---|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| VM kernel and root filesystem | Separate from the host, using the microsandbox VM boundary.                                                                                                                                                 |
+| Agent home | Stored in a persistent `/home/dev` volume scoped to the project and agent. Recreating the VM does not remove this volume unless you reset or prune it.                                                      |
+| `/workspace` | The host project directory, mounted read-write in a normal session. Some agents allow you to optionally use a  [worktree-session](/agents-sandbox/branch-sessions.html) for a VM-internal worktree instead. |
+| Other host files | Not visible unless they are copied, provisioned with `home:`, or exposed through an explicit host mount.                                                                                                    |
+| Network | Public egress is the default. Profiles and allow/deny rules can restrict egress; `profile: none` is deny-by-default egress, not a complete air gap.                                                         |
+| Raw credentials | `env.secret` and `env.secret.yaml` keep the real value on the host and expose a placeholder to the guest. This is separate from ordinary file provisioning.                                                 |
+
+> **Credential warning:** The convenience setup copies the active agent's host configuration into the VM by default. For
+> opencode, that can include `~/.local/share/opencode/auth.json`. If credentials must not be stored in the VM, set
+> `provision-host-config: false`, use the secret mechanism, and keep credentials out of `/workspace`, `home:`, `env`, and
+> writable mounts. See the [Secrets](docs/configuration/secrets.md) and [Agent configuration](docs/configuration/agent.md)
+> documentation.
+
+## Why this model?
+
+The useful distinction is not that an agent becomes safe. It is that the agent process no longer runs in the host's kernel or
+root filesystem. A VM boundary limits what the agent can see and modify to the guest and to the host paths you deliberately
+share. That is a stronger boundary than running the agent directly on the host or relying only on a shared-kernel container,
+while preserving the practical workflow of editing the current checkout.
+
+Use agents-sandbox when you already use a supported coding agent and want:
+
+- a separate VM kernel and root filesystem around agent execution;
+- direct read-write access to the current project, or an isolated VM-internal worktree;
+- persistent agent state without exposing your whole host home directory; and
+- a runner image and network policy that you can configure for the project.
+
+## Quick start
+
+Install agents-sandbox using the [installation guide](https://inoio.github.io/agents-sandbox/docs/install/installation/), then
+check the host prerequisites and start the configured agent:
+
+```console
+agents-sandbox doctor
+agents-sandbox
+```
+
+The default path uses the agent configuration already present on the host. For a self-contained setup with explicit secret
+handling, start with [Manage config in the sandbox](docs/manage-config.md) instead.
+
+## Agent selection
+
+You can use the `--agent <name>` flag (available on `run`, `shell`, `build`, `volume`, `stop`, and `kill`) to
+select the coding-agent to run, provision, or manage. This is also available as a setting in the [configuration file](configuration/launcher.md). `--agent-version` can be used to pin the agent version.
+
+Four agents ship as built-in profiles:
 
 - **`opencode`** (default) — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** — opencode 2 (beta), installed from `@opencode-ai/cli@beta` on npm; daemon-based with serve/attach,
@@ -58,24 +93,15 @@ runner image. Four agents ship as built-in profiles:
 - **`claude-code`** — Anthropic's Claude Code (`@anthropic-ai/claude-code`), run interactively, with upgrade checks via the
   npm registry.
 
-`--worktree` and `--serve-only` are rejected for agents that have no daemon (pi, claude-code); they run through the
-interactive TUI instead.
-
-By default the launcher copies the active agent's config + credential files from the host into the VM. **Security note:**
-this might include credentials (e.g. opencode's `auth.json`). If you prefer to deliver credentials via the env-secret mechanism
-(which never writes them into the VM), see the [Configuration docs](/docs/configuration/) to opt out of the file copy.
-
-The config copy preserves ordinary Unix permission bits, including executable bits on launcher scripts.
-
 ## Documentation
 
 There's dedicated documentation per topic. You can also browse the documentation on [GitHub Pages](https://inoio.github.io/agents-sandbox/).
 
 | Topic                                         | Description                                                                              |
 |-----------------------------------------------|------------------------------------------------------------------------------------------|
-| [Why?](/docs/introduction.md)                 | Why agents-sandbox: motivation and threat model.                                            |
-| [How it works](/docs/how-it-works.md)         | Architecture: host ↔ VM, `/workspace`, home volume, secrets, multi-client attach.             |
-| [Install](/docs/install.md)                   | Installation, prerequisites                                                                    |
+| [Why?](/docs/introduction.md)                 | Motivation, isolation boundary, shared data, and limitations.                            |
+| [How it works](/docs/how-it-works.md)         | Architecture: host to VM, `/workspace`, home volume, secrets, and multi-client attach.   |
+| [Install](/docs/install.md)                   | Installation and prerequisites.                                                           |
 | [Switch from your existing agent](/docs/switch.md) | Use agents-sandbox with your existing agent config and credentials (host-config drop-in). |
 | [Manage config in the sandbox](/docs/manage-config.md) | Declarative, self-contained config: secrets, provisioning, agent snippets.            |
 | [Commands](/docs/commands.md)                 | Complete CLI reference                                                                   |
@@ -93,5 +119,5 @@ There's dedicated documentation per topic. You can also browse the documentation
 |----------------------------------------|-------------------------------------------------|
 | [Contributing](/CONTRIBUTING.md)       | Guidelines for contributing to agents-sandbox |
 | [Code of conduct](/CODE_OF_CONDUCT.md) | Our code of conduct                             |
-| [Security](/SECURITYmd)                | Rules for submitting security issues            |
+| [Security](/SECURITY.md)               | Rules for submitting security issues            |
 | [Roadmap](/ROADMAP.md)                 | Public, forward-looking project roadmap         |
