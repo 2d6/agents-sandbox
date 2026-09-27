@@ -6,8 +6,8 @@ nav_order: 40
 
 # Manage config in the sandbox
 
-Own the sandbox's configuration declaratively: Self-contained, reproducible, and with secrets
-that are never written into the VM. Extends on **[Switch from your existing agent]({% link switch.md %})**.
+Own the sandbox's configuration declaratively: self-contained, reproducible, and able to keep raw secret values out of the VM.
+This extends **[Switch from your existing agent]({% link switch.md %})**.
 
 > **New to coding agents?** Set up your agent (opencode, pi, or claude-code) on your host first,
 > then come back here.
@@ -54,6 +54,7 @@ Then reference it in your config with `{env:ANTHROPIC_API_KEY}` (opencode) inste
 ## 4. Provision files & hooks
 
 Map dotfiles and startup hooks into the VM home — see
+[Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}).
 
 ## Next steps
 

@@ -23,9 +23,10 @@ release to receive fixes. See [Releases](https://github.com/inoio/agents-sandbox
 
 ## Security-relevant project surface
 
-- **Secrets** are only passed into VMs via microsandbox's secret mechanism (and `OPENCODE_SERVER_PASSWORD` /
-  `OPENCODE_SERVER_USERNAME` for basic auth on the served opencode daemon). They are never logged or written to the
-  project volume.
+- Raw values configured through `env.secret` or `env.secret.yaml` are passed into VMs only via microsandbox's secret mechanism
+  (along with `OPENCODE_SERVER_PASSWORD` / `OPENCODE_SERVER_USERNAME` for basic auth on the served opencode daemon). They are
+  never logged or written to the project volume. This does not cover credential files that host-config provisioning copies into
+  the VM; see the [agent configuration documentation](docs/configuration/agent.md).
 - The served opencode port is bound to the host loopback only and never exposed on the LAN.
 - The project directory is mounted as `/workspace` inside the VM; treat anything the VM writes as affecting your
   project tree.
