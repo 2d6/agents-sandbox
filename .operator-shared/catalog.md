@@ -29,6 +29,9 @@
 - `login-shell-path.md`
   - Description: Contract for keeping the runner image's composed PATH (custom Dockerfile `ENV PATH`, `/opt/agents-sandbox/bin`, project toolchains) effective in login-shell contexts by re-merging dropped entries from `AGENTS_SANDBOX_IMAGE_PATH` through a `/etc/profile.d` drop-in (devcontainers-style mergePaths); supersedes the `/usr/local/bin` symlink stopgap. Acceptance target is resolution equivalence, not byte-identical PATH.
   - Read If: Working on runner-image PATH handling, login-shell (`-l`) sessions, `run`/`shell` attach, custom Dockerfile `ENV PATH`, or the `/etc/profile.d` merge helper.
+- `buildkit-builder-vm.md`
+  - Description: Design for issue #15: build the runner image without host Docker by running `buildkitd` inside a microsandbox VM, driven by a host-side BuildKit Go client over a published TCP port; free/unique host port invariant, `native` snapshotter, wildcard guest bind, named-volume cache, `ImageLoad` delivery, identity/reuse via the msb cache, removal of `internal/sandbox/docker` + `doctor.CheckDocker`, registry auth via the BuildKit session, and open decisions (base-digest resolver, export format, builder VM reuse, cache scope, credential source). Validated by `spike/buildkit-vm/`.
+  - Read If: Implementing or reviewing the Docker-free BuildKit builder (issue #15), the `internal/sandbox/builder` package, or changes to the image build/inspect/load pipeline and doctor prerequisites.
 
 ### `plans/` - TDD implementation plans
 
@@ -44,3 +47,6 @@
 - `2026-10-09-login-shell-path.md`
   - Description: Plan for `specs/login-shell-path.md`: the POSIX-sh profile.d merge script (+ sh behaviour tests), image wiring (`AGENTS_SANDBOX_IMAGE_PATH`, build-context `COPY`), removing the `/usr/local/bin` symlink stopgap, an end-to-end login-shell integration test, and docs/spec/CHANGELOG updates — implemented on `opencode/speed-up-image-builds` (PR #126).
   - Read If: Reviewing the login-shell PATH (mergePaths) work; the plan is complete.
+- `2026-10-10-buildkit-builder-vm.md`
+  - Description: TDD plan for `specs/buildkit-builder-vm.md` (issue #15): new `internal/sandbox/builder` package (shared builder VM lifecycle, host-side BuildKit client seam/readiness, solve+OCI export+metadata, gateway `ResolveImageConfig` base-digest route, registry auth), add the `moby/buildkit`/`docker/cli` deps, rewire `image` onto the builder, thread the archive through VM creation, BuildKit-cache pruning, remove `internal/sandbox/docker` + `doctor.CheckDocker`, integration + docs. Not yet implemented. Resolves the spec's open decisions (OCI export, `~/.docker/config.json` creds, global cache) and overrides the spec's buildinfo base-digest route.
+  - Read If: Implementing or reviewing the Docker-free BuildKit builder (issue #15 / `internal/sandbox/builder`).
