@@ -220,8 +220,9 @@ agents-sandbox build -r     # force rebuild
 Preview the exact Dockerfile that would be built (without invoking docker):
 
 ```console
-agents-sandbox build dockerfile            # default agent, no docker
-agents-sandbox build dockerfile --docker   # with the Docker engine block
+agents-sandbox build dockerfile                        # default agent, no docker
+agents-sandbox build dockerfile --docker               # with the Docker engine block
+agents-sandbox build dockerfile --agent-version 1.2.3  # pin the agent version in the preview
 ```
 
 List cached images:
@@ -250,6 +251,11 @@ and the pi image is `agents-sandbox/runner-my-project:pi-latest`.
 The Docker build is skipped when the baked `org.agents-sandbox.dockerfile-id` label matches the current content. This
 label is a hash of the rendered Dockerfile and the agent version, so an image already built from the exact same
 Dockerfile and agent version is reused instead of being rebuilt.
+
+Each tool stage pins its version as an `ARG` default in the rendered Dockerfile (`NODE_VERSION`, the agent's
+`<AGENT>_VERSION`, `DOCKER_VERSION`). The version is therefore part of the build content, so bumping it changes the
+build identity and invalidates that stage's install layer — the agent layer re-runs on an agent upgrade while the node
+and Docker layers stay cached — regardless of how the builder tracks version build arguments.
 
 With `--log-level verbose`, the launcher reports why a build happens on every rebuild path. Before building, each image
 also records its individual inputs as `org.agents-sandbox.identity.*` labels (project Dockerfile hash, agent version, and

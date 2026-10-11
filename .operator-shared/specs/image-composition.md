@@ -26,17 +26,25 @@ Stages (deterministic reserved aliases; managed and custom differ only in the ba
 [earlier user stages]                          # custom only; preserved
 FROM <baseRoot> AS agents-sandbox-base         # managed: debian:trixie-slim + embedded apt tools
 FROM agents-sandbox-base AS agents-sandbox-node
-  [node -> /opt/agents-sandbox, only if the base lacks node]
+  ARG NODE_VERSION=<nodeVersion>               # node -> /opt/agents-sandbox, only if the base lacks node
 FROM agents-sandbox-node AS agents-sandbox-agent
-  [<agent> -> /opt/agents-sandbox, only if the base lacks it]
+  ARG <AGENT>_VERSION=<resolvedVersion>        # <agent> -> /opt/agents-sandbox, only if the base lacks it
 FROM agents-sandbox-base AS agents-sandbox-docker      # only when docker is enabled
-  [docker -> /opt/agents-sandbox/bin, only if the base lacks it]
+  ARG DOCKER_VERSION=<dockerVersion>           # docker -> /opt/agents-sandbox/bin, only if the base lacks it
 FROM agents-sandbox-base AS runner
   [dev user] [ENV PATH+=/opt/agents-sandbox/bin] [user body]
   COPY --from=agents-sandbox-agent /opt/agents-sandbox ...
   COPY --from=agents-sandbox-docker /opt/agents-sandbox/bin ...  # at the marker when present, else after the body
   [adoption] [finalize]
 ```
+
+### Pinned versions are rendered into the content
+
+Every tool stage states its pinned version as an `ARG` default in the rendered Dockerfile (node, agent, docker), and
+each install `RUN` consumes it. The version is therefore part of the Dockerfile content, so a bump invalidates that
+stage's install layer from the `ARG` line — independent of whether the builder folds the version build arg into its
+cache key. (The agent version is also still passed as a build arg, and the agent ARG default is the resolved release.)
+An empty agent version (e.g. a `build dockerfile` preview without `--agent-version`) renders the ARG without a default.
 
 Resulting cache behaviour:
 

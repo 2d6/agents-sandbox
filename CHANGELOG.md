@@ -32,6 +32,14 @@ command reports the bare version (e.g. `0.1.0`).
   Dockerfile body.
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
 
+### Fixed
+
+- Runner image: each tool stage now pins its version as an `ARG` default in the rendered Dockerfile (Node, agent, Docker),
+  so a version bump changes the build content and reliably invalidates that stage's install layer. Previously only the
+  agent version build arg carried the version, which could leave the agent layer cached (and the image on the old release)
+  on builders that do not fold the build arg into the cache key. `build dockerfile` gained `--agent-version` to render a
+  pinned agent version in the preview.
+
 ### Changed
 
 - Runner image: renamed the `dind` capability to `docker` — canonical `--docker` (on `build`, `run`, `shell`, and

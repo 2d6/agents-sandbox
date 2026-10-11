@@ -69,7 +69,7 @@ func TestRenderDockerfileManagedComposition(t *testing.T) {
 		"LABEL org.agents-sandbox.identity.dockerfile-hash=$IDENTITY_PROJECT_DOCKERFILE_HASH",
 		"LABEL org.agents-sandbox.identity.agent-version=$IDENTITY_AGENT_VERSION",
 		"LABEL org.agents-sandbox.identity.docker=$IDENTITY_DOCKER",
-		"nodejs.org/dist/" + nodeVersion,
+		"ARG NODE_VERSION=" + nodeVersion,
 		"> /etc/agents-sandbox/agent-source",
 		"COPY --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox",
 		`ENV PATH="${PATH}:/opt/agents-sandbox/bin"`,
@@ -90,6 +90,42 @@ func TestRenderDockerfileManagedComposition(t *testing.T) {
 // where the agent ENV and label were emitted into a non-final stage: Docker
 // drops config directives not reachable from the final FROM, so agent env (read
 // back from image inspect) and provenance must live in the runner stage.
+// TestRenderDockerfileToolVersionsInContent guards that every tool stage carries
+// its pinned version as an ARG default in the rendered Dockerfile content. A
+// bump then changes the build's content identity and Docker invalidates that
+// stage's install layer from the ARG line, independent of whether the builder
+// tracks the version build arg.
+func TestRenderDockerfileToolVersionsInContent(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	s := mustRender(t, a, nil, true)
+	for _, want := range []string{
+		"ARG NODE_VERSION=" + nodeVersion,
+		"https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz",
+		"ARG OPENCODE_VERSION=" + testAgentVersion,
+		"ARG DOCKER_VERSION=" + dockerVersion,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("rendered Dockerfile missing %q; got:\n%s", want, s)
+		}
+	}
+}
+
+// TestRenderDockerfileAgentVersionChangesContent guards the fix for the
+// stale-agent-layer bug: changing the agent version must change the rendered
+// Dockerfile content, so the agent install layer is invalidated even when the
+// builder does not put the OPENCODE_VERSION build arg into the cache key.
+func TestRenderDockerfileAgentVersionChangesContent(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	first := string(renderBytesVersion(t, a, "1.0.0", nil, false))
+	second := string(renderBytesVersion(t, a, "2.0.0", nil, false))
+	if first == second {
+		t.Error("changing the agent version must change the rendered Dockerfile content")
+	}
+	if !strings.Contains(second, "ARG OPENCODE_VERSION=2.0.0") {
+		t.Errorf("rendered Dockerfile must carry the pinned agent version; got:\n%s", second)
+	}
+}
+
 func TestRenderDockerfileAgentConfigInFinalStage(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	s := mustRender(t, a, nil, false)
@@ -466,7 +502,7 @@ func TestRenderDockerfileReservedAliasCollision(t *testing.T) {
 		baseStageAlias, nodeStageAlias, agentStageAlias, dockerStageAlias, runnerStageAlias,
 	} {
 		project := []byte("FROM ubuntu:24.04 AS " + alias + "\nRUN echo hi\n")
-		if _, err := RenderDockerfile(a, project, false); err == nil {
+		if _, err := RenderDockerfile(a, testAgentVersion, project, false); err == nil {
 			t.Errorf("declaring reserved alias %q must be a hard error", alias)
 		}
 	}
@@ -477,7 +513,7 @@ func TestRenderDockerfileReservedAliasCollision(t *testing.T) {
 func TestRenderDockerfileReservedAliasCaseInsensitive(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	project := []byte("FROM ubuntu:24.04 AS AGENTS-SANDBOX-BASE\nRUN echo hi\n")
-	_, err := RenderDockerfile(a, project, false)
+	_, err := RenderDockerfile(a, testAgentVersion, project, false)
 	if err == nil {
 		t.Fatal("declaring reserved alias AGENTS-SANDBOX-BASE must be a hard error")
 	}
@@ -681,7 +717,7 @@ func TestRenderProjectDockerfileReadsProjectFile(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	out, err := RenderProjectDockerfile(a, false)
+	out, err := RenderProjectDockerfile(a, testAgentVersion, false)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}
@@ -703,7 +739,7 @@ func TestRenderProjectDockerfileNoProjectFile(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	out, err := RenderProjectDockerfile(a, false)
+	out, err := RenderProjectDockerfile(a, testAgentVersion, false)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}
