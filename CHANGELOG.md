@@ -22,6 +22,8 @@ command reports the bare version (e.g. `0.1.0`).
   suite), currently the docker-build tests that build a real image for every `RenderDockerfile` composition case (no
   project Dockerfile, managed base, and custom Fedora base, each with and without docker). Wired into CI as a selective
   job (main/release/manual).
+- Internal: add `make compile-all` — compiles every test binary including `integration`-tagged files without a docker
+  daemon, and run it in the CI lint job so a tagged-only compile regression fails on PRs instead of only on main.
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
 - Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the
@@ -29,6 +31,14 @@ command reports the bare version (e.g. `0.1.0`).
   `# agents-sandbox:dind` marker is still recognized). Without the marker the block is still appended after the
   Dockerfile body.
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
+
+### Fixed
+
+- Runner image: each tool stage now pins its version as an `ARG` default in the rendered Dockerfile (Node, agent, Docker),
+  so a version bump changes the build content and reliably invalidates that stage's install layer. Previously only the
+  agent version build arg carried the version, which could leave the agent layer cached (and the image on the old release)
+  on builders that do not fold the build arg into the cache key. `build dockerfile` gained `--agent-version` to render a
+  pinned agent version in the preview.
 
 ### Changed
 

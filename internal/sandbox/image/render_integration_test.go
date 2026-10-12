@@ -74,7 +74,7 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rendered := renderBytes(t, a, tc.projectDockerfile, tc.docker)
+			rendered := renderBytesVersion(t, a, version, tc.projectDockerfile, tc.docker)
 			buildDockerfile(t, a, rendered, version, tc.docker)
 		})
 	}
@@ -157,15 +157,59 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 	})
 
 	// Prime the cache with the first body.
-	buildDockerfileTag(t, a, renderBytes(t, a, base, true), version, true, tag)
+	buildDockerfileTag(t, a, renderBytesVersion(t, a, version, base, true), version, true, tag)
 
 	// Rebuild with a changed body, capturing the streamed build output.
 	var lines []string
-	buildDockerfileTagOutput(t, a, renderBytes(t, a, changed, true), version, true, tag, &lines)
+	buildDockerfileTagOutput(t, a, renderBytesVersion(t, a, version, changed, true), version, true, tag, &lines)
 
 	for _, stage := range []string{nodeStageAlias, agentStageAlias, dockerStageAlias} {
 		if !stageStepCached(lines, stage) {
 			t.Errorf("expected stage %q RUN to be a cache hit after only the user body changed; output:\n%s",
+				stage, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+// TestRenderDockerfileAgentVersionRebuildsInstall is the regression guard for
+// the stale-agent-layer bug: a changed agent version must re-run the agent
+// install RUN so the new release is baked, while the node and docker install
+// layers stay cached.
+func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
+	origGet := docker.Get
+	docker.Get = docker.RealClient
+	t.Cleanup(func() { docker.Get = origGet })
+
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+
+	project := []byte(
+		"FROM fedora:latest\n" +
+			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n")
+
+	tag := "agents-sandbox/it-agent-version"
+	t.Cleanup(func() {
+		_, _ = docker.Get().
+			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
+	})
+
+	// Prime the cache with an older release, then rebuild with a newer one.
+	oldVersion, newVersion := "1.18.35", "1.19.0"
+	buildDockerfileTag(t, a, renderBytesVersion(t, a, oldVersion, project, true), oldVersion, true, tag)
+
+	var lines []string
+	buildDockerfileTagOutput(
+		t, a, renderBytesVersion(t, a, newVersion, project, true), newVersion, true, tag, &lines,
+	)
+
+	if stageStepCached(lines, agentStageAlias) {
+		t.Errorf("the agent install must re-run on a version bump; output:\n%s", strings.Join(lines, "\n"))
+	}
+	for _, stage := range []string{nodeStageAlias, dockerStageAlias} {
+		if !stageStepCached(lines, stage) {
+			t.Errorf("stage %q must stay cached on an agent version bump; output:\n%s",
 				stage, strings.Join(lines, "\n"))
 		}
 	}
@@ -285,7 +329,7 @@ func TestRenderDockerfileLoginShellHasImagePath(t *testing.T) {
 		_, _ = docker.Get().
 			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
 	})
-	buildDockerfileTag(t, a, renderBytes(t, a, project, false), version, false, tag)
+	buildDockerfileTag(t, a, renderBytesVersion(t, a, version, project, false), version, false, tag)
 
 	out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", `printf '%s' "$PATH"`).Output()
 	if err != nil {
