@@ -22,6 +22,8 @@ command reports the bare version (e.g. `0.1.0`).
   suite), currently the docker-build tests that build a real image for every `RenderDockerfile` composition case (no
   project Dockerfile, managed base, and custom Fedora base, each with and without docker). Wired into CI as a selective
   job (main/release/manual).
+- Internal: add `make compile-all` — compiles every test binary including `integration`-tagged files without a docker
+  daemon, and run it in the CI lint job so a tagged-only compile regression fails on PRs instead of only on main.
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
 - Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the
