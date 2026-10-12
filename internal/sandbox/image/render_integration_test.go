@@ -80,24 +80,25 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 	}
 }
 
-// TestRenderDockerfileNpmAgentNodeRuns is the regression guard for #132: an npm
-// agent installed onto the managed base must leave a working node/npm. The
-// managed base does not install libatomic1, so a node tarball with a hard
-// DT_NEEDED on libatomic.so.1 builds (for a native agent like opencode) but
-// cannot start, and the npm agent's install RUN then fails the whole build. The
-// pinned node must therefore be a release without that dependency; here we build
-// an npm agent on the managed base and run node/npm in the resulting image.
+// TestRenderDockerfileNodeAgentNodeRuns is the regression guard for #132: a
+// node-dependent agent installed onto the managed base must leave a working
+// node/npm. The managed base does not install libatomic1, so a node tarball with
+// a hard DT_NEEDED on libatomic.so.1 builds (for a native agent like opencode)
+// but cannot start, and the npm agent's install RUN then fails the whole build.
+// The pinned node must therefore be a release without that dependency; here we
+// build pi (the only agent that needs node, an npm-installed node bundle) on the
+// managed base and run node/npm in the resulting image.
 //
 // TestRenderDockerfileBuilds only builds opencode, a native Bun binary that does
 // not exercise node at all, which is why it did not catch #132.
-func TestRenderDockerfileNpmAgentNodeRuns(t *testing.T) {
+func TestRenderDockerfileNodeAgentNodeRuns(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
 	t.Cleanup(func() { docker.Get = origGet })
 
-	a, ok := agent.Lookup("claude-code")
+	a, ok := agent.Lookup("pi")
 	if !ok {
-		t.Fatal("claude-code agent not registered")
+		t.Fatal("pi agent not registered")
 	}
 	version, err := resolveAgentVersion(context.Background(), a, "")
 	if err != nil {
@@ -123,15 +124,17 @@ func TestRenderDockerfileNpmAgentNodeRuns(t *testing.T) {
 // TestRenderDockerfileToolLayersStayCached is the regression guard for the
 // per-tool composition: mutating only the user body must not invalidate the
 // node, agent, or docker install layers. It builds once, then rebuilds with a
-// changed body and asserts the tool-stage RUN steps are cache hits.
+// changed body and asserts the tool-stage RUN steps are cache hits. It uses pi,
+// the one agent whose render includes all three tool stages (node + agent +
+// docker).
 func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
 	t.Cleanup(func() { docker.Get = origGet })
 
-	a, ok := agent.Lookup("opencode")
+	a, ok := agent.Lookup("pi")
 	if !ok {
-		t.Fatal("opencode agent not registered")
+		t.Fatal("pi agent not registered")
 	}
 	version, err := resolveAgentVersion(context.Background(), a, "")
 	if err != nil {
@@ -219,7 +222,7 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 // followed by "#N CACHED". Keying on the instruction text works for both.
 var stageInstallMarkers = map[string]string{
 	nodeStageAlias:   "nodejs.org/dist",
-	agentStageAlias:  "opencode.ai/install",
+	agentStageAlias:  "npm install",
 	dockerStageAlias: "download.docker.com",
 }
 
