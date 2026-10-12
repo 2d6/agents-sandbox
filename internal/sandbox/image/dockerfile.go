@@ -191,7 +191,13 @@ func RenderDockerfile(a agent.Agent, projectDockerfile []byte, docker bool) ([]b
 	body, dockerInjected := injectDockerBlock(body, docker)
 
 	blocks := make([]string, 0, 6)
-	blocks = append(blocks, earlier, baseStage, nodeStage(baseAlias), agentStage(a))
+	blocks = append(blocks, earlier, baseStage)
+	agentParent := baseAlias
+	if a.ImageSpec().RequiresNode {
+		blocks = append(blocks, nodeStage(baseAlias))
+		agentParent = nodeStageAlias
+	}
+	blocks = append(blocks, agentStage(a, agentParent))
 	if docker {
 		blocks = append(blocks, dockerStage(baseAlias))
 	}
@@ -296,23 +302,26 @@ ENV PATH="%s:${PATH}"
 
 // agentStage renders the agent tool stage. It installs the agent into toolDir
 // only when the base does not already provide its binary. The stage starts from
-// the node stage so the agent install can use whichever npm is on PATH. The
-// agent ENV and label are not set here: this stage is not in the final image's
-// FROM lineage, so Docker would drop them. They are emitted by
-// agentImageConfigBlock in the runner stage instead.
-func agentStage(a agent.Agent) string {
+// parentAlias: the node stage when the agent needs node (so its install can use
+// whichever npm is on PATH), otherwise the base stage. It creates toolBin
+// itself so the runner's COPY source exists without the node stage. The agent
+// ENV and label are not set here: this stage is not in the final image's FROM
+// lineage, so Docker would drop them. They are emitted by agentImageConfigBlock
+// in the runner stage instead.
+func agentStage(a agent.Agent, parentAlias string) string {
 	spec := a.ImageSpec()
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
 ARG %s
-RUN if command -v %s >/dev/null 2>&1; then \
+RUN mkdir -p %s && if command -v %s >/dev/null 2>&1; then \
       :; \
     else \
       %s; \
     fi
 `,
-		nodeStageAlias, agentStageAlias,
+		parentAlias, agentStageAlias,
 		spec.VersionArg,
+		toolBin,
 		agentBinary(a),
 		spec.InstallCommand,
 	)
