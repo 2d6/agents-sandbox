@@ -110,7 +110,7 @@ func TestRenderDockerfileNpmAgentNodeRuns(t *testing.T) {
 			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
 	})
 
-	buildDockerfileTag(t, a, renderBytesVersion(t, a, version, nil, false), version, false, tag)
+	buildDockerfileTag(t, a, renderBytes(t, a, nil, false), version, false, tag)
 
 	for _, command := range []string{"node --version", "npm --version"} {
 		out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", command).CombinedOutput()
