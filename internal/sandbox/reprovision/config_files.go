@@ -121,6 +121,7 @@ func LoadConfigFilesForHost(
 	maps.Copy(modes, mirrorModes)
 	applyMirrorPrecedence(mirror, provisioned, homeFiles, mergedPath, hasSnippets, modes)
 	maps.Copy(modes, homeModes)
+	ensureHookExecutable(modes, hooks)
 	// Remove stale host config so it cannot shadow the merged config: when
 	// snippets exist the merged config must be the only config, and when host
 	// config provisioning is disabled no host file may remain.
@@ -201,6 +202,19 @@ func loadHooks(a agent.Agent, vmHome string, reserved []string) ([]homeconfig.Ho
 		return nil, fmt.Errorf("build hooks: %w", err)
 	}
 	return hooks, nil
+}
+
+// ensureHookExecutable adds the owner-execute bit to every startup-hook target
+// so the VM can execute it directly (the kernel applies the script's shebang)
+// even when the host source is not marked executable.
+func ensureHookExecutable(modes map[string]os.FileMode, hooks []homeconfig.HookSpec) {
+	for _, h := range hooks {
+		mode := modes[h.Target]
+		if mode == 0 {
+			mode = 0o600
+		}
+		modes[h.Target] = mode | 0o100
+	}
 }
 
 // loadProvisioned evaluates the agent's provision rules into the drop-in copy

@@ -396,54 +396,34 @@ func DescribeManifest(userConfigDir, projectConfigDir, homeBase string, reserved
 }
 
 // HookSpec describes a single startup-hook entry: the provisioned VM target,
-// its resolved host source, the interpreter declared by the script's shebang,
-// and whether to run it as root.
+// its resolved host source, whether the source declares a shebang, and whether
+// to run it as root. The hook is executed directly in the VM, where the kernel
+// applies the shebang; without one it falls back to /bin/sh.
 type HookSpec struct {
-	Target      string // absolute VM path to the provisioned script
-	Source      string // resolved host source path
-	Interpreter string // script's shebang interpreter; empty falls back to /bin/sh
-	Root        bool   // run as root; false runs as the sandbox user (dev)
+	Target     string // absolute VM path to the provisioned script
+	Source     string // resolved host source path
+	HasShebang bool   // source begins with a #! line; without one the hook runs via /bin/sh
+	Root       bool   // run as root; false runs as the sandbox user (dev)
 }
 
-// shebangInterpreter returns the interpreter named by the first `#!` line of
-// the file at path, or "" if there is none. `#!/usr/bin/env bash` yields
-// "/usr/bin/env bash" so the env command resolves the real interpreter inside
-// the VM.
-func shebangInterpreter(path string) string {
+// hasShebang reports whether the file at path begins with a `#!` marker, so the
+// VM kernel resolves the script's interpreter. A missing file or a bare marker
+// yields false.
+func hasShebang(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
-		return ""
+		return false
 	}
 	defer f.Close()
 	var line []byte
 	buf := make([]byte, 1)
 	for range 2 {
 		if _, err := f.Read(buf); err != nil {
-			return ""
+			return false
 		}
 		line = append(line, buf[0])
 	}
-	if string(line) != "#!" {
-		return ""
-	}
-	for {
-		b, err := f.Read(buf)
-		if err != nil {
-			break
-		}
-		if b == 0 {
-			break
-		}
-		if buf[0] == '\n' {
-			break
-		}
-		line = append(line, buf[0])
-	}
-	interp := strings.TrimSpace(strings.TrimPrefix(string(line), "#!"))
-	if interp == "" {
-		return ""
-	}
-	return interp
+	return string(line) == "#!"
 }
 
 // BuildHooks returns the merged manifest's startup-hook entries (Hook ==
@@ -478,7 +458,7 @@ func BuildHooks(userConfigDir, projectConfigDir, homeBase string, reserved []str
 		}
 		hooks = append(
 			hooks,
-			HookSpec{Target: vmPath, Source: e.Source, Interpreter: shebangInterpreter(e.Source), Root: e.Root},
+			HookSpec{Target: vmPath, Source: e.Source, HasShebang: hasShebang(e.Source), Root: e.Root},
 		)
 	}
 	sort.Slice(hooks, func(i, j int) bool {

@@ -414,7 +414,7 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 	ui := &termio.Mock{}
 	cfs := &reprovision.ConfigFiles{
 		Hooks: []homeconfig.HookSpec{
-			{Target: "/home/dev/.hello.sh", Source: "x", Interpreter: "/bin/sh"},
+			{Target: "/home/dev/.hello.sh", Source: "x", HasShebang: true},
 		},
 	}
 

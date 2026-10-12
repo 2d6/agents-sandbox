@@ -510,10 +510,10 @@ func TestBuildHooksFiltersAndSorts(t *testing.T) {
 	}
 	want := []HookSpec{
 		{
-			Target:      "/home/dev/.vpn/connect.sh",
-			Source:      filepath.Join(proj, "vpn/connect.sh"),
-			Interpreter: "/bin/sh",
-			Root:        true,
+			Target:     "/home/dev/.vpn/connect.sh",
+			Source:     filepath.Join(proj, "vpn/connect.sh"),
+			HasShebang: true,
+			Root:       true,
 		},
 	}
 	if !reflect.DeepEqual(hooks, want) {
@@ -535,27 +535,29 @@ func TestBuildHooksSkipsMissingSource(t *testing.T) {
 	}
 }
 
-func TestShebangInterpreter(t *testing.T) {
+func TestHasShebang(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {
 		name string
 		body string
-		want string
+		want bool
 	}{
-		{"plain sh", "#!/bin/sh\n", "/bin/sh"},
-		{"bash", "#!/bin/bash\necho hi\n", "/bin/bash"},
-		{"env bash", "#!/usr/bin/env bash\n", "/usr/bin/env bash"},
-		{"with spaces", "#!/usr/bin/env python3\n", "/usr/bin/env python3"},
-		{"no shebang", "echo hi\n", ""},
-		{"empty file", "", ""},
-		{"crlf shebang", "#!/bin/bash\r\n", "/bin/bash"},
+		{"plain sh", "#!/bin/sh\n", true},
+		{"bash", "#!/bin/bash\necho hi\n", true},
+		{"env bash", "#!/usr/bin/env bash\n", true},
+		{"with spaces", "#!/usr/bin/env python3\n", true},
+		{"with arg", "#!/bin/bash -e\n", true},
+		{"no shebang", "echo hi\n", false},
+		{"empty file", "", false},
+		{"bare marker", "#! \n", true},
+		{"crlf shebang", "#!/bin/bash\r\n", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := filepath.Join(dir, "s.sh")
 			testutil.WritePath(t, p, tc.body)
-			if got := shebangInterpreter(p); got != tc.want {
-				t.Errorf("shebangInterpreter(%q) = %q, want %q", tc.body, got, tc.want)
+			if got := hasShebang(p); got != tc.want {
+				t.Errorf("hasShebang(%q) = %v, want %v", tc.body, got, tc.want)
 			}
 		})
 	}
@@ -611,7 +613,7 @@ func TestDescribeLayersProjectWinsOnOverlap(t *testing.T) {
 	}
 }
 
-func TestBuildHooksCapturesInterpreter(t *testing.T) {
+func TestBuildHooksCapturesShebang(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "#!/bin/bash\n")
@@ -620,8 +622,42 @@ func TestBuildHooksCapturesInterpreter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
-	if len(hooks) != 1 || hooks[0].Interpreter != "/bin/bash" {
-		t.Errorf("hooks = %v, want interpreter /bin/bash", hooks)
+	if len(hooks) != 1 || !hooks[0].HasShebang {
+		t.Errorf("hooks = %v, want a hook with a shebang", hooks)
+	}
+}
+
+func TestBuildHooksCapturesEnvShebang(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "#!/usr/bin/env bash\n")
+	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
+	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 1 {
+		t.Fatalf("hooks = %v, want 1 hook", hooks)
+	}
+	if !hooks[0].HasShebang {
+		t.Errorf("hooks[0].HasShebang = %v, want true", hooks[0].HasShebang)
+	}
+}
+
+func TestBuildHooksNoShebangFallsBack(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "echo hi\n")
+	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
+	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 1 {
+		t.Fatalf("hooks = %v, want 1 hook", hooks)
+	}
+	if hooks[0].HasShebang {
+		t.Errorf("hooks[0].HasShebang = %v, want false", hooks[0].HasShebang)
 	}
 }
 

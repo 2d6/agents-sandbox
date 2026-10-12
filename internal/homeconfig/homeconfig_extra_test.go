@@ -263,28 +263,27 @@ func TestBuildHooksRejectsReservedTarget(t *testing.T) {
 	}
 }
 
-func TestShebangInterpreterMissingFile(t *testing.T) {
-	if got := shebangInterpreter(filepath.Join(t.TempDir(), "nope.sh")); got != "" {
-		t.Errorf("expected empty interpreter for missing file, got %q", got)
+func TestHasShebangMissingFile(t *testing.T) {
+	if got := hasShebang(filepath.Join(t.TempDir(), "nope.sh")); got {
+		t.Errorf("expected false for missing file, got true")
 	}
 }
 
-func TestShebangInterpreterWithoutTrailingNewline(t *testing.T) {
-	// Reading runs to EOF (err) rather than a newline; the interpreter is still captured.
+func TestHasShebangWithoutTrailingNewline(t *testing.T) {
+	// A shebang without a trailing newline is still detected.
 	p := filepath.Join(t.TempDir(), "s.sh")
 	testutil.WritePath(t, p, "#!/bin/bash")
-	if got := shebangInterpreter(p); got != "/bin/bash" {
-		t.Errorf("shebangInterpreter = %q, want %q", got, "/bin/bash")
+	if !hasShebang(p) {
+		t.Errorf("expected a shebang for %q", p)
 	}
 }
 
-func TestShebangInterpreterBareMarker(t *testing.T) {
-	// A shebang with only whitespace after the marker leaves an empty
-	// interpreter after trimming.
+func TestHasShebangBareMarker(t *testing.T) {
+	// A shebang with only whitespace after the marker is still a shebang.
 	p := filepath.Join(t.TempDir(), "s.sh")
 	testutil.WritePath(t, p, "#! \n")
-	if got := shebangInterpreter(p); got != "" {
-		t.Errorf("expected empty interpreter for bare marker, got %q", got)
+	if !hasShebang(p) {
+		t.Errorf("expected a shebang for a bare marker")
 	}
 }
 

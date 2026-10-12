@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -395,9 +396,9 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 }
 
 // TestRunStartupHooksDefaultsToDevUser verifies that a startup hook without an
-// explicit user runs as the default sandbox user (dev), and that a missing
-// interpreter falls back to /bin/sh. This is the path most users hit, unlike
-// the root-run case covered by the integration flow.
+// explicit user runs as the default sandbox user (dev), and that a script
+// without a shebang falls back to /bin/sh. This is the path most users hit,
+// unlike the root-run case covered by the integration flow.
 func TestRunStartupHooksDefaultsToDevUser(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "vm"}
 	ui := termio.NewTestMock(t)
@@ -412,24 +413,28 @@ func TestRunStartupHooksDefaultsToDevUser(t *testing.T) {
 	if sb.AttachCmd != "/bin/sh" {
 		t.Errorf("startup hook AttachWith cmd = %q, want fallback %q", sb.AttachCmd, "/bin/sh")
 	}
+	want := []string{"/home/dev/.vpn/connect.sh"}
+	if !slices.Equal(sb.AttachArgs, want) {
+		t.Errorf("startup hook AttachWith args = %v, want %v", sb.AttachArgs, want)
+	}
 }
 
-// TestRunStartupHooksUsesShebangInterpreter verifies that a hook with a
-// detected interpreter is run via that interpreter rather than a hardcoded
-// shell.
-func TestRunStartupHooksUsesShebangInterpreter(t *testing.T) {
+// TestRunStartupHooksExecutesTargetDirectly verifies that a hook with a shebang
+// is executed as the script path itself, so the VM kernel applies the shebang
+// (issue #136).
+func TestRunStartupHooksExecutesTargetDirectly(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "vm"}
 	ui := termio.NewTestMock(t)
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
-		{Target: "/home/dev/.vpn/connect.sh", Source: "x", Root: false, Interpreter: "/bin/bash"},
+		{Target: "/home/dev/.foo.sh", Source: "x", Root: false, HasShebang: true},
 	}, &ui)
 
-	if sb.AttachCmd != "/bin/bash" {
-		t.Errorf("startup hook AttachWith cmd = %q, want %q", sb.AttachCmd, "/bin/bash")
+	if sb.AttachCmd != "/home/dev/.foo.sh" {
+		t.Errorf("startup hook AttachWith cmd = %q, want the script path", sb.AttachCmd)
 	}
-	if len(sb.AttachArgs) != 1 || sb.AttachArgs[0] != "/home/dev/.vpn/connect.sh" {
-		t.Errorf("startup hook AttachWith args = %v, want the script path", sb.AttachArgs)
+	if len(sb.AttachArgs) != 0 {
+		t.Errorf("startup hook AttachWith args = %v, want none", sb.AttachArgs)
 	}
 }
 

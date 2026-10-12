@@ -25,14 +25,15 @@ const DefaultSandboxUser = "dev"
 const RootUser = "root"
 
 // defaultHookInterpreter is the interpreter used for a startup hook that does
-// not declare an explicit one.
+// not declare a shebang.
 const defaultHookInterpreter = "/bin/sh"
 
 // runStartupHooks runs each configured startup hook inside the VM via an
-// interactive shell. Each script is run through its shebang interpreter rather
-// than relying on an executable bit, so hooks also work for files delivered by
-// home: mappings. The hook's HOME is set so scripts can rely on it. The agent
-// waits for the attach to finish; a hook that must outlive the attach is
+// interactive attach. A hook with a shebang is executed directly so the VM
+// kernel resolves the interpreter; one without falls back to /bin/sh. Hook
+// scripts are marked executable during provisioning, so no +x bit is required
+// on the host source. The hook's HOME is set so scripts can rely on it. The
+// agent waits for the attach to finish; a hook that must outlive the attach is
 // responsible for daemonizing itself. Failures are logged, not fatal.
 func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
 	for _, h := range hooks {
@@ -42,15 +43,17 @@ func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.Hoo
 			user = RootUser
 			home = "/root"
 		}
-		interp := h.Interpreter
-		if interp == "" {
-			interp = defaultHookInterpreter
+		command := h.Target
+		var args []string
+		if !h.HasShebang {
+			command = defaultHookInterpreter
+			args = []string{h.Target}
 		}
-		ui.Infof("running startup hook %s (as %s, via %s)", h.Target, user, interp)
+		ui.Infof("running startup hook %s (as %s, via %s)", h.Target, user, command)
 		if _, err := sb.AttachWith(
 			ctx,
-			interp,
-			[]string{h.Target},
+			command,
+			args,
 			msbSdk.WithAttachUser(user),
 			msbSdk.WithAttachEnv(map[string]string{"HOME": home}),
 		); err != nil {
