@@ -101,6 +101,11 @@ command reports the bare version (e.g. `0.1.0`).
 - Docs: `ci/check-docs.sh` no longer reports false link violations from local, gitignored build artefacts (`docs/_site/`
   Jekyll output and `docs/vendor/` gem bundle), and `docs/_config.yml` excludes the untracked `superpowers/` and `vendor/`
   trees from the deployed site.
+- Internal: the `integration` docker-build tests no longer wipe the classic builder's layer cache when they clean up.
+  Removing an image with `PruneChildren: true` also deletes the untagged parent images that are the cache, so every
+  subtest (and every rerun) rebuilt the node/agent/docker installs from scratch; cleanup now removes only the tag.
+  `TestRealDockerClientImagePrune` now prunes with a filter that matches nothing, so it exercises the delegation path
+  without deleting that cache (or a developer's unrelated dangling images/build cache) from the shared daemon.
 
 ## [0.5.0] - 2026-10-03
 
