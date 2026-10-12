@@ -139,7 +139,7 @@ func TestRunStartupHooksAttachError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
-		{Target: "/home/dev/.vpn/connect.sh", Source: "x", Interpreter: "/bin/sh"},
+		{Target: "/home/dev/.vpn/connect.sh", Source: "x", HasShebang: true},
 	}, &ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "startup hook") {

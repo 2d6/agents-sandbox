@@ -80,6 +80,11 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- Startup hooks with a portable `env` shebang (`#!/usr/bin/env bash`, `#!/usr/bin/env sh`, ...) now run correctly.
+  The shebang was previously parsed on the host and passed as a single command name (e.g. `/usr/bin/env bash`), which
+  the VM could not spawn; hooks are now executed directly in the VM so the kernel resolves the interpreter, and hook
+  scripts are marked executable during provisioning so the host source does not need the executable bit (#136).
+
 - Runner image: pinned Node.js to the v24 LTS line (`v24.21.0`) instead of v26, whose official tarballs require
   `libatomic.so.1` that the managed base does not provide. The npm-installed agents (opencode2, pi, claude-code) now build
   and run on the managed base — previously the agent install failed and `node`/`npm` could not start. `opencode` (native)

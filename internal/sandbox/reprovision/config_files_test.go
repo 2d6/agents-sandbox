@@ -39,14 +39,70 @@ func TestLoadConfigFilesPopulatesHooks(t *testing.T) {
 	}
 	want := []homeconfig.HookSpec{
 		{
-			Target:      "/home/dev/.vpn/connect.sh",
-			Source:      filepath.Join(cp.ProjectConfigDir(), "connect.sh"),
-			Interpreter: "/bin/sh",
-			Root:        true,
+			Target:     "/home/dev/.vpn/connect.sh",
+			Source:     filepath.Join(cp.ProjectConfigDir(), "connect.sh"),
+			HasShebang: true,
+			Root:       true,
 		},
 	}
 	if !reflect.DeepEqual(cf.Hooks, want) {
 		t.Errorf("Hooks = %v, want %v", cf.Hooks, want)
+	}
+}
+
+// TestLoadConfigFilesMarksHookScriptsExecutable verifies that startup-hook
+// targets gain the owner-execute bit so the VM can execute them directly even
+// when the host source is not executable.
+func TestLoadConfigFilesMarksHookScriptsExecutable(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	testutil.WritePath(t, filepath.Join(cp.ProjectConfigDir(), "connect.sh"), "#!/bin/sh\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "plain.txt", "plain\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .vpn/connect.sh:\n"+
+			"    source: connect.sh\n"+
+			"    hook: startup\n"+
+			"  .config: plain.txt\n")
+
+	ui := termio.NewTestMock(t)
+	a, _ := agent.Lookup("")
+	cf, err := LoadConfigFiles(a, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	target := "/home/dev/.vpn/connect.sh"
+	if mode, ok := cf.Modes[target]; !ok || mode.Perm()&0o100 == 0 {
+		t.Errorf("hook target %s mode = %v (present=%v), want the owner-execute bit", target, mode, ok)
+	}
+	plain := "/home/dev/.config"
+	if mode, ok := cf.Modes[plain]; !ok || mode.Perm()&0o100 != 0 {
+		t.Errorf("non-hook home file %s mode = %v (present=%v), want no exec bit", plain, mode, ok)
+	}
+}
+
+func TestEnsureHookExecutable(t *testing.T) {
+	modes := map[string]os.FileMode{
+		"/home/dev/.a": 0o600,
+		"/home/dev/.b": 0o644,
+	}
+	ensureHookExecutable(modes, []homeconfig.HookSpec{
+		{Target: "/home/dev/.a"},
+		{Target: "/home/dev/.b"},
+		{Target: "/home/dev/.c"},
+	})
+	for _, tc := range []struct {
+		path string
+		want os.FileMode
+	}{
+		{"/home/dev/.a", 0o700},
+		{"/home/dev/.b", 0o744},
+		{"/home/dev/.c", 0o700},
+	} {
+		if got := modes[tc.path].Perm(); got != tc.want {
+			t.Errorf("mode of %s = %o, want %o", tc.path, got, tc.want)
+		}
 	}
 }
 
