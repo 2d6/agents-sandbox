@@ -69,7 +69,7 @@ func TestRenderDockerfileManagedComposition(t *testing.T) {
 		"LABEL org.agents-sandbox.identity.dockerfile-hash=$IDENTITY_PROJECT_DOCKERFILE_HASH",
 		"LABEL org.agents-sandbox.identity.agent-version=$IDENTITY_AGENT_VERSION",
 		"LABEL org.agents-sandbox.identity.docker=$IDENTITY_DOCKER",
-		"nodejs.org/dist/v26.8.1",
+		"nodejs.org/dist/" + nodeVersion,
 		"> /etc/agents-sandbox/agent-source",
 		"COPY --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox",
 		`ENV PATH="${PATH}:/opt/agents-sandbox/bin"`,

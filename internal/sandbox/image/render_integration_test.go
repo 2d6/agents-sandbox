@@ -80,6 +80,46 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileNpmAgentNodeRuns is the regression guard for #132: an npm
+// agent installed onto the managed base must leave a working node/npm. The
+// managed base does not install libatomic1, so a node tarball with a hard
+// DT_NEEDED on libatomic.so.1 builds (for a native agent like opencode) but
+// cannot start, and the npm agent's install RUN then fails the whole build. The
+// pinned node must therefore be a release without that dependency; here we build
+// an npm agent on the managed base and run node/npm in the resulting image.
+//
+// TestRenderDockerfileBuilds only builds opencode, a native Bun binary that does
+// not exercise node at all, which is why it did not catch #132.
+func TestRenderDockerfileNpmAgentNodeRuns(t *testing.T) {
+	origGet := docker.Get
+	docker.Get = docker.RealClient
+	t.Cleanup(func() { docker.Get = origGet })
+
+	a, ok := agent.Lookup("claude-code")
+	if !ok {
+		t.Fatal("claude-code agent not registered")
+	}
+	version, err := resolveAgentVersion(context.Background(), a, "")
+	if err != nil {
+		t.Fatalf("resolve agent version: %v", err)
+	}
+
+	tag := "agents-sandbox/it-npm-agent-node"
+	t.Cleanup(func() {
+		_, _ = docker.Get().
+			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
+	})
+
+	buildDockerfileTag(t, a, renderBytesVersion(t, a, version, nil, false), version, false, tag)
+
+	for _, command := range []string{"node --version", "npm --version"} {
+		out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", command).CombinedOutput()
+		if err != nil {
+			t.Errorf("%q failed in the built image: %v\n%s", command, err, out)
+		}
+	}
+}
+
 // TestRenderDockerfileToolLayersStayCached is the regression guard for the
 // per-tool composition: mutating only the user body must not invalidate the
 // node, agent, or docker install layers. It builds once, then rebuilds with a

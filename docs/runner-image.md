@@ -153,11 +153,14 @@ RUN install -Dm755 /usr/local/bin/docker-buildx /usr/libexec/docker/cli-plugins/
 
 ## Node and the agent
 
-The `agents-sandbox-node` stage installs Node.js (`v26.8.1`, official tarball) into `/opt/agents-sandbox` only if the
+The `agents-sandbox-node` stage installs Node.js (`v24.21.0`, official tarball) into `/opt/agents-sandbox` only if the
 base lacks `node`, and the `agents-sandbox-agent` stage installs the selected agent into `/opt/agents-sandbox` only if its
 binary is absent — so an existing install is left alone (idempotency). Whether the base already provides node, the agent,
 or `dockerd`, and the `/etc/agents-sandbox/agent-source` and `/etc/agents-sandbox/docker-source` provenance files
-(`tool` | `user`), are resolved after the user body; a base-provided binary wins over the tool's copy.
+(`tool` | `user`), are resolved after the user body; a base-provided binary wins over the tool's copy. The pinned node
+stays on the v24 line: the v26 tarballs gained a hard `libatomic.so.1` runtime dependency the managed base does not
+provide, while v24 has no such dependency on either target architecture, so a custom base needs no extra library to run
+the tool-installed node.
 
 Four agents are built in: `opencode` (default), `opencode2` (installed via
 `npm install -g --prefix /opt/agents-sandbox @opencode-ai/cli@$OPENCODE2_VERSION`,
