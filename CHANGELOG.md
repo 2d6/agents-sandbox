@@ -78,6 +78,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- Runner image: pinned Node.js to the v24 LTS line (`v24.21.0`) instead of v26, whose official tarballs require
+  `libatomic.so.1` that the managed base does not provide. The npm-installed agents (opencode2, pi, claude-code) now build
+  and run on the managed base — previously the agent install failed and `node`/`npm` could not start. `opencode` (native)
+  was unaffected (#132).
 - The progress spinner stops promptly. Its animation loop now waits on an interruptible ticker instead of an
   uninterruptible `time.Sleep`, so stopping a spinner no longer blocks for up to a full animation frame.
 - The agent serve-daemon readiness loop now probes health as soon as it starts the daemon, instead of waiting one poll

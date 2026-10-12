@@ -1,6 +1,6 @@
 ---
 description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers (apt tools, node, agent, docker) cache independently of the user body, the base, and each other; includes the `dind` → `docker` rename with deprecated aliases.
-read_if: Changing RenderDockerfile/stage composition, image layer caching, the dind/docker switch or marker, custom-base handling, tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
+read_if: Changing RenderDockerfile/stage composition, image layer caching, the dind/docker switch or marker, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
 ---
 
 # Runner image composition and tool-layer caching
@@ -111,6 +111,27 @@ intact. The old finalize-time `daemon.json` overwrite is removed.
   `debian:trixie-slim` for managed, the user's image for custom), never the `runner` stage alias.
 - `BuildOptions.Force`, `NoCache`, and the `dockerfile-id` skip-build contract are unchanged.
 - The body still runs without node/agent/docker available (they are `COPY`ed after it), preserving prior ordering.
+
+## Node dependency
+
+The node stage exists to install/run npm-based agents; opencode v1 is a native Bun binary that does not need it. Facts
+that constrain the stage:
+
+- The pin is the **v24 LTS line (`v24.21.0`)**, not v26, because the v26 official tarballs gained a hard
+  `DT_NEEDED` on `libatomic.so.1`; the managed base (and most custom bases) does not provide it, so on the managed base
+  the npm agent's install `RUN` (which invokes `node` via npm's shebang) failed the build, and a native-agent image left a
+  `node`/`npx` that could not start ([#132](https://github.com/inoio/agents-sandbox/issues/132)). v24 has no libatomic
+  dependency on x86_64 or arm64. Every npm agent satisfies it (`pi` `>=22.19.0`, `claude-code` `>=22.0.0`; `opencode2`
+  unconstrained) — the earlier `v22.14.0` pin failed only because it was below pi's `>=22.19.0`.
+- Regression guard: `TestRenderDockerfileNpmAgentNodeRuns` (integration) builds an npm agent on the managed base and runs
+  `node --version`/`npm --version` in the image; `TestRenderDockerfileBuilds` builds only the native `opencode`, so it
+  cannot catch a broken node. A future pin that reintroduces libatomic must add `libatomic1` to the embedded base (a
+  documented custom-base requirement) or the test fails.
+- Direction: don't depend on node where possible, for image size/build speed
+  ([#133](https://github.com/inoio/agents-sandbox/issues/133)). opencode v1, opencode2, and claude-code each ship a native
+  installer (`curl | bash`) needing no node at install or runtime; **pi still needs node** (its installer calls
+  `npm install`, its node-bootstrap path is interactive, and its package is a `#!/usr/bin/env node` bundle). Native
+  binaries embed Bun, not node, so JS-based LSP servers launched via `node`/`npx` need another route.
 
 ## Non-goals
 
