@@ -21,6 +21,8 @@ jobs:
           version: v2.14
           args: ./...
       - run: make validate-fmt
+      - run: make docs-linkcheck
+      - run: make docs-linkcheck-test
 
   test:
     name: test
