@@ -74,30 +74,31 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rendered := renderBytes(t, a, tc.projectDockerfile, tc.docker)
+			rendered := renderBytesVersion(t, a, version, tc.projectDockerfile, tc.docker)
 			buildDockerfile(t, a, rendered, version, tc.docker)
 		})
 	}
 }
 
-// TestRenderDockerfileNpmAgentNodeRuns is the regression guard for #132: an npm
-// agent installed onto the managed base must leave a working node/npm. The
-// managed base does not install libatomic1, so a node tarball with a hard
-// DT_NEEDED on libatomic.so.1 builds (for a native agent like opencode) but
-// cannot start, and the npm agent's install RUN then fails the whole build. The
-// pinned node must therefore be a release without that dependency; here we build
-// an npm agent on the managed base and run node/npm in the resulting image.
+// TestRenderDockerfileNodeAgentNodeRuns is the regression guard for #132: a
+// node-dependent agent installed onto the managed base must leave a working
+// node/npm. The managed base does not install libatomic1, so a node tarball with
+// a hard DT_NEEDED on libatomic.so.1 builds (for a native agent like opencode)
+// but cannot start, and the npm agent's install RUN then fails the whole build.
+// The pinned node must therefore be a release without that dependency; here we
+// build pi (the only agent that needs node, an npm-installed node bundle) on the
+// managed base and run node/npm in the resulting image.
 //
 // TestRenderDockerfileBuilds only builds opencode, a native Bun binary that does
 // not exercise node at all, which is why it did not catch #132.
-func TestRenderDockerfileNpmAgentNodeRuns(t *testing.T) {
+func TestRenderDockerfileNodeAgentNodeRuns(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
 	t.Cleanup(func() { docker.Get = origGet })
 
-	a, ok := agent.Lookup("claude-code")
+	a, ok := agent.Lookup("pi")
 	if !ok {
-		t.Fatal("claude-code agent not registered")
+		t.Fatal("pi agent not registered")
 	}
 	version, err := resolveAgentVersion(context.Background(), a, "")
 	if err != nil {
@@ -120,15 +121,17 @@ func TestRenderDockerfileNpmAgentNodeRuns(t *testing.T) {
 // TestRenderDockerfileToolLayersStayCached is the regression guard for the
 // per-tool composition: mutating only the user body must not invalidate the
 // node, agent, or docker install layers. It builds once, then rebuilds with a
-// changed body and asserts the tool-stage RUN steps are cache hits.
+// changed body and asserts the tool-stage RUN steps are cache hits. It uses pi,
+// the one agent whose render includes all three tool stages (node + agent +
+// docker).
 func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
 	t.Cleanup(func() { docker.Get = origGet })
 
-	a, ok := agent.Lookup("opencode")
+	a, ok := agent.Lookup("pi")
 	if !ok {
-		t.Fatal("opencode agent not registered")
+		t.Fatal("pi agent not registered")
 	}
 	version, err := resolveAgentVersion(context.Background(), a, "")
 	if err != nil {
@@ -148,15 +151,59 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 	t.Cleanup(func() { removeTestImage(tag) })
 
 	// Prime the cache with the first body.
-	buildDockerfileTag(t, a, renderBytes(t, a, base, true), version, true, tag)
+	buildDockerfileTag(t, a, renderBytesVersion(t, a, version, base, true), version, true, tag)
 
 	// Rebuild with a changed body, capturing the streamed build output.
 	var lines []string
-	buildDockerfileTagOutput(t, a, renderBytes(t, a, changed, true), version, true, tag, &lines)
+	buildDockerfileTagOutput(t, a, renderBytesVersion(t, a, version, changed, true), version, true, tag, &lines)
 
 	for _, stage := range []string{nodeStageAlias, agentStageAlias, dockerStageAlias} {
 		if !stageStepCached(lines, stage) {
 			t.Errorf("expected stage %q RUN to be a cache hit after only the user body changed; output:\n%s",
+				stage, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+// TestRenderDockerfileAgentVersionRebuildsInstall is the regression guard for
+// the stale-agent-layer bug: a changed agent version must re-run the agent
+// install RUN so the new release is baked, while the node and docker install
+// layers stay cached.
+func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
+	origGet := docker.Get
+	docker.Get = docker.RealClient
+	t.Cleanup(func() { docker.Get = origGet })
+
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+
+	project := []byte(
+		"FROM fedora:latest\n" +
+			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n")
+
+	tag := "agents-sandbox/it-agent-version"
+	t.Cleanup(func() {
+		_, _ = docker.Get().
+			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
+	})
+
+	// Prime the cache with an older release, then rebuild with a newer one.
+	oldVersion, newVersion := "1.18.35", "1.19.0"
+	buildDockerfileTag(t, a, renderBytesVersion(t, a, oldVersion, project, true), oldVersion, true, tag)
+
+	var lines []string
+	buildDockerfileTagOutput(
+		t, a, renderBytesVersion(t, a, newVersion, project, true), newVersion, true, tag, &lines,
+	)
+
+	if stageStepCached(lines, agentStageAlias) {
+		t.Errorf("the agent install must re-run on a version bump; output:\n%s", strings.Join(lines, "\n"))
+	}
+	for _, stage := range []string{nodeStageAlias, dockerStageAlias} {
+		if !stageStepCached(lines, stage) {
+			t.Errorf("stage %q must stay cached on an agent version bump; output:\n%s",
 				stage, strings.Join(lines, "\n"))
 		}
 	}
@@ -169,7 +216,7 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 // followed by "#N CACHED". Keying on the instruction text works for both.
 var stageInstallMarkers = map[string]string{
 	nodeStageAlias:   "nodejs.org/dist",
-	agentStageAlias:  "opencode.ai/install",
+	agentStageAlias:  "npm install",
 	dockerStageAlias: "download.docker.com",
 }
 
@@ -270,7 +317,7 @@ func TestRenderDockerfileLoginShellHasImagePath(t *testing.T) {
 
 	tag := "agents-sandbox/it-login-path"
 	t.Cleanup(func() { removeTestImage(tag) })
-	buildDockerfileTag(t, a, renderBytes(t, a, project, false), version, false, tag)
+	buildDockerfileTag(t, a, renderBytesVersion(t, a, version, project, false), version, false, tag)
 
 	out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", `printf '%s' "$PATH"`).Output()
 	if err != nil {

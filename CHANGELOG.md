@@ -32,8 +32,20 @@ command reports the bare version (e.g. `0.1.0`).
   Dockerfile body.
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
 
+### Fixed
+
+- Runner image: each tool stage now pins its version as an `ARG` default in the rendered Dockerfile (Node, agent, Docker),
+  so a version bump changes the build content and reliably invalidates that stage's install layer. Previously only the
+  agent version build arg carried the version, which could leave the agent layer cached (and the image on the old release)
+  on builders that do not fold the build arg into the cache key. `build dockerfile` gained `--agent-version` to render a
+  pinned agent version in the preview.
+
 ### Changed
 
+- Runner image: `opencode`, `opencode2`, and `claude-code` images are now node-free. The `agents-sandbox-node` stage is
+  emitted only for agents that need node (today only `pi`, an npm-installed node bundle), and opencode2 and claude-code
+  install from their upstream native installers instead of npm. This cuts image size and cold-build time; version pinning,
+  upgrade resolution, and `dockerfile-id` identity are unchanged (#133).
 - Runner image: renamed the `dind` capability to `docker` — canonical `--docker` (on `build`, `run`, `shell`, and
   `build dockerfile`), the `docker` config key, and `AGENTS_SANDBOX_DOCKER`. The old `--dind` flag, `dind` config key,
   and `AGENTS_SANDBOX_DIND` env var remain as deprecated aliases with lower precedence and a one-time warning. The legacy

@@ -1,6 +1,6 @@
 ---
-description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers (apt tools, node, agent, docker) cache independently of the user body, the base, and each other; includes the `dind` → `docker` rename with deprecated aliases.
-read_if: Changing RenderDockerfile/stage composition, image layer caching, the dind/docker switch or marker, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
+description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers (apt tools, node, agent, docker) cache independently of the user body, the base, and each other; includes when the node stage is emitted (agent node dependency), the native vs npm agent install methods, and the `dind` → `docker` rename with deprecated aliases.
+read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the dind/docker switch or marker, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
 ---
 
 # Runner image composition and tool-layer caching
@@ -25,18 +25,26 @@ Stages (deterministic reserved aliases; managed and custom differ only in the ba
 ```
 [earlier user stages]                          # custom only; preserved
 FROM <baseRoot> AS agents-sandbox-base         # managed: debian:trixie-slim + embedded apt tools
-FROM agents-sandbox-base AS agents-sandbox-node
-  [node -> /opt/agents-sandbox, only if the base lacks node]
-FROM agents-sandbox-node AS agents-sandbox-agent
-  [<agent> -> /opt/agents-sandbox, only if the base lacks it]
+FROM agents-sandbox-base AS agents-sandbox-node           # only when the agent requires node
+  ARG NODE_VERSION=<nodeVersion>               # node -> /opt/agents-sandbox, only if the base lacks node
+FROM <agents-sandbox-node | agents-sandbox-base> AS agents-sandbox-agent
+  ARG <AGENT>_VERSION=<resolvedVersion>        # <agent> -> /opt/agents-sandbox, only if the base lacks it
 FROM agents-sandbox-base AS agents-sandbox-docker      # only when docker is enabled
-  [docker -> /opt/agents-sandbox/bin, only if the base lacks it]
+  ARG DOCKER_VERSION=<dockerVersion>           # docker -> /opt/agents-sandbox/bin, only if the base lacks it
 FROM agents-sandbox-base AS runner
   [dev user] [ENV PATH+=/opt/agents-sandbox/bin] [user body]
   COPY --from=agents-sandbox-agent /opt/agents-sandbox ...
   COPY --from=agents-sandbox-docker /opt/agents-sandbox/bin ...  # at the marker when present, else after the body
   [adoption] [finalize]
 ```
+
+### Pinned versions are rendered into the content
+
+Every tool stage states its pinned version as an `ARG` default in the rendered Dockerfile (node, agent, docker), and
+each install `RUN` consumes it. The version is therefore part of the Dockerfile content, so a bump invalidates that
+stage's install layer from the `ARG` line — independent of whether the builder folds the version build arg into its
+cache key. (The agent version is also still passed as a build arg, and the agent ARG default is the resolved release.)
+An empty agent version (e.g. a `build dockerfile` preview without `--agent-version`) renders the ARG without a default.
 
 Resulting cache behaviour:
 
@@ -57,11 +65,27 @@ Resulting cache behaviour:
   position and nothing is duplicated. This **supersedes** the earlier `/usr/local/bin` symlink stopgap (removed): the merge
   restores the full composed `PATH` rather than only the tool binaries, with precedence governed by image `PATH` order. See
   [login-shell-path.md](login-shell-path.md).
-- `ImageSpec.InstallCommand` is responsible for landing the agent in that prefix: npm agents use
-  `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`; opencode v1 copies its installer binary to
-  `/opt/agents-sandbox/bin`. The toolchain must `mkdir -p /opt/agents-sandbox/bin` so the `COPY` source always exists.
+- `ImageSpec.InstallCommand` is responsible for landing the agent in that prefix: npm agents (pi) use
+  `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`; every other agent copies the binary produced by its
+  upstream installer to `/opt/agents-sandbox/bin` (opencode v1 and opencode2 copy the native installer's binary;
+  claude-code copies its launcher with `cp -L` because the launcher is a symlink into a versions directory). The agent
+  stage must `mkdir -p /opt/agents-sandbox/bin` itself so the `COPY` source always exists, independent of the node
+  stage.
 - An agent is installed into `/opt` only when `command -v <binary>` finds nothing in the base; npm agents install into
   `/opt` using whichever `npm` is on `PATH` (base or tool), so a base-provided node needs no redundant download.
+
+## Node dependency
+
+- The `agents-sandbox-node` stage is emitted only for agents whose `ImageSpec.RequiresNode` is true. Today only `pi`
+  sets it: its published package is a `#!/usr/bin/env node` bundle installed through npm, so it needs node at install and
+  at runtime. opencode v1, opencode2, and claude-code ship self-contained native binaries and need neither node nor npm.
+- When the node stage is emitted, `agents-sandbox-agent` starts from it; otherwise it starts from `agents-sandbox-base`.
+- Version pinning and resolution are unaffected: the pinned version is still passed to the upstream installer (npm
+  dependency specifier, opencode `--version`, or claude positional version), still travels as a build `ARG` referenced by
+  the install `RUN`, and is still folded into the `dockerfile-id`. Agent version discovery stays a host-side HTTP query
+  (npm registry / pi.dev); it never runs in the image.
+- JS-based LSP servers rely on the agent's embedded JS runtime (Bun) or on node that a project installs in its own
+  Dockerfile body; agents-sandbox does not ship node to serve them.
 
 ## User-provided detection and provenance
 
