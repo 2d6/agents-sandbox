@@ -32,6 +32,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Runner image: `opencode`, `opencode2`, and `claude-code` images are now node-free. The `agents-sandbox-node` stage is
+  emitted only for agents that need node (today only `pi`, an npm-installed node bundle), and opencode2 and claude-code
+  install from their upstream native installers instead of npm. This cuts image size and cold-build time; version pinning,
+  upgrade resolution, and `dockerfile-id` identity are unchanged (#133).
 - Runner image: renamed the `dind` capability to `docker` — canonical `--docker` (on `build`, `run`, `shell`, and
   `build dockerfile`), the `docker` config key, and `AGENTS_SANDBOX_DOCKER`. The old `--dind` flag, `dind` config key,
   and `AGENTS_SANDBOX_DIND` env var remain as deprecated aliases with lower precedence and a one-time warning. The legacy
