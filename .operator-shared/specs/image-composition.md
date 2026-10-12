@@ -157,6 +157,21 @@ that constrain the stage:
   `npm install`, its node-bootstrap path is interactive, and its package is a `#!/usr/bin/env node` bundle). Native
   binaries embed Bun, not node, so JS-based LSP servers launched via `node`/`npx` need another route.
 
+## Integration-test cache
+
+The `integration` docker-build tests rely on the **classic builder's** layer cache (they use `client.ImageBuild`, whose
+cache is separate from BuildKit's) and must not prune it. `ImageRemove` with `PruneChildren: true` selects Docker's
+"prune" default, which also deletes the untagged parent images that *are* the cache. Cleanup therefore removes the test
+tag with `PruneChildren: false` (the `removeTestImage` helper). With pruning, every subtest — and every
+`make test-integration` rerun — re-ran the node/agent/docker installs (the uncached managed composition costs ~13s);
+without it, later builds reuse those layers (~0.2s).
+
+`TestRealDockerClientImagePrune` must prune with a **no-match filter**, not empty options. `go test ./...` runs the
+`docker` and `image` integration binaries **in parallel** against one daemon, and an empty-option `ImagePrune` deletes
+the dangling cache images the image tests are actively reusing, causing `No such image`/missing-layer failures. An
+empty-option prune is also destructive to a developer's unrelated dangling images and build cache, so it is wrong
+independently of the tests.
+
 ## Non-goals
 
 - No separately persisted/tagged toolchain image (the intermediate stages are the cache).

@@ -106,10 +106,7 @@ func TestRenderDockerfileNodeAgentNodeRuns(t *testing.T) {
 	}
 
 	tag := "agents-sandbox/it-npm-agent-node"
-	t.Cleanup(func() {
-		_, _ = docker.Get().
-			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
-	})
+	t.Cleanup(func() { removeTestImage(tag) })
 
 	buildDockerfileTag(t, a, renderBytes(t, a, nil, false), version, false, tag)
 
@@ -151,10 +148,7 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 			"RUN echo body-v2\n")
 
 	tag := "agents-sandbox/it-cache"
-	t.Cleanup(func() {
-		_, _ = docker.Get().
-			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
-	})
+	t.Cleanup(func() { removeTestImage(tag) })
 
 	// Prime the cache with the first body.
 	buildDockerfileTag(t, a, renderBytesVersion(t, a, version, base, true), version, true, tag)
@@ -252,10 +246,7 @@ func buildDockerfile(t *testing.T, a agent.Agent, dockerfile []byte, agentVersio
 	t.Helper()
 	tag := "agents-sandbox/it-" + sanitizeTag(t.Name())
 	buildDockerfileTag(t, a, dockerfile, agentVersion, dockerEnabled, tag)
-	t.Cleanup(func() {
-		_, _ = docker.Get().
-			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
-	})
+	t.Cleanup(func() { removeTestImage(tag) })
 }
 
 func buildDockerfileTag(
@@ -325,10 +316,7 @@ func TestRenderDockerfileLoginShellHasImagePath(t *testing.T) {
 	project := []byte("FROM agents-sandbox/runner-base:latest\nENV PATH=\"/opt/my-tools:${PATH}\"\n")
 
 	tag := "agents-sandbox/it-login-path"
-	t.Cleanup(func() {
-		_, _ = docker.Get().
-			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
-	})
+	t.Cleanup(func() { removeTestImage(tag) })
 	buildDockerfileTag(t, a, renderBytesVersion(t, a, version, project, false), version, false, tag)
 
 	out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", `printf '%s' "$PATH"`).Output()
@@ -341,6 +329,16 @@ func TestRenderDockerfileLoginShellHasImagePath(t *testing.T) {
 			t.Errorf("login PATH %q missing %q", loginPath, want)
 		}
 	}
+}
+
+// removeTestImage removes a test image by tag while preserving the shared build
+// cache. PruneChildren must stay false: true selects Docker's "prune" default,
+// which also deletes the untagged parent images the classic builder uses as its
+// layer cache, forcing every later build (and every later run) to re-run the
+// node/agent/docker installs. The leftover image is dangling and harmless.
+func removeTestImage(tag string) {
+	_, _ = docker.Get().
+		ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: false})
 }
 
 // sanitizeTag renders a test name into a docker-tag-safe lowercase string.
