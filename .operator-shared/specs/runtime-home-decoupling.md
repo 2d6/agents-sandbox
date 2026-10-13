@@ -152,10 +152,15 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 
 ### Host-side copy mechanics
 
-- The copy runs as the invoking user and does **not** chown: the private-home
-  volume is owned by that user by construction, and the runtime presents host
-  ownership into the VM. (The `chown dev:dev` in the throwaway-VM copy path is
-  unnecessary here because there is no VM and no root assumption.)
+- The copy runs as the invoking user and does **not** chown on the host. A host
+  `chown` would require root and a host `dev` user and is impossible on macOS, so
+  it cannot be the mechanism here.
+- **Unverified:** whether the runtime maps host ownership to the in-VM `dev`
+  user (so a copied volume is readable/writable as `dev`) is not confirmed. The
+  existing throwaway-VM copy path (`internal/sandbox/volume/volume.go`) doing
+  `chown -R dev:dev` is evidence a mapping may be required. A KVM session
+  integration test must confirm this (see "Open verification"); if the mapping
+  does not happen, an ownership-mapping step is required.
 - A recursive copy preserves file mode and modification time; symlinks are
   recreated as symlinks, never followed.
 - Interruption handling: a per-volume copy that fails removes that volume
@@ -210,6 +215,14 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 - macOS-specific path and behavior confirmation.
 - Testing strategy, including a fake legacy home for the copy path.
 - Docs and `CHANGELOG.md` updates per the repo's documentation rules.
+
+## Open verification
+
+- A KVM session integration test must confirm that a legacy home volume copied
+  host-side (no `chown`) is readable and writable by the in-VM `dev` user. Until
+  it passes, the ownership-mapping assumption in "Host-side copy mechanics" is
+  unverified and the feature is not considered verified. If the test shows the
+  mapping does not hold, an ownership-mapping step must be added to the copy.
 
 ## Open question deferred to the builder
 
