@@ -89,9 +89,12 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   SDK call, so the FFI cache, runtime database, VM records, volumes, and images
   all live there. The SDK-pinned runtime is provisioned into it via the existing
   `EnsureRuntime` path.
-- An explicitly configured external runtime (`MSB_PATH` / `MSB_LIBKRUNFW_PATH` /
-  persisted paths) keeps today's meaning and takes precedence; the private home
-  is only the default when the user has not opted into pointing at their own.
+- The private home is unconditional: there is **no external escape hatch**. The
+  user cannot point agents-sandbox at another runtime, so `MSB_PATH`,
+  `MSB_LIBKRUNFW_PATH`, persisted runtime paths, and the `External` /
+  `Incomplete` runtime concepts are dropped. This is deliberate — supporting an
+  externally configured runtime would reintroduce exactly the coupling this work
+  removes. (A future opt-in could revisit it, but not now.)
 
 ### No user-facing msb
 
@@ -113,33 +116,48 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   resolves in the private home. The code must detect "recorded volume missing in
   this home" and start fresh (create a new home volume), not error. This keeps
   every existing user working with no migration.
+- The detection is by the recorded name not resolving in the private home, not by
+  comparing against the legacy dir. It is independent of the copy offer below.
 
 ### Opt-in copy of legacy home volumes
 
 - Offered via a prompt (no dedicated subcommand). Offered on every interactive
-  run while the offer is both *necessary* and *undismissed*.
-- Copies **home volumes only**, preserving their names, so the existing
+  session start (`run`/`shell`) while the offer is both *necessary* and
+  *undismissed*. Not offered on unrelated runtime-touching commands (`list`,
+  `prune`, `volume`, `image`, ...): the offer only matters where a home volume is
+  about to be used.
+- Copies **all** necessary legacy home volumes in one acceptance (the offer is
+  global, not per project). Names are preserved, so the existing
   project → volume mapping in `~/.local/state` resolves unchanged in the private
   home.
 - Never copies binaries, `libkrunfw`, the FFI cache, the runtime database, VM
-  records, or image caches — those are re-provisioned/rebuildable.
+  records, or image caches — those are re-provisioned/rebuildable. The buildkit
+  cache volume (`agents-sandbox-buildkit-cache`) is likewise excluded.
 - The copy is a host-side byte copy: locate the source directory, copy into a
   volume created in our private home, then fix ownership (matching the existing
   `cp -a` + `chown` the throwaway-VM copy path uses). No shell-out to any `msb`,
   and no throwaway VM — a foreign home's volume cannot be mounted by our runtime
   anyway.
-- The offer is gated on the expected legacy path matching: the source is
-  `~/.microsandbox/volumes/<name>` for a volume our state records and that is
-  named `agents-sandbox-home-*`. If the path is not present or does not match,
-  the offer is simply not made. No layout guessing beyond this convention.
-- Non-interactive runs never hang: print a one-line reminder and continue.
+- Source selection is by name, not by our per-project state: any directory under
+  `~/.microsandbox/volumes/` matching `agents-sandbox-home-*` that is absent from
+  the private home. This keeps necessity and completion pure functions of the two
+  directory listings and means the copy offer survives the clean-break overwrite
+  of a project's recorded volume name. No layout guessing beyond this convention.
+- A clean break (user starts fresh, declines the copy) is recorded as the same
+  dismissal: the legacy volumes remain, so without a persisted decision the offer
+  would keep returning.
+- `--yes` and non-interactive runs never accept the copy: print a one-line
+  reminder and continue. `--yes` is treated as non-interactive for this offer,
+  matching the precedent that `--yes` does not auto-select the (now removed)
+  runtime recovery action. A multi-gigabyte copy must never be triggered
+  implicitly.
 
 ### Persisted state
 
-- Necessity is **derived** each run: at least one `agents-sandbox-home-*`
-  directory exists under `~/.microsandbox/volumes/` that our state records as a
-  project's home volume and that is missing from the private home. Nothing is
-  persisted for it.
+- Necessity is **derived** each run, purely from the two directory listings: at
+  least one directory matching `agents-sandbox-home-*` exists under
+  `~/.microsandbox/volumes/` and is absent from the private home's `volumes/`.
+  Nothing is persisted for it, and it does not depend on any per-project state.
 - Completion is also **derived**: once copied volumes are present in the private
   home, necessity is false and no offer is made.
 - The only persisted value is the user's opt-out, a single key in root
@@ -156,7 +174,7 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   leaking the vendor name `msb`. The inner key is `dismissed`, reusing the
   established opt-out term (`upgrade.json`'s `dismissed_versions`; onboarding's
   `state: dismissed`). It stays flat until a second axis appears.
-- Is `dismissed` a permanent flag with no re-arming (unlike onboarding's
+- `dismissed` is a permanent flag with no re-arming (unlike onboarding's
   source-hash re-arm). After a dismissal, agents-sandbox never offers again;
   there is no in-product re-entry.
 
@@ -172,8 +190,10 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   auto-loader; confirm nothing in the tool's own code still assumes
   `~/.microsandbox`.
 - The precise provisioning call and where it runs in the startup sequence.
-- Removing the recovery menu while keeping the internal sanity checks that
-  should remain.
+- Removing the external-runtime handling (`MSB_PATH` / `MSB_LIBKRUNFW_PATH` /
+  persisted paths / `External` / `Incomplete`) and the recovery menu, while
+  keeping any internal sanity checks that should remain.
+- Where the copy prompt hooks into the session start (`run`/`shell`) path.
 - The host-side copy implementation: atomicity/interruption behavior, ownership
   fix details per platform, and how a partially copied set is handled.
 - The stale-state detection ("recorded volume missing") and where it lives.
