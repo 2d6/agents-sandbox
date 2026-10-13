@@ -2,6 +2,8 @@ package runtimemigration
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,6 +25,69 @@ func interactiveUI(key string, prompt *bool) *termio.Mock {
 			*prompt = true
 			return key, nil
 		},
+	}
+}
+
+// writeCorruptRootState writes an unparseable root state.yaml so ReadRootState
+// fails, exercising the offer's best-effort error handling.
+func writeCorruptRootState(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
+	if err := os.WriteFile(path, []byte("runtime_home_migration: [unterminated"), 0o600); err != nil {
+		t.Fatalf("write corrupt root state: %v", err)
+	}
+}
+
+// TestOfferStateReadErrorWarnsAndSkips pins the spec's anti-goal: a corrupt or
+// unreadable launcher-global state file must not block the session. The offer
+// is best-effort, so it warns and returns nil rather than surfacing the error.
+func TestOfferStateReadErrorWarnsAndSkips(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	writeCorruptRootState(t)
+
+	selectCalls := 0
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
+			selectCalls++
+			return choiceCopy, nil
+		},
+	}
+	client := &msb.MockMsbClient{}
+
+	if err := Offer(context.Background(), client, ui); err != nil {
+		t.Fatalf("Offer() error = %v, want nil (best-effort)", err)
+	}
+	if selectCalls != 0 {
+		t.Errorf("Select called %d times, want 0", selectCalls)
+	}
+	if len(ui.WarnCalls) != 1 {
+		t.Errorf("WarnCalls = %v, want exactly one warning", ui.WarnCalls)
+	}
+	if len(client.Volumes) != 0 || len(client.RemovedVolumes) != 0 {
+		t.Error("Offer() touched volumes on a state read error")
+	}
+}
+
+// TestOfferNecessaryVolumesErrorWarnsAndSkips covers the other best-effort
+// branch: a failure deriving necessity (here, the home directory cannot be
+// resolved) warns and skips instead of blocking the session.
+func TestOfferNecessaryVolumesErrorWarnsAndSkips(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("HOME", "")
+
+	var prompted bool
+	ui := interactiveUI(choiceCopy, &prompted)
+	client := &msb.MockMsbClient{}
+
+	if err := Offer(context.Background(), client, ui); err != nil {
+		t.Fatalf("Offer() error = %v, want nil (best-effort)", err)
+	}
+	if prompted {
+		t.Error("Offer() prompted on a NecessaryVolumes error")
+	}
+	if len(ui.WarnCalls) != 1 {
+		t.Errorf("WarnCalls = %v, want exactly one warning", ui.WarnCalls)
 	}
 }
 

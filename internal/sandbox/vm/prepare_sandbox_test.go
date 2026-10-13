@@ -2,8 +2,8 @@ package vm
 
 import (
 	"context"
-	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,6 +21,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/runtimemigration"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -482,9 +483,11 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxRuntimeHomeMigrationErrorIsFatal verifies that a state-read
-// failure in the offer is surfaced rather than silently ignored.
-func TestPrepareSandboxRuntimeHomeMigrationErrorIsFatal(t *testing.T) {
+// TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal verifies the spec's
+// anti-goal: a corrupt or unreadable launcher-global state file must not block
+// the session. The offer is best-effort, so PrepareSandbox warns and continues
+// rather than failing, and it never prompts.
+func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
@@ -505,27 +508,76 @@ func TestPrepareSandboxRuntimeHomeMigrationErrorIsFatal(t *testing.T) {
 			return client.ImageInspectResult{
 				ID: "sha256:abc123",
 				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
 					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 				},
 			}, nil
 		},
 	})
 
-	msb.WithMsbMock(t, &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-	})
-
-	wantErr := errors.New("state read boom")
-	origOffer := offerRuntimeHomeMigration
-	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error {
-		return wantErr
+	slug := git.ProjectSlug()
+	vmFS := msb.NewTestFS(nil, nil)
+	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	}}
+	sh := &msb.MockSandboxHandle{
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: connectSb,
 	}
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+			}, nil
+		},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	mock.SetGotSandbox(sh)
+	msb.WithMsbMock(t, mock)
+
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
+
+	rootStatePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
+	if err := os.WriteFile(rootStatePath, []byte("runtime_home_migration: [unterminated"), 0o600); err != nil {
+		t.Fatalf("write corrupt root state: %v", err)
+	}
+
+	origOffer := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = runtimemigration.Offer
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
+
+	selectCalls := 0
 	ui := termio.NewTestMock(t)
-	_, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("PrepareSandbox() error = %v, want %v", err, wantErr)
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
+		selectCalls++
+		return "", nil
+	}
+
+	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
+	if err != nil {
+		t.Fatalf("PrepareSandbox() error = %v, want success despite a corrupt root state", err)
+	}
+	defer sess.Cleanup()
+
+	if selectCalls != 0 {
+		t.Errorf("Select called %d times, want 0", selectCalls)
+	}
+	if len(ui.WarnCalls) == 0 {
+		t.Error("expected a warning about the unreadable root state, got none")
 	}
 }
 

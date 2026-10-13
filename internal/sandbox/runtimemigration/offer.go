@@ -25,13 +25,18 @@ const (
 // shown only while the migration is both necessary and undismissed. A
 // non-interactive session (including --yes, which IsInteractive reports false
 // for) is never prompted and never copies; it gets a one-line reminder instead.
-// A failed copy is reported but does not abort the session: the per-volume copy
-// already removes any partial volume, so necessity stays true and the offer
-// returns on the next interactive start.
+// A failure to read the persisted state or derive necessity is best-effort: it
+// warns and skips rather than aborting the session. A failed copy is reported
+// but does not abort the session either: the per-volume copy already removes
+// any partial volume, so necessity stays true and the offer returns on the next
+// interactive start.
 func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 	rootState, err := state.ReadRootState()
 	if err != nil {
-		return err
+		// The copy is a best-effort convenience: a corrupt or unreadable
+		// launcher-global state file must not block the agent from running.
+		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
+		return nil
 	}
 	if rootState.RuntimeHomeMigration.Dismissed {
 		return nil
@@ -39,7 +44,10 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 
 	names, err := NecessaryVolumes()
 	if err != nil {
-		return err
+		// Likewise, a failure deriving necessity warns and skips rather than
+		// aborting the session.
+		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
+		return nil
 	}
 	if len(names) == 0 {
 		return nil
