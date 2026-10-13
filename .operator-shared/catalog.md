@@ -14,6 +14,9 @@
 
 ### `specs/` - System contracts for this partition
 
+- `runtime-home-decoupling.md`
+  - Description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: private XDG data home (`~/.local/share/agents-sandbox/msb`), no user-facing msb, retired version-matching recovery, clean break with stale-state safety, and an opt-in copy of legacy home volumes recorded as `runtime_home_migration.dismissed` in root `state.yaml`.
+  - Read If: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`/`EnsureRuntime` wiring, removal of the mismatch recovery menu, doctor/PATH changes, or the legacy home-volume copy prompt.
 - `runner-image-build.md`
   - Description: Agent version selection precedence (`--agent-version`, upgrade check, user-provided), when the runner image is (re)built, and when `BuildOptions.Force` bypasses the Docker layer cache.
   - Read If: Changing image build/caching, `BuildOptions`, `--rebuild`, `--agent-version`, agent upgrade, or volume subcommands' image handling.
