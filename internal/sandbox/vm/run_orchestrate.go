@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/sandbox/runtimemigration"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -53,6 +54,11 @@ func (s *Session) Target() string {
 func (s *Session) ServeHostPort() int {
 	return s.serveHostPort
 }
+
+// offerRuntimeHomeMigration is the session-start hook for the opt-in legacy
+// home-volume copy. It is a variable so tests can stub the offer without a real
+// legacy home; production always uses runtimemigration.Offer.
+var offerRuntimeHomeMigration = runtimemigration.Offer
 
 // PrepareSandbox builds (or reuses) the project VM, provisions config, and
 // returns a ready-to-attach Session. It is the setup half of a run:
@@ -103,14 +109,11 @@ func PrepareSandbox(
 
 	ui.Verbosef("Using image '%s' (digest=%s)", imageInfo.Tag, imageInfo.Digest)
 
-	client := msb.Get()
-	vm := volume.NewManager(ui)
 	k := state.Key{Slug: projectSlug, Agent: a.Name()}
-	homeVol, vs, err := resolveHomeVolume(ctx, vm, client, k, imageInfo, opts.DryRunVM, ui)
+	client, vm, homeVol, vs, err := prepareHomeVolume(ctx, k, imageInfo, opts, ui)
 	if err != nil {
-		return nil, fmt.Errorf("volume setup failed: %w", err)
+		return nil, err
 	}
-	ui.Verbosef("home volume: %s", homeVol)
 
 	// Load the merged agent config and home files exactly once per startup;
 	// the result is shared by the reconfig decision and the provisioning step.
@@ -213,6 +216,30 @@ func resolveServeHostPort(opts options.RunOptions, planned int) int {
 		return options.FirstFreeHostPort(options.ServeOnlyBasePort)
 	}
 	return planned
+}
+
+// prepareHomeVolume offers the opt-in legacy home-volume copy, then resolves
+// the project's home volume and its state. It returns the msb client and volume
+// manager for the caller's subsequent reconfig/VM steps.
+func prepareHomeVolume(
+	ctx context.Context,
+	k state.Key,
+	imageInfo image.ImageInfo,
+	opts options.RunOptions,
+	ui termio.UI,
+) (msb.Client, *volume.Manager, string, state.HomeState, error) {
+	client := msb.Get()
+	if err := offerRuntimeHomeMigration(ctx, client, ui); err != nil {
+		return nil, nil, "", state.HomeState{}, fmt.Errorf("runtime home migration offer failed: %w", err)
+	}
+
+	vm := volume.NewManager(ui)
+	homeVol, vs, err := resolveHomeVolume(ctx, vm, client, k, imageInfo, opts.DryRunVM, ui)
+	if err != nil {
+		return nil, nil, "", state.HomeState{}, fmt.Errorf("volume setup failed: %w", err)
+	}
+	ui.Verbosef("home volume: %s", homeVol)
+	return client, vm, homeVol, vs, nil
 }
 
 // resolveHomeVolume resolves the project home volume, reusing the existing one
