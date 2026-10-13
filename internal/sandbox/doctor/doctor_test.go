@@ -11,33 +11,11 @@ import (
 
 	"github.com/moby/moby/client"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	"github.com/inoio/agents-sandbox/internal/testutil"
 )
-
-func TestShellRcFile(t *testing.T) {
-	home := "/home/test"
-	tests := []struct {
-		name  string
-		shell string
-		want  string
-	}{
-		{"bash defaults to platform rc", "/bin/bash", filepath.Join(home, shellRcDefault)},
-		{"zsh", "/bin/zsh", filepath.Join(home, ".zshrc")},
-		{"fish", "/usr/bin/fish", filepath.Join(home, ".config", "fish", "config.fish")},
-		{"empty shell falls back to default rc", "", filepath.Join(home, shellRcDefault)},
-		{"unknown shell falls back to default rc", "/bin/sh", filepath.Join(home, shellRcDefault)},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := shellRcFile(home, tc.shell); got != tc.want {
-				t.Errorf("shellRcFile(%q, %q) = %q, want %q", home, tc.shell, got, tc.want)
-			}
-		})
-	}
-}
 
 func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.T) {
 	MockedEnsureInstalled(t, true)
@@ -58,143 +36,55 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 	}
 }
 
-func TestCheckMsbOnPathReturnsTrueSilently(t *testing.T) {
+func TestCheckMsbReportsPrivateHomeBinPathWithoutPathHints(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	MockedEnsureInstalled(t, false)
-
-	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "msb", "#!/bin/sh\n")
-	if err := os.Chmod(filepath.Join(dir, "msb"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
+	t.Setenv("PATH", "/nonexistent")
+	t.Setenv("SHELL", "/bin/zsh")
 
 	warnings, err := checkMsb(context.Background())
 	if err != nil {
-		t.Fatal("expected checkMsb to return nil error when msb is on PATH")
+		t.Fatalf("checkMsb() error = %v", err)
 	}
-	if len(warnings) != 0 {
-		t.Errorf("expected no warnings when msb is on PATH, got %q", warnings)
+	home, err := runtime.PrivateHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(home, "bin")
+	outStr := strings.Join(warnings, " ")
+	if !strings.Contains(outStr, binDir) {
+		t.Errorf("expected the private-home bin path %q, got %q", binDir, outStr)
+	}
+	for _, hint := range []string{"PATH", "shellRc", "zshrc", "rc file", "ln -s", "symlink"} {
+		if strings.Contains(outStr, hint) {
+			t.Errorf("expected no %q hint, got %q", hint, outStr)
+		}
 	}
 }
 
-func TestCheckMsbNotOnPathMessagesAndReturnsTrue(t *testing.T) {
+func TestCheckMsbIgnoresMsbHomeAndMsbPathEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	MockedEnsureInstalled(t, false)
 
-	home := t.TempDir()
-	binDir := filepath.Join(home, ".microsandbox", "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	binPath := filepath.Join(binDir, "msb")
-	testutil.WritePath(t, binPath, "#!/bin/sh\n")
-	if err := os.Chmod(binPath, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("HOME", home)
-	t.Setenv("SHELL", "/bin/zsh")
+	legacyHome := filepath.Join(t.TempDir(), "legacy-home")
+	t.Setenv("MSB_HOME", legacyHome)
+	t.Setenv("MSB_PATH", filepath.Join(legacyHome, "bin", "msb"))
 	t.Setenv("PATH", "/nonexistent")
 
 	warnings, err := checkMsb(context.Background())
 	if err != nil {
-		t.Fatal("expected checkMsb to return nil error when msb is installed but not on PATH")
+		t.Fatalf("checkMsb() error = %v", err)
+	}
+	home, err := runtime.PrivateHome()
+	if err != nil {
+		t.Fatal(err)
 	}
 	outStr := strings.Join(warnings, " ")
-	if !strings.Contains(outStr, "not in PATH") {
-		t.Errorf("expected a warning that msb is not on PATH, got %q", outStr)
+	if !strings.Contains(outStr, filepath.Join(home, "bin")) {
+		t.Errorf("expected the private-home bin path, got %q", outStr)
 	}
-	if !strings.Contains(outStr, ".zshrc") {
-		t.Errorf("expected hint to mention .zshrc for a zsh shell, got %q", outStr)
-	}
-	if !strings.Contains(outStr, "ln -s") {
-		t.Errorf("expected hint to include a symlink alternative, got %q", outStr)
-	}
-}
-
-func TestCheckMsbUsesConfiguredMSBHome(t *testing.T) {
-	MockedEnsureInstalled(t, false)
-
-	home := t.TempDir()
-	runtimeHome := filepath.Join(home, "custom-runtime")
-	binDir := filepath.Join(runtimeHome, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	binPath := filepath.Join(binDir, "msb")
-	testutil.WritePath(t, binPath, "#!/bin/sh\n")
-	if err := os.Chmod(binPath, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv("MSB_HOME", runtimeHome)
-	t.Setenv("MSB_PATH", "")
-	t.Setenv("PATH", "/nonexistent")
-
-	warnings, err := checkMsb(context.Background())
-	if err != nil {
-		t.Fatalf("checkMsb() error = %v", err)
-	}
-	if !strings.Contains(strings.Join(warnings, " "), binDir) {
-		t.Errorf("warnings = %q, want configured runtime path", warnings)
-	}
-}
-
-func TestCheckMsbUsesExplicitMSBPath(t *testing.T) {
-	MockedEnsureInstalled(t, false)
-
-	home := t.TempDir()
-	binDir := filepath.Join(home, "explicit")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	binPath := filepath.Join(binDir, "msb")
-	testutil.WritePath(t, binPath, "#!/bin/sh\n")
-	if err := os.Chmod(binPath, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv("MSB_HOME", "")
-	t.Setenv("MSB_PATH", binPath)
-	t.Setenv("PATH", "/nonexistent")
-
-	warnings, err := checkMsb(context.Background())
-	if err != nil {
-		t.Fatalf("checkMsb() error = %v", err)
-	}
-	if !strings.Contains(strings.Join(warnings, " "), binDir) {
-		t.Errorf("warnings = %q, want explicit runtime path", warnings)
-	}
-}
-
-func TestCheckMsbExplicitPathMissingReturnsError(t *testing.T) {
-	MockedEnsureInstalled(t, false)
-
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("MSB_PATH", filepath.Join(t.TempDir(), "missing-msb"))
-	t.Setenv("MSB_HOME", "")
-	t.Setenv("PATH", "/nonexistent")
-
-	_, err := checkMsb(context.Background())
-	if err == nil {
-		t.Fatal("checkMsb() error = nil, want missing explicit path error")
-	}
-	if !strings.Contains(err.Error(), "binary missing") {
-		t.Errorf("error = %q, want binary missing", err)
-	}
-}
-
-func TestCheckMsbNotOnPathAndBinaryMissingReturnsFalse(t *testing.T) {
-	MockedEnsureInstalled(t, false)
-
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("PATH", "/nonexistent")
-
-	_, err := checkMsb(context.Background())
-	if err == nil {
-		t.Fatal("expected checkMsb to return an error when msb binary is missing")
-	}
-	if !strings.Contains(err.Error(), "binary missing") {
-		t.Errorf("expected 'binary missing' in error, got %q", err.Error())
+	if strings.Contains(outStr, legacyHome) {
+		t.Errorf("expected MSB_HOME/MSB_PATH to be ignored, got %q", outStr)
 	}
 }
 
@@ -268,51 +158,49 @@ func TestRealCheckDockerPingOK(t *testing.T) {
 }
 
 func TestCollectChecksAggregatesFailures(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	MockedCheckDocker(t, false)
 	MockedEnsureInstalled(t, false)
-	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "/nonexistent")
 
 	warnings, errs := collectChecks(context.Background())
 	if len(errs) == 0 {
-		t.Fatal("expected collectChecks to collect the docker and msb failures")
-	}
-	if len(warnings) != 0 {
-		t.Errorf("expected no warnings when both checks fail, got %q", warnings)
+		t.Fatal("expected collectChecks to collect the docker failure")
 	}
 	joined := strings.Join(errStrings(errs), " ")
 	if !strings.Contains(joined, "docker not available") {
 		t.Errorf("expected a docker failure, got %q", joined)
 	}
-	if !strings.Contains(joined, "binary missing") {
-		t.Errorf("expected an msb failure, got %q", joined)
+	if strings.Contains(joined, "binary missing") {
+		t.Errorf("expected no msb binary failure, got %q", joined)
+	}
+	if len(warnings) == 0 {
+		t.Fatal("expected an informational msb message even when the binary is missing")
 	}
 }
 
-func TestCollectChecksMsbWarning(t *testing.T) {
+func TestCollectChecksMsbInfoNamesPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	MockedCheckDocker(t, true)
 	MockedEnsureInstalled(t, false)
-
-	home := t.TempDir()
-	binDir := filepath.Join(home, ".microsandbox", "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WritePath(t, filepath.Join(binDir, "msb"), "#!/bin/sh\n")
-	if err := os.Chmod(filepath.Join(binDir, "msb"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("HOME", home)
-	t.Setenv("SHELL", "/bin/zsh")
 	t.Setenv("PATH", "/nonexistent")
 
-	messages, _ := collectChecks(context.Background())
-	if len(messages) == 0 {
-		t.Fatal("expected an msb PATH warning")
+	messages, errs := collectChecks(context.Background())
+	for _, err := range errs {
+		if strings.Contains(err.Error(), "binary missing") || strings.Contains(err.Error(), "msb") {
+			t.Fatalf("expected no msb error, got %v", err)
+		}
 	}
-	if !strings.Contains(strings.Join(messages, " "), "not in PATH") {
-		t.Errorf("expected a 'not in PATH' warning, got %q", messages)
+	home, err := runtime.PrivateHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(messages, " ")
+	if !strings.Contains(joined, filepath.Join(home, "bin")) {
+		t.Errorf("expected the private-home bin path, got %q", joined)
+	}
+	if strings.Contains(joined, "PATH") {
+		t.Errorf("expected no PATH hint, got %q", joined)
 	}
 }
 
