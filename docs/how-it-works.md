@@ -11,7 +11,7 @@ nav_order: 105
 
 1. **Image build** — Builds a Docker image from `.agents-sandbox/Dockerfile` if present, or uses the base image. The image
    contains the selected coding agent, Node.js 26, and common CLI tools.
-2. **Volume setup** — Creates a persistent home volume (managed by msb, name: `agents-sandbox-home-<project-slug>-<timestamp>`) for the
+2. **Volume setup** — Creates a persistent home volume (managed by the private microsandbox runtime, name: `agents-sandbox-home-<project-slug>-<timestamp>`) for the
    project, preserving editor state, caches, and config across sessions.
 3. **VM creation or reuse** — Creates a new project VM on first boot; subsequent runs connect to the existing VM (or
    restart it if it stopped).

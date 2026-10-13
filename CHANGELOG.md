@@ -31,6 +31,10 @@ command reports the bare version (e.g. `0.1.0`).
   `# agents-sandbox:dind` marker is still recognized). Without the marker the block is still appended after the
   Dockerfile body.
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
+- Runtime: on the first interactive `run`/`shell`, agents-sandbox offers once to copy legacy
+  `~/.microsandbox/volumes/agents-sandbox-home-*` volumes into its private runtime home. Declining persists
+  `runtime_home_migration.dismissed: true` in `~/.local/state/agents-sandbox/state.yaml`; `--yes` and non-interactive runs
+  never copy and print a one-line reminder instead.
 
 ### Fixed
 
@@ -42,6 +46,12 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Runtime: agents-sandbox now provisions and uses its own private microsandbox runtime home at
+  `$XDG_DATA_HOME/agents-sandbox/msb` (default `~/.local/share/agents-sandbox/msb`), selected via `MSB_HOME` at startup and
+  fully decoupled from any user-installed microsandbox. The user's `~/.microsandbox` is never read or written by normal
+  operation; no user-facing `msb` is installed or advertised; and the runtime version-mismatch recovery menu is retired
+  (a mismatch is now a plain error). A project whose recorded home volume is absent from the private home starts a fresh
+  home volume automatically, so existing users keep working without migrating.
 - Runner image: `opencode`, `opencode2`, and `claude-code` images are now node-free. The `agents-sandbox-node` stage is
   emitted only for agents that need node (today only `pi`, an npm-installed node bundle), and opencode2 and claude-code
   install from their upstream native installers instead of npm. This cuts image size and cold-build time; version pinning,

@@ -262,7 +262,7 @@ agents-sandbox sandbox list
 
 Prints a header row followed by one line per agents-sandbox VM with columns
 `NAME`, `IMAGE`, `STATUS`, and `CREATED`. `CREATED` uses `YYYY-MM-DD HH:MM:SS`,
-matching microsandbox's `msb list` output. The `STATUS` cell is colored like
+matching microsandbox's own sandbox listing. The `STATUS` cell is colored like
 microsandbox when color is enabled (`running` green, `stopped`/`created` dim,
 transitional states yellow, `crashed` red); with color disabled it renders as
 plain text.
@@ -398,10 +398,10 @@ agents-sandbox tree
 
 ### doctor
 
-Check prerequisites (Docker, KVM, Git, and the microsandbox runtime) and exit.
-The runtime check compares the selected `msb` version with the SDK version
-linked into agents-sandbox. If they differ, an interactive recovery prompt is
-shown before any VM or runtime database operation.
+Check prerequisites (Docker, KVM, Git) and ensure the private microsandbox
+runtime is provisioned, then exit. The runtime is the one pinned by the linked
+SDK and lives under agents-sandbox's own data directory, so there is no
+`msb`-version comparison or recovery prompt.
 
 ```console
 agents-sandbox doctor

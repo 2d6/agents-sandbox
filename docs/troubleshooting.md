@@ -18,34 +18,41 @@ Start the Docker daemon. How to start it depends on your environment. When using
 
 You can verify afterwards by running `docker info`. It should show a healthy daemon.
 
-### Microsandbox runtime version mismatch
+### Microsandbox runtime
 
-Before using microsandbox, agents-sandbox compares the selected `msb` version
-with the microsandbox SDK version linked into the launcher. A mismatch is
-reported before the runtime database is opened. The interactive recovery menu
-can:
+agents-sandbox provisions its own private microsandbox runtime under its data
+directory (`~/.local/share/agents-sandbox/msb`, or
+`$XDG_DATA_HOME/agents-sandbox/msb`) and points the SDK at it. It never reads or
+writes your own `~/.microsandbox`, does not install a user-facing `msb`
+command, and does not require any particular `msb` version on your machine. If
+agents-sandbox is the only thing installed, the absence of an `msb` command is
+expected, not a defect.
 
-- upgrade agents-sandbox and restart when a newer launcher release is
-  available;
-- upgrade or downgrade `msb` to the required version;
-- use the installed runtime unchanged in unsupported brave mode;
-- print a sanitized diagnostic report and the bug-report URL; or
-- quit without changing anything.
+Because the runtime is always the exact one pinned by the linked SDK, there is
+no version-matching prompt — an inconsistent private runtime is reported as a
+plain error. To recover, reinstall agents-sandbox, or delete the private
+runtime directory so it is provisioned again on the next run:
 
-The default choice is always quit. `--yes` does not select a runtime recovery
-action; in a noninteractive invocation the command prints diagnostics and
-exits without modifying the runtime.
+```console
+rm -rf ~/.local/share/agents-sandbox/msb
+```
 
-Do not replace only `~/.microsandbox/bin/msb` manually. The runtime database,
-`libkrunfw`, FFI library, VM records, volumes, and caches are versioned state
-and must remain compatible with one another. If a newer `msb` has already
-migrated the database, use the official rollback offered by the prompt rather
-than copying an older binary over the newer one.
-
-If no newer agents-sandbox release supports the installed `msb`, submit the
-compatibility report at:
+If a runtime error persists, submit a bug report at:
 
 <https://github.com/inoio/agents-sandbox/issues/new?template=bug_report.yml>
+
+### Legacy home volumes after upgrading
+
+Versions before the private runtime home stored home volumes under
+`~/.microsandbox/volumes/`. On the first interactive `run`/`shell` after
+upgrading, agents-sandbox offers once to copy those `agents-sandbox-home-*`
+volumes into its private home. Declining ("Start fresh") is remembered and the
+offer is not shown again. `--yes` and non-interactive runs never copy; they
+print a reminder to run an interactive session if you still need the volumes.
+
+Independently, upgrading starts each project with a fresh home volume
+automatically when its recorded volume is not present in the private home, so
+you can keep working without migrating anything.
 
 ### KVM unavailable
 

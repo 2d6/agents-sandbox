@@ -17,9 +17,9 @@ Each agents-sandbox invocation follows this lifecycle:
 
 ```
 - Auto-prune: Remove stale VMs, volumes, and images
-- Pre-flight checks (doctor): Docker, KVM, Git, msb
+- Pre-flight checks (doctor): Docker, KVM, Git, private microsandbox runtime
 - Image verify/build: `.agents-sandbox/Dockerfile` (or default image) → Docker image -> microsandbox image
-- Home volume verify/build: Persistent msb volume (`agents-sandbox-home-<slug>-<timestamp>`) per project
+- Home volume verify/build: Persistent microsandbox home volume (`agents-sandbox-home-<slug>-<timestamp>`) per project
 - VM creation or reuse: New or existing project-specific VM
 - Provisioning: Copy agent config etc. (updated configs are re-provisioned).
 - Daemon verify/start: Ensure/start microsandbox internal services

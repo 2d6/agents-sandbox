@@ -7,6 +7,11 @@ read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOM
 
 Date: 2026-10-13
 
+Status: **implemented** — all Decisions below are in place. The implementation
+plan is [2026-10-13-runtime-home-decoupling](../plans/2026-10-13-runtime-home-decoupling.md).
+The single item still outstanding is the ownership-mapping verification under
+"Open verification".
+
 ## Intent
 
 agents-sandbox manages a microsandbox (`msb`) runtime today by sharing the

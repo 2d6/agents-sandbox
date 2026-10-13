@@ -33,25 +33,5 @@ defers version management to Homebrew so the launcher never replaces the binary 
 
 * The automatic `run`/`shell` check is skipped entirely, regardless of `upgrade.mode`.
 * The `upgrade` command prints `brew update && brew upgrade agents-sandbox` instead of downloading a release.
-* The msb-runtime mismatch prompt does not offer the launcher self-upgrade; it offers to downgrade `msb`, report a
-  compatibility issue, or quit.
 
 Update these installs with `brew update && brew upgrade agents-sandbox`.
-
-## Microsandbox Runtime Mismatches
-
-The launcher separately checks that the selected `msb` runtime matches the
-microsandbox SDK version linked into the running binary. This check is not
-throttled by `upgrade.interval` because continuing with an incompatible runtime
-can expose a newer database schema to an older binary.
-
-When the selected runtime is newer and a newer agents-sandbox release exists,
-the prompt offers to upgrade agents-sandbox and restart. If no newer launcher
-release is available, it offers to submit a compatibility issue requesting a
-release linked against the installed microsandbox version. The prompt can also
-run the official `msb` upgrade/downgrade flow, use the installed runtime in
-unsupported brave mode, or quit.
-
-The mismatch prompt always defaults to quit. Noninteractive runs, including
-`--yes`, do not choose a potentially destructive action; they print the issue
-URL and diagnostics and exit without changing the runtime.
