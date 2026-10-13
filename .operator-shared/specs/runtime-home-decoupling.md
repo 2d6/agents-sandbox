@@ -160,12 +160,19 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 - The copy runs as the invoking user and does **not** chown on the host. A host
   `chown` would require root and a host `dev` user and is impossible on macOS, so
   it cannot be the mechanism here.
-- **Unverified:** whether the runtime maps host ownership to the in-VM `dev`
-  user (so a copied volume is readable/writable as `dev`) is not confirmed. The
-  existing throwaway-VM copy path (`internal/sandbox/volume/volume.go`) doing
-  `chown -R dev:dev` is evidence a mapping may be required. A KVM session
-  integration test must confirm this (see "Open verification"); if the mapping
-  does not happen, an ownership-mapping step is required.
+- This aligns with the rest of the design: the runner image creates `dev` with
+  the **host's** uid/gid (`USER_UID`/`USER_GID` build args fed from
+  `os.Getuid()`/`os.Getgid()` in `internal/sandbox/image`), so host-owned files
+  and in-VM `dev` share a uid — the same reason the `/workspace` bind mount needs
+  no chown. The home volume is mounted without an `Owner` override
+  (`internal/sandbox/vm`), so the guest owner presented for host files comes from
+  the runtime's mount default (stat-virtualization overlay / fallback owner).
+- **Unverified:** that this presentation makes a copied volume readable/writable
+  as `dev` end-to-end has not been exercised under KVM (see "Open verification").
+  The `chown -R dev:dev` in the throwaway-VM copy path
+  (`internal/sandbox/volume/volume.go`) is a **guest-side** normalization to
+  `dev` after a guest-side copy — consistent with `dev` being the owner, not
+  evidence of a host→guest translation.
 - A recursive copy preserves file mode and modification time; symlinks are
   recreated as symlinks, never followed.
 - Interruption handling: a per-volume copy that fails removes that volume
@@ -223,11 +230,14 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 
 ## Open verification
 
-- A KVM session integration test must confirm that a legacy home volume copied
-  host-side (no `chown`) is readable and writable by the in-VM `dev` user. Until
-  it passes, the ownership-mapping assumption in "Host-side copy mechanics" is
-  unverified and the feature is not considered verified. If the test shows the
-  mapping does not hold, an ownership-mapping step must be added to the copy.
+- A KVM session integration test should confirm the end-to-end result: a legacy
+  home volume copied host-side (no `chown`) is readable and writable by the in-VM
+  `dev` user. The design makes this likely correct (build-time `dev` uid/gid
+  alignment; mount owner presentation), but it is not yet verified. Cover the
+  cross-uid case (an image built under one host uid reused by a runner under
+  another) and the default `HostPermissions: Private` mount policy. If the test
+  fails, an ownership-mapping step (e.g. an in-VM `chown -R dev:dev` on first
+  use, mirroring the prefill path) must be added.
 
 ## Open question deferred to the builder
 
