@@ -44,6 +44,36 @@ func TestLegacyVolumeNamesVolumesPathNotADirectory(t *testing.T) {
 	}
 }
 
+func TestLegacyVolumeNamesUnreadableVolumesDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0 does not block directory reads")
+	}
+	home := newHome(t)
+	addVolumeDir(t, home, naming.HomePrefix+"hidden")
+
+	volumesDir := filepath.Join(home, "volumes")
+	if err := os.Chmod(volumesDir, 0o000); err != nil {
+		t.Fatalf("chmod volumes dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(volumesDir, 0o750) })
+
+	got, err := legacyVolumeNames(home)
+	if err != nil {
+		t.Fatalf("legacyVolumeNames() error = %v, want nil (permission denied is not an error)", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("legacyVolumeNames() = %v, want empty", got)
+	}
+
+	necessary, err := necessaryVolumes(home, newHome(t))
+	if err != nil {
+		t.Fatalf("necessaryVolumes() error = %v, want nil (permission denied is not an error)", err)
+	}
+	if len(necessary) != 0 {
+		t.Errorf("necessaryVolumes() = %v, want empty (not necessary)", necessary)
+	}
+}
+
 func TestLegacyVolumeNamesFiltersByPrefix(t *testing.T) {
 	home := newHome(t)
 	want := []string{naming.HomePrefix + "alpha", naming.HomePrefix + "beta"}

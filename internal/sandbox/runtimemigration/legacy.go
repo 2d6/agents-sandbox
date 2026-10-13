@@ -4,6 +4,7 @@ package runtimemigration
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,8 +15,9 @@ import (
 )
 
 // legacyVolumeNames returns the basenames of agents-sandbox home volumes under
-// <legacyHome>/volumes. A missing volumes directory (or one that is not a
-// directory) yields no names and no error: there is simply nothing to copy.
+// <legacyHome>/volumes. A volumes directory that is missing, not a directory, or
+// unreadable (permission denied) yields no names and no error: there is simply
+// nothing usable to copy, so necessity is false rather than a failure.
 func legacyVolumeNames(legacyHome string) ([]string, error) {
 	return homeVolumeNames(legacyHome)
 }
@@ -82,7 +84,7 @@ func homeVolumeNames(home string) ([]string, error) {
 	volumesDir := filepath.Join(home, "volumes")
 	entries, err := os.ReadDir(volumesDir)
 	if err != nil {
-		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
+		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, fs.ErrPermission) {
 			return nil, nil
 		}
 		return nil, err
