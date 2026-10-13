@@ -53,3 +53,6 @@
 - `2026-10-10-buildkit-builder-vm.md`
   - Description: TDD plan for `specs/buildkit-builder-vm.md` (issue #15): new `internal/sandbox/builder` package (shared builder VM lifecycle, host-side BuildKit client seam/readiness, solve+OCI export+metadata, gateway `ResolveImageConfig` base-digest route, registry auth), add the `moby/buildkit`/`docker/cli` deps, rewire `image` onto the builder, thread the archive through VM creation, BuildKit-cache pruning, remove `internal/sandbox/docker` + `doctor.CheckDocker`, integration + docs. Not yet implemented. Resolves the spec's open decisions (OCI export, `~/.docker/config.json` creds, global cache) and overrides the spec's buildinfo base-digest route.
   - Read If: Implementing or reviewing the Docker-free BuildKit builder (issue #15 / `internal/sandbox/builder`).
+- `2026-10-13-runtime-home-decoupling.md`
+  - Description: TDD plan for `specs/runtime-home-decoupling.md`: `configpaths.UserDataDir`, private `MSB_HOME` + removal of external runtime resolution, retirement of the version-mismatch recovery menu, doctor msb-advertising removal, root `state.yaml` accessor (`runtime_home_migration.dismissed`), legacy home-volume necessity/copy, and the session-start copy prompt. Not yet implemented.
+  - Read If: Implementing or reviewing runtime-home decoupling (`opencode/runtime-home-decoupling`).
