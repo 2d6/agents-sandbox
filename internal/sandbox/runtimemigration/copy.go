@@ -57,7 +57,8 @@ func removeVolumeBestEffort(ctx context.Context, client msb.Client, name string)
 // copyTree recursively copies the tree rooted at src into dst, preserving file
 // mode and modification time. Directories are copied depth-first so their
 // metadata is applied after their children. Symlinks are recreated as symlinks
-// (never followed). src must exist.
+// (never followed); non-regular entries (FIFOs, sockets, devices) are skipped.
+// src must exist.
 func copyTree(src, dst string) error {
 	info, err := os.Lstat(src)
 	if err != nil {
@@ -70,12 +71,20 @@ func copyTree(src, dst string) error {
 	if info.IsDir() {
 		return copyDir(src, dst, info)
 	}
+	if !info.Mode().IsRegular() {
+		// FIFOs, sockets, and device nodes cannot be meaningfully copied:
+		// opening a FIFO blocks forever and a socket fails the copy. Skip them.
+		return nil
+	}
 	return copyFile(src, dst, info)
 }
 
 func copyDir(src, dst string, info os.FileInfo) error {
 	perm := info.Mode().Perm()
-	if err := os.MkdirAll(dst, perm); err != nil {
+	// Create the destination writable regardless of the source mode, so a
+	// read-only source directory can still have its children written. The
+	// source mode is restored below, after the children exist.
+	if err := os.MkdirAll(dst, 0o700); err != nil {
 		return err
 	}
 

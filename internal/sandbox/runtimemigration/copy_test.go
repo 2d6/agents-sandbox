@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -95,6 +96,68 @@ func TestCopyTreeMissingSourceErrors(t *testing.T) {
 	err := copyTree(filepath.Join(t.TempDir(), "absent"), t.TempDir())
 	if err == nil {
 		t.Fatal("copyTree() error = nil, want error for missing source")
+	}
+}
+
+// TestCopyTreeCopiesChildrenOfReadOnlyDir pins that a source directory whose
+// own mode forbids writing can still have its children copied: the destination
+// must be created writable, populated, and only then chmod'd to the source mode.
+func TestCopyTreeCopiesChildrenOfReadOnlyDir(t *testing.T) {
+	src := t.TempDir()
+	readOnly := filepath.Join(src, "readonly")
+	if err := os.MkdirAll(readOnly, 0o750); err != nil {
+		t.Fatalf("create readonly dir: %v", err)
+	}
+	writeFileWithMode(t, filepath.Join(readOnly, "child.txt"), "child", 0o600)
+	if err := os.Chmod(readOnly, 0o500); err != nil {
+		t.Fatalf("chmod readonly dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readOnly, 0o750) })
+
+	dst := t.TempDir()
+	if err := copyTree(src, dst); err != nil {
+		t.Fatalf("copyTree() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dst, "readonly"), 0o750) })
+
+	assertFileWithMode(t, filepath.Join(dst, "readonly", "child.txt"), "child", 0o600)
+	info, err := os.Stat(filepath.Join(dst, "readonly"))
+	if err != nil {
+		t.Fatalf("stat copied readonly dir: %v", err)
+	}
+	if info.Mode().Perm() != 0o500 {
+		t.Errorf("copied readonly dir mode = %o, want 0o500", info.Mode().Perm())
+	}
+}
+
+// TestCopyTreeSkipsSpecialFiles pins that FIFOs and other non-regular entries
+// are skipped rather than opened: opening a FIFO blocks forever and a socket
+// fails the whole copy. The timeout turns a regression (a hang) into a failure.
+func TestCopyTreeSkipsSpecialFiles(t *testing.T) {
+	src := t.TempDir()
+	writeFileWithMode(t, filepath.Join(src, "regular.txt"), "regular", 0o600)
+
+	fifo := filepath.Join(src, "pipe")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Skipf("cannot create a FIFO on this platform: %v", err)
+	}
+
+	dst := t.TempDir()
+	done := make(chan error, 1)
+	go func() { done <- copyTree(src, dst) }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("copyTree() error = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("copyTree() hung on a special file")
+	}
+
+	assertFileWithMode(t, filepath.Join(dst, "regular.txt"), "regular", 0o600)
+	if _, err := os.Lstat(filepath.Join(dst, "pipe")); !os.IsNotExist(err) {
+		t.Errorf("special file was copied (lstat err = %v), want it skipped", err)
 	}
 }
 
