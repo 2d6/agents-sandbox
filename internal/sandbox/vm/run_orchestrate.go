@@ -218,9 +218,10 @@ func resolveServeHostPort(opts options.RunOptions, planned int) int {
 	return planned
 }
 
-// prepareHomeVolume offers the opt-in legacy home-volume copy, then resolves
-// the project's home volume and its state. It returns the msb client and volume
-// manager for the caller's subsequent reconfig/VM steps.
+// prepareHomeVolume offers the opt-in legacy home-volume copy (unless this is a
+// side-effect-free --dry-run), then resolves the project's home volume and its
+// state. It returns the msb client and volume manager for the caller's
+// subsequent reconfig/VM steps.
 func prepareHomeVolume(
 	ctx context.Context,
 	k state.Key,
@@ -229,8 +230,12 @@ func prepareHomeVolume(
 	ui termio.UI,
 ) (msb.Client, *volume.Manager, string, state.HomeState, error) {
 	client := msb.Get()
-	if err := offerRuntimeHomeMigration(ctx, client, ui); err != nil {
-		return nil, nil, "", state.HomeState{}, fmt.Errorf("runtime home migration offer failed: %w", err)
+	// --dry-run is documented as side-effect-free, so it must not prompt or
+	// copy volumes. DryRunVM is unaffected: it still runs the offer.
+	if !opts.DryRun {
+		if err := offerRuntimeHomeMigration(ctx, client, ui); err != nil {
+			return nil, nil, "", state.HomeState{}, fmt.Errorf("runtime home migration offer failed: %w", err)
+		}
 	}
 
 	vm := volume.NewManager(ui)
