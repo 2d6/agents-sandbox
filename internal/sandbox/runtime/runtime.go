@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -57,22 +55,10 @@ type Inspection struct {
 	External             bool
 }
 
-type persistedRuntimeConfig struct {
-	Home  *string                     `json:"home"`
-	Paths persistedRuntimeConfigPaths `json:"paths"`
-}
-
-type persistedRuntimeConfigPaths struct {
-	MSB       *string `json:"msb"`
-	Libkrunfw *string `json:"libkrunfw"`
-}
-
 type selectedRuntime struct {
 	Home          string
 	MSBPath       string
 	LibkrunfwPath string
-	External      bool
-	Incomplete    bool
 }
 
 // PreparationResult reports whether the caller must exit so a replaced
@@ -148,7 +134,6 @@ func inspectRuntime(requiredVersion string) (Inspection, error) {
 		MSBHome:         selected.Home,
 		MSBPath:         selected.MSBPath,
 		LibkrunfwPath:   selected.LibkrunfwPath,
-		External:        selected.External,
 		Relation:        RuntimeMissing,
 	}
 
@@ -160,14 +145,7 @@ func inspectRuntime(requiredVersion string) (Inspection, error) {
 	if statErr != nil {
 		return Inspection{}, fmt.Errorf("inspect libkrunfw %s: %w", selected.LibkrunfwPath, statErr)
 	}
-	if selected.Incomplete {
-		inspection.Relation = RuntimeIncomplete
-		return inspection, nil
-	}
 	if !msbPresent && !libkrunfwPresent {
-		if inspection.External {
-			inspection.Relation = RuntimeIncomplete
-		}
 		return inspection, nil
 	}
 	if !msbPresent || !libkrunfwPresent {
@@ -193,104 +171,15 @@ func inspectRuntime(requiredVersion string) (Inspection, error) {
 }
 
 func selectRuntime() (selectedRuntime, error) {
-	defaultHome, err := runtimeHome()
+	home, err := PrivateHome()
 	if err != nil {
 		return selectedRuntime{}, err
 	}
-	config, err := loadPersistedRuntimeConfig()
-	if err != nil {
-		return selectedRuntime{}, err
-	}
-	home := defaultHome
-	if config.Home != nil {
-		home = *config.Home
-	}
-	defaultMSBPath := filepath.Join(home, "bin", msbFilename())
-
-	if msbPath, configured := os.LookupEnv("MSB_PATH"); configured {
-		if strings.TrimSpace(msbPath) == "" {
-			return selectedRuntime{}, errors.New("MSB_PATH is set but empty")
-		}
-		libkrunfwPath, hasLibrary := os.LookupEnv("MSB_LIBKRUNFW_PATH")
-		if !hasLibrary {
-			libkrunfwPath = runtimeLibraryCandidate(msbPath)
-		}
-		return selectedRuntime{
-			Home:          home,
-			MSBPath:       msbPath,
-			LibkrunfwPath: libkrunfwPath,
-			External:      true,
-			Incomplete:    false,
-		}, nil
-	}
-	if libkrunfwPath, configured := os.LookupEnv("MSB_LIBKRUNFW_PATH"); configured {
-		return selectedRuntime{
-			Home:          home,
-			MSBPath:       defaultMSBPath,
-			LibkrunfwPath: libkrunfwPath,
-			External:      true,
-			Incomplete:    true,
-		}, nil
-	}
-
-	if config.Paths.MSB != nil || config.Paths.Libkrunfw != nil {
-		msbPath := defaultMSBPath
-		if config.Paths.MSB != nil {
-			msbPath = *config.Paths.MSB
-		}
-		libkrunfwPath := runtimeLibraryCandidate(msbPath)
-		if config.Paths.Libkrunfw != nil {
-			libkrunfwPath = *config.Paths.Libkrunfw
-		}
-		return selectedRuntime{
-			Home:          home,
-			MSBPath:       msbPath,
-			LibkrunfwPath: libkrunfwPath,
-			External:      true,
-			Incomplete:    config.Paths.MSB == nil,
-		}, nil
-	}
-
 	return selectedRuntime{
 		Home:          home,
-		MSBPath:       defaultMSBPath,
+		MSBPath:       filepath.Join(home, "bin", msbFilename()),
 		LibkrunfwPath: filepath.Join(home, "lib", libkrunfwFilename()),
-		External:      false,
-		Incomplete:    false,
 	}, nil
-}
-
-func loadPersistedRuntimeConfig() (persistedRuntimeConfig, error) {
-	configPath, err := runtimeConfigPath()
-	if err != nil {
-		return persistedRuntimeConfig{}, err
-	}
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return persistedRuntimeConfig{}, nil
-		}
-		return persistedRuntimeConfig{}, fmt.Errorf("read microsandbox config %s: %w", configPath, err)
-	}
-	var config persistedRuntimeConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return persistedRuntimeConfig{}, fmt.Errorf("parse microsandbox config %s: %w", configPath, err)
-	}
-	return config, nil
-}
-
-func runtimeConfigPath() (string, error) {
-	if configPath, configured := os.LookupEnv("MSB_CONFIG_PATH"); configured {
-		if strings.TrimSpace(configPath) == "" {
-			return "", errors.New("MSB_CONFIG_PATH is set but empty")
-		}
-		return configPath, nil
-	}
-	home, err := runtimeHome()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, "config.json"), nil
 }
 
 func runtimeFilePresent(path string) (bool, error) {
@@ -305,22 +194,6 @@ func runtimeFilePresent(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
-}
-
-func runtimeLibraryCandidate(msbPath string) string {
-	if msbPath == "" {
-		return ""
-	}
-	filename := libkrunfwFilename()
-	for _, candidate := range []string{
-		filepath.Join(filepath.Dir(msbPath), filename),
-		filepath.Join(filepath.Dir(msbPath), "..", "lib", filename),
-	} {
-		if present, _ := runtimeFilePresent(candidate); present {
-			return candidate
-		}
-	}
-	return filepath.Join(filepath.Dir(msbPath), filename)
 }
 
 var inspectRuntimeFunc = inspectRuntime
@@ -576,17 +449,6 @@ func validatePreparedRuntime(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func runtimeHome() (string, error) {
-	if home := os.Getenv("MSB_HOME"); home != "" {
-		return home, nil
-	}
-	home, err := userHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home directory: %w", err)
-	}
-	return filepath.Join(home, ".microsandbox"), nil
 }
 
 func sanitizeRuntimePath(path, home string) string {

@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -36,194 +36,6 @@ func TestInspectRuntimeEqual(t *testing.T) {
 	}
 }
 
-func TestInspectRuntimeCustomMSBHomeRemainsManaged(t *testing.T) {
-	home := t.TempDir()
-	binDir := filepath.Join(home, "bin")
-	libDir := filepath.Join(home, "lib")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(libDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(binDir, "msb"),
-		msbVersionScript(currentMSBVersion()),
-		0o755,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(libDir, "libkrunfw.so.5.6.1"), []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_HOME", home)
-	unsetEnv(t, "MSB_PATH")
-
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if inspection.External {
-		t.Fatal("MSB_HOME alone must not mark the runtime external")
-	}
-}
-
-func TestInspectRuntimeUsesPersistedRuntimeHome(t *testing.T) {
-	root := t.TempDir()
-	configuredHome := filepath.Join(root, "configured-runtime")
-	writeRuntimeFiles(t, configuredHome, currentMSBVersion())
-	configPath := filepath.Join(root, "config.json")
-	config := fmt.Sprintf(`{"home":%q}`, configuredHome)
-	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", filepath.Join(root, "default-home"))
-	t.Setenv("MSB_CONFIG_PATH", configPath)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-	unsetEnv(t, "MSB_LIBKRUNFW_PATH")
-
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if inspection.Relation != RuntimeEqual {
-		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeEqual)
-	}
-	if inspection.MSBHome != configuredHome {
-		t.Errorf("MSBHome = %q, want %q", inspection.MSBHome, configuredHome)
-	}
-	if inspection.MSBPath != filepath.Join(configuredHome, "bin", "msb") {
-		t.Errorf("MSBPath = %q", inspection.MSBPath)
-	}
-}
-
-func TestInspectRuntimeUsesPersistedRuntimePaths(t *testing.T) {
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "custom", "msb")
-	libPath := filepath.Join(root, "custom", "libkrunfw.so.5.6.1")
-	if err := os.MkdirAll(filepath.Dir(msbPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(root, "config.json")
-	config := fmt.Sprintf(`{"paths":{"msb":%q,"libkrunfw":%q}}`, msbPath, libPath)
-	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", filepath.Join(root, "default-home"))
-	t.Setenv("MSB_CONFIG_PATH", configPath)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-	unsetEnv(t, "MSB_LIBKRUNFW_PATH")
-
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if inspection.Relation != RuntimeEqual {
-		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeEqual)
-	}
-	if !inspection.External {
-		t.Fatal("configured runtime paths should be treated as external")
-	}
-	if inspection.MSBPath != msbPath || inspection.LibkrunfwPath != libPath {
-		t.Fatalf("selected paths = %q, %q; want %q, %q", inspection.MSBPath, inspection.LibkrunfwPath, msbPath, libPath)
-	}
-}
-
-func TestInspectRuntimePersistedConfigReadError(t *testing.T) {
-	t.Setenv("MSB_CONFIG_PATH", t.TempDir())
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want config read error")
-	}
-}
-
-func TestInspectRuntimePersistedConfigParseError(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(configPath, []byte("{"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_CONFIG_PATH", configPath)
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want config parse error")
-	}
-}
-
-func TestInspectRuntimeRejectsEmptyConfigPath(t *testing.T) {
-	t.Setenv("MSB_CONFIG_PATH", " ")
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want empty config path error")
-	}
-}
-
-func TestInspectRuntimeReportsMSBStatError(t *testing.T) {
-	root := t.TempDir()
-	configPath := filepath.Join(root, "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"paths":{"msb":"\u0000"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_CONFIG_PATH", configPath)
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want msb stat error")
-	}
-}
-
-func TestInspectRuntimeReportsLibraryStatError(t *testing.T) {
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "msb")
-	if err := os.WriteFile(msbPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(root, "config.json")
-	config := fmt.Sprintf(`{"paths":{"msb":%q,"libkrunfw":"\u0000"}}`, msbPath)
-	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_CONFIG_PATH", configPath)
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want libkrunfw stat error")
-	}
-}
-
-func TestInspectRuntimeLibraryOnlyOverrideIsIncomplete(t *testing.T) {
-	t.Setenv("MSB_LIBKRUNFW_PATH", filepath.Join(t.TempDir(), "libkrunfw.so.5.6.1"))
-	unsetEnv(t, "MSB_PATH")
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if inspection.Relation != RuntimeIncomplete {
-		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeIncomplete)
-	}
-}
-
-func TestInspectRuntimeMSBOverrideFindsAdjacentLibrary(t *testing.T) {
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "msb")
-	libPath := filepath.Join(root, "libkrunfw.so.5.6.1")
-	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_PATH", msbPath)
-	unsetEnv(t, "MSB_LIBKRUNFW_PATH")
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if inspection.Relation != RuntimeEqual || inspection.LibkrunfwPath != libPath {
-		t.Fatalf("inspection = %+v, want equal runtime using %q", inspection, libPath)
-	}
-}
-
 func TestRuntimeFilePresentClassifiesPaths(t *testing.T) {
 	if present, err := runtimeFilePresent(""); err != nil || present {
 		t.Fatalf("empty path = %v, %v; want false, nil", present, err)
@@ -244,28 +56,6 @@ func TestRuntimeFilePresentClassifiesPaths(t *testing.T) {
 	}
 	if present, err := runtimeFilePresent(string([]byte{'\x00'})); err == nil || present {
 		t.Fatalf("invalid path = %v, %v; want false, error", present, err)
-	}
-}
-
-func TestRuntimeConfigPathHomeResolutionError(t *testing.T) {
-	oldHome := userHomeDir
-	userHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
-	t.Cleanup(func() { userHomeDir = oldHome })
-	unsetEnv(t, "MSB_CONFIG_PATH")
-	if _, err := runtimeConfigPath(); err == nil {
-		t.Fatal("runtimeConfigPath() error = nil, want home resolution error")
-	}
-}
-
-func TestRuntimeLibraryCandidateFallbacks(t *testing.T) {
-	if got := runtimeLibraryCandidate(""); got != "" {
-		t.Fatalf("empty msb path candidate = %q, want empty", got)
-	}
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "bin", "msb")
-	want := filepath.Join(root, "bin", "libkrunfw.so.5.6.1")
-	if got := runtimeLibraryCandidate(msbPath); got != want {
-		t.Fatalf("missing library candidate = %q, want %q", got, want)
 	}
 }
 
@@ -308,41 +98,6 @@ func TestInspectRuntimeMissingLibraryIsIncomplete(t *testing.T) {
 	}
 	if inspection.Relation != RuntimeIncomplete {
 		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeIncomplete)
-	}
-}
-
-func TestInspectRuntimeUsesExplicitMSBPathAndLibrary(t *testing.T) {
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "custom", "msb")
-	libPath := filepath.Join(root, "custom", "libkrunfw.so.5.6.1")
-	if err := os.MkdirAll(filepath.Dir(msbPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_PATH", msbPath)
-	t.Setenv("MSB_LIBKRUNFW_PATH", libPath)
-
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if !inspection.External || inspection.Relation != RuntimeEqual {
-		t.Fatalf("inspection = %+v, want external equal runtime", inspection)
-	}
-	if inspection.LibkrunfwPath != libPath {
-		t.Errorf("LibkrunfwPath = %q, want %q", inspection.LibkrunfwPath, libPath)
-	}
-}
-
-func TestInspectRuntimeRejectsEmptyMSBPath(t *testing.T) {
-	t.Setenv("MSB_PATH", " ")
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want empty MSB_PATH error")
 	}
 }
 
@@ -395,10 +150,7 @@ func TestInspectRuntimeInvalidRequiredVersion(t *testing.T) {
 }
 
 func TestInspectRuntimeMissingBinary(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	mockRuntimeHome(t)
 
 	inspection, err := InspectRuntime()
 	if err != nil {
@@ -406,29 +158,6 @@ func TestInspectRuntimeMissingBinary(t *testing.T) {
 	}
 	if inspection.Relation != RuntimeMissing {
 		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeMissing)
-	}
-}
-
-func TestInspectRuntimeHomeResolutionError(t *testing.T) {
-	oldHome := userHomeDir
-	userHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
-	t.Cleanup(func() { userHomeDir = oldHome })
-	unsetEnv(t, "MSB_HOME")
-
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want home resolution error")
-	}
-}
-
-func TestInspectRuntimeStatError(t *testing.T) {
-	oldHome := userHomeDir
-	userHomeDir = func() (string, error) { return string([]byte{'\x00'}), nil }
-	t.Cleanup(func() { userHomeDir = oldHome })
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want stat error")
 	}
 }
 
@@ -596,14 +325,13 @@ func TestPrepareRuntimePublicGateUsesRealClient(t *testing.T) {
 
 func TestPrepareRuntimeMissingManagedRuntimeInstallsAndValidates(t *testing.T) {
 	resetRuntimeState(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := mockRuntimeHome(t)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 
 	oldEnsure, oldValidate := ensureRuntime, validateRuntime
 	ensureRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
+		writeRuntimeFiles(t, home, currentMSBVersion())
 		return nil
 	}
 	validateRuntime = func(context.Context) error { return nil }
@@ -643,14 +371,13 @@ func TestPrepareRuntimeMissingManagedRuntimeInstallFails(t *testing.T) {
 
 func TestPrepareRuntimeMissingManagedRuntimeValidationFails(t *testing.T) {
 	resetRuntimeState(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := mockRuntimeHome(t)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 
 	oldEnsure, oldValidate := ensureRuntime, validateRuntime
 	ensureRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
+		writeRuntimeFiles(t, home, currentMSBVersion())
 		return nil
 	}
 	validateRuntime = func(context.Context) error { return errors.New("validation failed") }
@@ -721,7 +448,7 @@ func TestPrepareRuntimeUpgradeMSBAction(t *testing.T) {
 
 	oldInstall, oldValidate := installRuntime, validateRuntime
 	installRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
+		writeRuntimeFiles(t, home, currentMSBVersion())
 		return nil
 	}
 	validateRuntime = func(context.Context) error { return nil }
@@ -744,7 +471,7 @@ func TestPrepareRuntimeDowngradeMSBAction(t *testing.T) {
 
 	oldDowngrade, oldValidate := runMSBDowngrade, validateRuntime
 	runMSBDowngrade = func(_ context.Context, _, version string, _, _ io.Writer) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), version)
+		writeRuntimeFiles(t, home, version)
 		return nil
 	}
 	validateRuntime = func(context.Context) error { return nil }
@@ -829,16 +556,6 @@ func TestPrepareRuntimeUnknownAction(t *testing.T) {
 	}
 }
 
-func TestPrepareRuntimeExternalMissingRuntimeOffersIssueAndQuit(t *testing.T) {
-	resetRuntimeState(t)
-	t.Setenv("MSB_PATH", filepath.Join(t.TempDir(), "missing-msb"))
-	t.Setenv("MSB_LIBKRUNFW_PATH", filepath.Join(t.TempDir(), "missing-lib"))
-	ui := selectRuntimeAction("q")
-	if _, err := prepareRuntime(context.Background(), ui, "0.2.0"); err == nil {
-		t.Fatal("external missing runtime quit returned nil error")
-	}
-}
-
 func TestPrepareRuntimeLauncherUpgradeLookupAndInstallErrors(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
@@ -885,7 +602,7 @@ func TestPrepareRuntimeUpgradeAndValidationErrors(t *testing.T) {
 
 	resetRuntimeState(t)
 	installRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
+		writeRuntimeFiles(t, home, currentMSBVersion())
 		return nil
 	}
 	validateRuntime = func(context.Context) error { return errors.New("aligned validation failed") }
@@ -908,45 +625,6 @@ func TestPrepareRuntimeDowngradeErrors(t *testing.T) {
 	t.Cleanup(func() { runMSBDowngrade = oldDowngrade })
 	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("d"), "0.2.0"); err == nil {
 		t.Fatal("downgrade failure returned nil error")
-	}
-}
-
-func TestPrepareRuntimeExternalDowngradeIsRejected(t *testing.T) {
-	resetRuntimeState(t)
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "msb")
-	libPath := filepath.Join(root, "libkrunfw.so.5.6.1")
-	if err := os.WriteFile(msbPath, msbVersionScript(newerMSBVersion(t)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_PATH", msbPath)
-	t.Setenv("MSB_LIBKRUNFW_PATH", libPath)
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("d"), "0.2.0"); err == nil {
-		t.Fatal("external downgrade returned nil error")
-	}
-}
-
-func TestPrepareRuntimeExternalEqualSkipsValidationInstaller(t *testing.T) {
-	resetRuntimeState(t)
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "msb")
-	libPath := filepath.Join(root, "libkrunfw.so.5.6.1")
-	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_PATH", msbPath)
-	t.Setenv("MSB_LIBKRUNFW_PATH", libPath)
-	oldValidate := validateRuntime
-	validateRuntime = func(context.Context) error { return errors.New("external validation must not run") }
-	t.Cleanup(func() { validateRuntime = oldValidate })
-	if _, err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
-		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 }
 
@@ -986,26 +664,6 @@ func TestValidatePreparedRuntimeInspectionFails(t *testing.T) {
 func TestSanitizeRuntimePathEmpty(t *testing.T) {
 	if got := sanitizeRuntimePath("", ""); got != "<unset>" {
 		t.Errorf("sanitizeRuntimePath() = %q, want <unset>", got)
-	}
-}
-
-func TestRuntimeLibraryPathUsesExplicitMSBPathCandidates(t *testing.T) {
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "bin", "msb")
-	libPath := filepath.Join(root, "lib", "libkrunfw.so.5.6.1")
-	if err := os.MkdirAll(filepath.Dir(msbPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(libPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_PATH", msbPath)
-	unsetEnv(t, "MSB_LIBKRUNFW_PATH")
-	if got := runtimeLibraryCandidate(msbPath); got != libPath {
-		t.Errorf("runtimeLibraryCandidate() = %q, want %q", got, libPath)
 	}
 }
 
@@ -1198,23 +856,18 @@ func msbVersionScript(version string) []byte {
 	return []byte("#!/bin/sh\nprintf 'msb " + version + "\\n'\n")
 }
 
+func mockRuntimeHome(t *testing.T) string {
+	t.Helper()
+	configpaths.WithMockConfigPaths(t)
+	return filepath.Join(configpaths.Get().UserDataDir(), "msb")
+}
+
 func writeRuntimeFixture(t *testing.T, version string, includeLibrary bool) string {
 	t.Helper()
-	home := t.TempDir()
-	binDir := filepath.Join(home, ".microsandbox", "bin")
-	libDir := filepath.Join(home, ".microsandbox", "lib")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(libDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	msbPath := filepath.Join(binDir, "msb")
-	if err := os.WriteFile(msbPath, msbVersionScript(version), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if includeLibrary {
-		if err := os.WriteFile(filepath.Join(libDir, "libkrunfw.so.5.6.1"), []byte("fixture"), 0o755); err != nil {
+	home := mockRuntimeHome(t)
+	writeRuntimeFiles(t, home, version)
+	if !includeLibrary {
+		if err := os.Remove(filepath.Join(home, "lib", "libkrunfw.so.5.6.1")); err != nil {
 			t.Fatal(err)
 		}
 	}
