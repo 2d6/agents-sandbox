@@ -12,7 +12,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	msbruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -53,27 +52,12 @@ func TestCommandNeedsMSBRuntimeSkipsLauncherOnlyCommands(t *testing.T) {
 	}
 }
 
-func TestRootCommandReturnsRuntimeRestart(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) (msbruntime.PreparationResult, error) {
-		return msbruntime.PreparationResult{Restart: true}, nil
-	}
-	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--dry-run"})
-	if err := root.Execute(); err == nil {
-		t.Fatal("Execute() error = nil, want restart exit error")
-	}
-}
-
 func TestRootCommandReturnsRuntimePreparationError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) (msbruntime.PreparationResult, error) {
-		return msbruntime.PreparationResult{}, errors.New("runtime mismatch")
+	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+		return errors.New("runtime mismatch")
 	}
 	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
 	root := buildRootCmd(ui)
@@ -87,9 +71,9 @@ func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) (msbruntime.PreparationResult, error) {
+	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
 		t.Fatal("runtime preparation must not run after invalid CLI settings")
-		return msbruntime.PreparationResult{}, nil
+		return nil
 	}
 	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
 	root := buildRootCmd(ui)

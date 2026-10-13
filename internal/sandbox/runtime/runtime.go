@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,15 +14,13 @@ import (
 
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
-	"github.com/inoio/agents-sandbox/internal/upgrade"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 const (
-	runtimeIssueURL = "https://github.com/inoio/agents-sandbox/issues/new?template=bug_report.yml"
-	windowsOS       = "windows"
-	msbBinaryName   = "msb"
+	windowsOS     = "windows"
+	msbBinaryName = "msb"
 )
 
 // Relation describes the relationship between the runtime selected for
@@ -52,7 +49,6 @@ type Inspection struct {
 	MSBHome              string
 	LibkrunfwPath        string
 	Relation             Relation
-	External             bool
 }
 
 type selectedRuntime struct {
@@ -61,18 +57,12 @@ type selectedRuntime struct {
 	LibkrunfwPath string
 }
 
-// PreparationResult reports whether the caller must exit so a replaced
-// agents-sandbox binary can be used by a fresh process.
-type PreparationResult struct {
-	Restart bool
-}
-
 var runtimeState = struct {
 	mutex    sync.Mutex
 	prepared bool
 }{mutex: sync.Mutex{}, prepared: false}
 
-// Command seams keep runtime recovery unit-testable without touching the host
+// Command seams keep runtime inspection unit-testable without touching the host
 // runtime or replacing the test executable.
 var (
 	runMSBVersion = func(path string) (string, error) {
@@ -82,27 +72,11 @@ var (
 		}
 		return strings.TrimSpace(string(output)), nil
 	}
-	runMSBDowngrade = func(ctx context.Context, path, version string, stdout, stderr io.Writer) error {
-		command := exec.CommandContext(ctx, path, "downgrade", version, "--yes")
-		command.Stdout = stdout
-		command.Stderr = stderr
-		return command.Run()
-	}
-	latestAgentsSandboxVersion = upgrade.LatestVersion
-	updateAgentsSandbox        = upgrade.Update
-	ensureRuntime              = func(ctx context.Context) error {
+	ensureRuntime = func(ctx context.Context) error {
 		_, err := msbSdk.EnsureRuntime(
 			ctx,
 			msbSdk.RuntimeConfig{},
 			msbSdk.InstallOptions{},
-		)
-		return err
-	}
-	installRuntime = func(ctx context.Context) error {
-		_, err := msbSdk.InstallRuntime(
-			ctx,
-			msbSdk.RuntimeConfig{},
-			msbSdk.InstallOptions{Force: true},
 		)
 		return err
 	}
@@ -200,23 +174,26 @@ var inspectRuntimeFunc = inspectRuntime
 
 // PrepareRuntime inspects and resolves the runtime before any SDK operation.
 // Mock msb clients used by command tests do not need host runtime setup.
-func PrepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) (PreparationResult, error) {
+func PrepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) error {
 	if !runtimeClientIsReal() {
-		return PreparationResult{}, nil
+		return nil
 	}
 	return prepareRuntime(ctx, ui, launcherVersion)
 }
 
-func prepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) (PreparationResult, error) {
+func prepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) error {
 	runtimeState.mutex.Lock()
 	defer runtimeState.mutex.Unlock()
 	if runtimeState.prepared {
-		return PreparationResult{}, nil
+		return nil
 	}
 
+	if _, err := ApplyHome(); err != nil {
+		return fmt.Errorf("apply microsandbox home: %w", err)
+	}
 	inspection, err := inspectRuntimeFunc(msbSdk.SDKVersion())
 	if err != nil {
-		return PreparationResult{}, err
+		return err
 	}
 	inspection.AgentsSandboxVersion = launcherVersion
 	ui.Verbosef(
@@ -229,191 +206,30 @@ func prepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) (
 
 	switch inspection.Relation {
 	case RuntimeEqual:
-		if !inspection.External {
-			if err := validateRuntime(ctx); err != nil {
-				return PreparationResult{}, fmt.Errorf("validate msb runtime: %w", err)
-			}
+		if err := validateRuntime(ctx); err != nil {
+			return fmt.Errorf("validate msb runtime: %w", err)
 		}
 		sandboxmsb.SkipRuntimeInstall()
 		runtimeState.prepared = true
-		return PreparationResult{}, nil
+		return nil
 	case RuntimeMissing:
-		if inspection.External {
-			return recoverRuntimeMismatch(ctx, ui, launcherVersion, inspection)
-		}
 		if err := ensureRuntime(ctx); err != nil {
-			return PreparationResult{}, fmt.Errorf("install msb runtime: %w", err)
+			return fmt.Errorf("install msb runtime: %w", err)
 		}
 		if err := validatePreparedRuntime(ctx); err != nil {
-			return PreparationResult{}, err
+			return err
 		}
 		sandboxmsb.SkipRuntimeInstall()
 		runtimeState.prepared = true
-		return PreparationResult{}, nil
+		return nil
 	case RuntimeNewer, RuntimeOlder, RuntimeUnknown, RuntimeIncomplete:
-		return recoverRuntimeMismatch(ctx, ui, launcherVersion, inspection)
-	default:
-		return PreparationResult{}, fmt.Errorf("unknown msb runtime relation %q", inspection.Relation)
-	}
-}
-
-func recoverRuntimeMismatch(
-	ctx context.Context,
-	ui termio.UI,
-	launcherVersion string,
-	inspection Inspection,
-) (PreparationResult, error) {
-	if !ui.IsInteractive() {
-		return PreparationResult{}, nonInteractiveMismatchError(ui, inspection)
-	}
-
-	choices := mismatchChoices(ctx, launcherVersion, inspection)
-	key, err := ui.Select(mismatchPrompt(inspection), choices, "q")
-	if err != nil {
-		return PreparationResult{}, fmt.Errorf("select msb recovery action: %w", err)
-	}
-
-	switch key {
-	case "a":
-		latest, latestErr := latestAgentsSandboxVersion(ctx)
-		if latestErr != nil {
-			return PreparationResult{}, fmt.Errorf("find newer agents-sandbox release: %w", latestErr)
-		}
-		ui.Infof("upgrading agents-sandbox %s -> %s", launcherVersion, latest)
-		if err := updateAgentsSandbox(ctx, latest); err != nil {
-			return PreparationResult{}, fmt.Errorf("upgrade agents-sandbox: %w", err)
-		}
-		ui.Infof("agents-sandbox upgraded to %s; restart to retry with the new runtime", latest)
-		return PreparationResult{Restart: true}, nil
-	case "u":
-		if err := installRuntime(ctx); err != nil {
-			return PreparationResult{}, fmt.Errorf("upgrade msb runtime: %w", err)
-		}
-		return completeRuntimePreparation(ctx)
-	case "d":
-		if inspection.External {
-			return PreparationResult{}, runtimeMismatchError(
-				inspection,
-				"the selected runtime is externally configured; downgrade it manually",
-			)
-		}
-		if err := runMSBDowngrade(
-			ctx,
-			inspection.MSBPath,
-			inspection.RequiredVersion,
-			ui.StdOut(),
-			ui.StdErr(),
-		); err != nil {
-			return PreparationResult{}, fmt.Errorf("downgrade msb runtime: %w", err)
-		}
-		return completeRuntimePreparation(ctx)
-	case "b":
-		ui.Warnf(
-			"brave mode is unsupported: using msb %s with agents-sandbox SDK %s without changing the runtime",
-			inspection.InstalledVersion,
-			inspection.RequiredVersion,
+		return runtimeMismatchError(
+			inspection,
+			"runtime is not the SDK-pinned version; reinstall agents-sandbox runtime",
 		)
-		sandboxmsb.SkipRuntimeInstall()
-		runtimeState.prepared = true
-		return PreparationResult{}, nil
-	case "i":
-		showIssueReport(ui, inspection)
-		return PreparationResult{}, runtimeMismatchError(inspection, "user chose to submit an issue")
-	case "q", "":
-		return PreparationResult{}, runtimeMismatchError(inspection, "user chose not to change the runtime")
 	default:
-		return PreparationResult{}, fmt.Errorf("unknown msb recovery action %q", key)
+		return fmt.Errorf("unknown msb runtime relation %q", inspection.Relation)
 	}
-}
-
-func mismatchChoices(ctx context.Context, launcherVersion string, inspection Inspection) []termio.Choice {
-	choices := make([]termio.Choice, 0, 5)
-	issueDescription := "show a sanitized compatibility report and issue URL"
-	if inspection.Relation == RuntimeNewer && launcherVersion != "" && launcherVersion != "dev" {
-		if latest, err := latestAgentsSandboxVersion(ctx); err == nil {
-			newer, compareErr := upgrade.IsNewer(launcherVersion, latest)
-			switch {
-			case compareErr == nil && newer && !upgrade.InstalledViaHomebrew():
-				choices = append(choices, termio.Choice{
-					Label:       "Upgrade agents-sandbox and restart",
-					Key:         "a",
-					Description: "install " + latest + " and retry with its microsandbox SDK",
-				})
-			case compareErr == nil:
-				// Either the launcher is already the newest release, or a newer
-				// release exists but is managed by Homebrew and must be updated
-				// out-of-band; either way a compatibility issue is the fallback.
-				issueDescription = "request an agents-sandbox release supporting msb " + inspection.InstalledVersion
-			}
-		}
-	}
-	if inspection.Relation == RuntimeNewer && !inspection.External {
-		choices = append(choices, termio.Choice{
-			Label:       "Downgrade msb",
-			Key:         "d",
-			Description: "run the official rollback to " + inspection.RequiredVersion + " with a database backup",
-		})
-	}
-	if inspection.Relation == RuntimeOlder && !inspection.External {
-		choices = append(choices, termio.Choice{
-			Label:       "Upgrade msb",
-			Key:         "u",
-			Description: "install the SDK-required runtime " + inspection.RequiredVersion,
-		})
-	}
-	if inspection.Relation == RuntimeNewer || inspection.Relation == RuntimeOlder {
-		choices = append(choices, termio.Choice{
-			Label:       "Brave mode",
-			Key:         "b",
-			Description: "use the installed runtime without changing it (unsupported)",
-		})
-	}
-	choices = append(choices, termio.Choice{
-		Label:       "Submit an issue",
-		Key:         "i",
-		Description: issueDescription,
-	})
-	choices = append(choices, termio.Choice{
-		Label:       "Quit",
-		Key:         "q",
-		Description: "leave the runtime unchanged",
-	})
-	return choices
-}
-
-func mismatchPrompt(inspection Inspection) string {
-	if inspection.Relation == RuntimeIncomplete {
-		return fmt.Sprintf(
-			"agents-sandbox found an incomplete msb runtime at %s; reinstall the matching msb/libkrunfw pair before retrying",
-			inspection.MSBPath,
-		)
-	}
-	return fmt.Sprintf(
-		"agents-sandbox requires msb %s, but the selected runtime is %s at %s",
-		inspection.RequiredVersion,
-		valueOr(inspection.InstalledVersion, "unknown"),
-		inspection.MSBPath,
-	)
-}
-
-func nonInteractiveMismatchError(ui termio.UI, inspection Inspection) error {
-	ui.Warnf("%s", mismatchPrompt(inspection))
-	showIssueReport(ui, inspection)
-	return runtimeMismatchError(inspection, "interactive runtime recovery is unavailable")
-}
-
-func showIssueReport(ui termio.UI, inspection Inspection) {
-	ui.Errorf("No runtime change was made. Submit a compatibility issue: %s", runtimeIssueURL)
-	ui.Errorf(
-		"diagnostics: agents-sandbox=%s; SDK requires msb %s; selected msb=%s; installed msb=%s; MSB_HOME=%s; host=%s/%s",
-		valueOr(inspection.AgentsSandboxVersion, "unknown"),
-		inspection.RequiredVersion,
-		sanitizeRuntimePath(inspection.MSBPath, inspection.MSBHome),
-		valueOr(inspection.InstalledVersion, "unknown"),
-		sanitizeRuntimePath(inspection.MSBHome, inspection.MSBHome),
-		runtime.GOOS,
-		runtime.GOARCH,
-	)
 }
 
 func runtimeMismatchError(inspection Inspection, reason string) error {
@@ -426,15 +242,6 @@ func runtimeMismatchError(inspection Inspection, reason string) error {
 	)
 }
 
-func completeRuntimePreparation(ctx context.Context) (PreparationResult, error) {
-	if err := validatePreparedRuntime(ctx); err != nil {
-		return PreparationResult{}, err
-	}
-	sandboxmsb.SkipRuntimeInstall()
-	runtimeState.prepared = true
-	return PreparationResult{}, nil
-}
-
 func validatePreparedRuntime(ctx context.Context) error {
 	inspection, err := inspectRuntimeFunc(msbSdk.SDKVersion())
 	if err != nil {
@@ -443,10 +250,8 @@ func validatePreparedRuntime(ctx context.Context) error {
 	if inspection.Relation != RuntimeEqual {
 		return runtimeMismatchError(inspection, "runtime alignment did not complete")
 	}
-	if !inspection.External {
-		if err := validateRuntime(ctx); err != nil {
-			return fmt.Errorf("validate aligned msb runtime: %w", err)
-		}
+	if err := validateRuntime(ctx); err != nil {
+		return fmt.Errorf("validate aligned msb runtime: %w", err)
 	}
 	return nil
 }
