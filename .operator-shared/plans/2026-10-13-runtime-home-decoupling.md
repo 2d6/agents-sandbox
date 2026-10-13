@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.26, Cobra, Viper, `microsandbox` Go SDK (`sdk/go@v0.7.7`), `gopkg.in/yaml.v3`, testify.
 
-**Spec:** `docs/superpowers/specs/2026-10-13-runtime-home-decoupling-design.md` (also committed at `.operator-shared/specs/runtime-home-decoupling.md`). Read it alongside this plan.
+**Spec:** `.operator-shared/specs/runtime-home-decoupling.md`. Read it alongside this plan.
 
 ## Global Constraints
 
