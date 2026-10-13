@@ -134,10 +134,8 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   records, or image caches — those are re-provisioned/rebuildable. The buildkit
   cache volume (`agents-sandbox-buildkit-cache`) is likewise excluded.
 - The copy is a host-side byte copy: locate the source directory, copy into a
-  volume created in our private home, then fix ownership (matching the existing
-  `cp -a` + `chown` the throwaway-VM copy path uses). No shell-out to any `msb`,
-  and no throwaway VM — a foreign home's volume cannot be mounted by our runtime
-  anyway.
+  volume created in our private home. No shell-out to any `msb`, and no throwaway
+  VM — a foreign home's volume cannot be mounted by our runtime anyway.
 - Source selection is by name, not by our per-project state: any directory under
   `~/.microsandbox/volumes/` matching `agents-sandbox-home-*` that is absent from
   the private home. This keeps necessity and completion pure functions of the two
@@ -151,6 +149,19 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   matching the precedent that `--yes` does not auto-select the (now removed)
   runtime recovery action. A multi-gigabyte copy must never be triggered
   implicitly.
+
+### Host-side copy mechanics
+
+- The copy runs as the invoking user and does **not** chown: the private-home
+  volume is owned by that user by construction, and the runtime presents host
+  ownership into the VM. (The `chown dev:dev` in the throwaway-VM copy path is
+  unnecessary here because there is no VM and no root assumption.)
+- A recursive copy preserves file mode and modification time; symlinks are
+  recreated as symlinks, never followed.
+- Interruption handling: a per-volume copy that fails removes that volume
+  best-effort, so the name is again absent from the private home and necessity
+  stays derived true, letting the next interactive start re-offer. Previously
+  completed volumes are left in place and simply stop being necessary.
 
 ### Persisted state
 
@@ -194,8 +205,6 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   persisted paths / `External` / `Incomplete`) and the recovery menu, while
   keeping any internal sanity checks that should remain.
 - Where the copy prompt hooks into the session start (`run`/`shell`) path.
-- The host-side copy implementation: atomicity/interruption behavior, ownership
-  fix details per platform, and how a partially copied set is handled.
 - The stale-state detection ("recorded volume missing") and where it lives.
 - `doctor` changes after removing the runtime prerequisite/hints.
 - macOS-specific path and behavior confirmation.
