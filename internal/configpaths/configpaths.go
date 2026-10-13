@@ -11,6 +11,7 @@ type ConfigPaths interface {
 	UserConfigDir() string
 	UserCacheDir() string
 	UserStateDir() string
+	UserDataDir() string
 	UserAgentConfigDir(a agent.Agent) string
 
 	UserEnvFile() string
@@ -49,6 +50,12 @@ func (c *realConfigPaths) UserCacheDir() string {
 // agents-sandbox, defaulting to ~/.local/state/agents-sandbox.
 func (c *realConfigPaths) UserStateDir() string {
 	return filepath.Join(xdgBaseDir("XDG_STATE_HOME", ".local/state"), pathPrefix)
+}
+
+// UserDataDir returns the tool's data directory: $XDG_DATA_HOME/
+// agents-sandbox, defaulting to ~/.local/share/agents-sandbox.
+func (c *realConfigPaths) UserDataDir() string {
+	return filepath.Join(xdgBaseDir("XDG_DATA_HOME", ".local/share"), pathPrefix)
 }
 
 // UserAgentConfigDir returns the directory of the active agent's own user

@@ -1,6 +1,7 @@
 package configpaths
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -124,6 +125,25 @@ func TestProjectDirsAndFiles(t *testing.T) {
 	}
 	if got := cfgPaths.ProjectDockerfile(); got != filepath.Join(projectConfigDir, DockerFileName) {
 		t.Errorf("ProjectDockerfile() = %q", got)
+	}
+}
+
+func TestUserDataDirHonorsXDGDataHome(t *testing.T) {
+	WithRealConfigPaths(t)
+	t.Setenv("XDG_DATA_HOME", "/tmp/xdg-data")
+	want := filepath.Join("/tmp/xdg-data", "agents-sandbox")
+	if got := Get().UserDataDir(); got != want {
+		t.Errorf("UserDataDir() = %q, want %q", got, want)
+	}
+}
+
+func TestUserDataDirDefaultsToLocalShare(t *testing.T) {
+	WithRealConfigPaths(t)
+	t.Setenv("XDG_DATA_HOME", "")
+	home, _ := os.UserHomeDir()
+	want := filepath.Join(home, ".local", "share", "agents-sandbox")
+	if got := Get().UserDataDir(); got != want {
+		t.Errorf("UserDataDir() = %q, want %q", got, want)
 	}
 }
 
