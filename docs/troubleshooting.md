@@ -28,16 +28,7 @@ command, and does not require any particular `msb` version on your machine. If
 agents-sandbox is the only thing installed, the absence of an `msb` command is
 expected, not a defect.
 
-Because the runtime is always the exact one pinned by the linked SDK, there is
-no version-matching prompt — an inconsistent private runtime is reported as a
-plain error. To recover, reinstall agents-sandbox, or delete the private
-runtime directory so it is provisioned again on the next run:
-
-```console
-rm -rf ~/.local/share/agents-sandbox/msb
-```
-
-If a runtime error persists, submit a bug report at:
+If you encounter a runtime error, submit a bug report at:
 
 <https://github.com/inoio/agents-sandbox/issues/new?template=bug_report.yml>
 
