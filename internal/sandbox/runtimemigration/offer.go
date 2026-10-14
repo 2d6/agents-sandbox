@@ -2,6 +2,7 @@ package runtimemigration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -10,26 +11,38 @@ import (
 )
 
 // Offer choices. "copy" copies every necessary legacy volume at once; "fresh"
-// records a permanent opt-out; "later" leaves the offer pending for the next
-// interactive session.
+// records a permanent opt-out; "quit" aborts the session without a decision, so
+// the offer returns next time. There is deliberately no "decide later": the
+// session cannot proceed while the decision is unmade, because resolving the
+// home volume would create a fresh one and overwrite the project's recorded
+// reference before the old data could be copied.
 const (
 	choiceCopy  = "c"
 	choiceFresh = "s"
-	choiceLater = "q"
+	choiceQuit  = "q"
 )
+
+// ErrMigrationPending reports that the one-time legacy home-volume decision has
+// not been made. A non-interactive session (including --yes) cannot make it, so
+// it returns this error before touching the home volume rather than silently
+// orphaning the legacy data. An interactive session returns it only when the
+// user quits the prompt or the prompt fails.
+var ErrMigrationPending = errors.New("legacy home-volume migration pending")
 
 // Offer presents the one-time, opt-in copy of legacy microsandbox home volumes
 // into the private runtime home, at the start of an interactive session.
 //
 // The offer is global: one acceptance copies every necessary volume. It is
-// shown only while the migration is both necessary and undismissed. A
-// non-interactive session (including --yes, which IsInteractive reports false
-// for) is never prompted and never copies; it gets a one-line reminder instead.
-// A failure to read the persisted state or derive necessity is best-effort: it
-// warns and skips rather than aborting the session. A failed copy is reported
-// but does not abort the session either: the per-volume copy already removes
-// any partial volume, so necessity stays true and the offer returns on the next
-// interactive start.
+// shown only while the migration is both necessary and undismissed.
+//
+// A non-interactive session is never prompted and never copies: because
+// proceeding would overwrite the project's recorded home-volume reference
+// before the copy can happen, it returns ErrMigrationPending with guidance
+// instead. A failure to read the persisted state or derive necessity is
+// best-effort: it warns and skips rather than blocking the session. A failed
+// copy aborts the session (ErrMigrationPending): continuing would orphan the
+// old data, while the per-volume copy already removed any partial volume so
+// necessity stays true and the offer returns next session.
 func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 	rootState, err := state.ReadRootState()
 	if err != nil {
@@ -45,7 +58,7 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 	names, err := NecessaryVolumes()
 	if err != nil {
 		// Likewise, a failure deriving necessity warns and skips rather than
-		// aborting the session.
+		// blocking the session.
 		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
 		return nil
 	}
@@ -54,24 +67,22 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 	}
 
 	if !ui.IsInteractive() {
-		ui.Warnf(
-			"%d legacy microsandbox home volume(s) can be copied into agents-sandbox; run in an interactive session to copy them",
-			len(names),
+		return fmt.Errorf(
+			"%w: %d legacy microsandbox home volume(s) can be copied into agents-sandbox; "+
+				"run an interactive `run`/`shell` session to copy them or start fresh",
+			ErrMigrationPending, len(names),
 		)
-		return nil
 	}
 
-	choice, err := ui.Select(offerPrompt(len(names)), offerChoices(), choiceLater)
+	choice, err := ui.Select(offerPrompt(len(names)), offerChoices(), choiceQuit)
 	if err != nil {
-		// A failed prompt (e.g. the terminal closed) means "decide later": leave
-		// the migration pending so the next interactive session re-offers it.
-		choice = choiceLater
+		return fmt.Errorf("%w: %w", ErrMigrationPending, err)
 	}
 
 	switch choice {
 	case choiceCopy:
 		if err := CopyVolumes(ctx, client, names, ui); err != nil {
-			ui.Errorf("copying legacy home volumes: %v (continuing without them)", err)
+			return fmt.Errorf("copying legacy home volumes: %w", err)
 		}
 		return nil
 	case choiceFresh:
@@ -79,7 +90,7 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 			RuntimeHomeMigration: state.RuntimeHomeMigration{Dismissed: true},
 		})
 	default:
-		return nil
+		return ErrMigrationPending
 	}
 }
 
@@ -95,6 +106,6 @@ func offerChoices() []termio.Choice {
 			Description: "carry your old sandbox home data into agents-sandbox",
 		},
 		{Label: "Start fresh", Key: choiceFresh, Description: "never offer again; leave the old volumes untouched"},
-		{Label: "Decide later", Key: choiceLater, Description: "ask again at the next interactive session"},
+		{Label: "Quit", Key: choiceQuit, Description: "abort this session; ask again next time"},
 	}
 }

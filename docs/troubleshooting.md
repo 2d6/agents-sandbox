@@ -37,13 +37,20 @@ If you encounter a runtime error, submit a bug report at:
 Versions before the private runtime home stored home volumes under
 `~/.microsandbox/volumes/`. On the first interactive `run`/`shell` after
 upgrading, agents-sandbox offers once to copy those `agents-sandbox-home-*`
-volumes into its private home. Declining ("Start fresh") is remembered and the
-offer is not shown again. `--yes` and non-interactive runs never copy; they
-print a reminder to run an interactive session if you still need the volumes.
+volumes into its private home. You must choose: **Copy the volumes** (carry the
+old data over), **Start fresh** (leave the old volumes untouched and never ask
+again), or **Quit** (abort this session; ask again next time). "Start fresh" is
+remembered and the offer is not shown again.
 
-Independently, upgrading starts each project with a fresh home volume
-automatically when its recorded volume is not present in the private home, so
-you can keep working without migrating anything.
+The decision is required before a session can proceed, because starting would
+otherwise create a fresh home volume and overwrite the project's recorded
+reference before the old data could be copied. Non-interactive runs (including
+`--yes`) therefore never copy and, while legacy volumes remain, stop with a
+message to run an interactive `run`/`shell` once to copy them or start fresh.
+
+Once the migration is resolved — copied, or dismissed with "Start fresh" — each
+project whose recorded volume is not present in the private home starts a fresh
+one automatically, so you can keep working without migrating anything.
 
 ### KVM unavailable
 

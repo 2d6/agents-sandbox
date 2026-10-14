@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -234,6 +235,11 @@ func prepareHomeVolume(
 	// copy volumes. DryRunVM is unaffected: it still runs the offer.
 	if !opts.DryRun {
 		if err := offerRuntimeHomeMigration(ctx, client, ui); err != nil {
+			// A pending migration is a deliberate block, not an offer failure:
+			// return it as-is so the user sees the guidance, not a wrapper.
+			if errors.Is(err, runtimemigration.ErrMigrationPending) {
+				return nil, nil, "", state.HomeState{}, err
+			}
 			return nil, nil, "", state.HomeState{}, fmt.Errorf("runtime home migration offer failed: %w", err)
 		}
 	}

@@ -119,10 +119,14 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 
 - On first run after the change, a project's recorded home volume no longer
   resolves in the private home. The code must detect "recorded volume missing in
-  this home" and start fresh (create a new home volume), not error. This keeps
-  every existing user working with no migration.
+  this home" and start fresh (create a new home volume), not error.
 - The detection is by the recorded name not resolving in the private home, not by
-  comparing against the legacy dir. It is independent of the copy offer below.
+  comparing against the legacy dir.
+- The clean-break overwrite must not happen before the copy decision is made, or
+  it would orphan the old data: resolving the home volume (which starts fresh)
+  runs only after the offer below has been resolved. While the offer is pending
+  and undismissed, a non-interactive session blocks before this step (see below)
+  rather than overwriting the recorded reference.
 
 ### Opt-in copy of legacy home volumes
 
@@ -131,6 +135,11 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   *undismissed*. Not offered on unrelated runtime-touching commands (`list`,
   `prune`, `volume`, `image`, ...): the offer only matters where a home volume is
   about to be used.
+- The choice is **mandatory**: **copy**, **start fresh**, or **quit**. There is
+  no "decide later". The session cannot proceed with the decision unmade, because
+  proceeding resolves the home volume and would overwrite the project's recorded
+  reference before the old data could be copied. Quitting the prompt (or a prompt
+  failure) aborts the session without a decision and re-offers next time.
 - Copies **all** necessary legacy home volumes in one acceptance (the offer is
   global, not per project). Names are preserved, so the existing
   project → volume mapping in `~/.local/state` resolves unchanged in the private
@@ -143,17 +152,20 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   VM — a foreign home's volume cannot be mounted by our runtime anyway.
 - Source selection is by name, not by our per-project state: any directory under
   `~/.microsandbox/volumes/` matching `agents-sandbox-home-*` that is absent from
-  the private home. This keeps necessity and completion pure functions of the two
-  directory listings and means the copy offer survives the clean-break overwrite
-  of a project's recorded volume name. No layout guessing beyond this convention.
-- A clean break (user starts fresh, declines the copy) is recorded as the same
-  dismissal: the legacy volumes remain, so without a persisted decision the offer
-  would keep returning.
-- `--yes` and non-interactive runs never accept the copy: print a one-line
-  reminder and continue. `--yes` is treated as non-interactive for this offer,
+  the private home. No layout guessing beyond this convention.
+- A failed copy aborts the session: continuing would orphan the old data, while
+  the per-volume copy already removed any partial volume, so necessity stays true
+  and the offer returns next session.
+- A clean break (user chooses "Start fresh") is recorded as the dismissal: the
+  legacy volumes remain, so without a persisted decision the offer would keep
+  returning.
+- `--yes` and non-interactive runs never accept the copy and cannot make the
+  decision, so while the migration is necessary and undismissed they **block
+  before starting a fresh home**, printing guidance to run an interactive
+  `run`/`shell` once. `--yes` is treated as non-interactive for this offer,
   matching the precedent that `--yes` does not auto-select the (now removed)
   runtime recovery action. A multi-gigabyte copy must never be triggered
-  implicitly.
+  implicitly, and the recorded reference must never be silently overwritten.
 
 ### Host-side copy mechanics
 
@@ -179,13 +191,22 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   best-effort, so the name is again absent from the private home and necessity
   stays derived true, letting the next interactive start re-offer. Previously
   completed volumes are left in place and simply stop being necessary.
+- Crash safety: a copy stopped by a crash or kill runs no cleanup, so a
+  half-populated private volume could otherwise look complete. A finished copy
+  therefore writes a completion sentinel inside the volume, and private
+  presence requires that sentinel: an unmarked private volume counts as
+  still-to-copy, so an interrupted copy is re-offered. A retry discards the
+  leftover partial volume before recreating it. This means the presence check is
+  no longer a pure name listing for the private home (it also checks the
+  sentinel); legacy necessity itself is unchanged.
 
 ### Persisted state
 
-- Necessity is **derived** each run, purely from the two directory listings: at
-  least one directory matching `agents-sandbox-home-*` exists under
-  `~/.microsandbox/volumes/` and is absent from the private home's `volumes/`.
-  Nothing is persisted for it, and it does not depend on any per-project state.
+- Necessity is **derived** each run from the two homes: at least one directory
+  matching `agents-sandbox-home-*` exists under `~/.microsandbox/volumes/` and
+  its name is not a *completed* volume in the private home's `volumes/` (present
+  and carrying the copy-completion sentinel). Nothing is persisted for it, and
+  it does not depend on any per-project state.
 - Completion is also **derived**: once copied volumes are present in the private
   home, necessity is false and no offer is made.
 - The only persisted value is the user's opt-out, a single key in root

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -480,6 +481,70 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 
 	if offeredWith != mock {
 		t.Errorf("offer client = %v, want the msb client from msb.Get()", offeredWith)
+	}
+}
+
+// TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration pins option D: when the
+// offer reports the migration is still pending (a non-interactive session, a
+// quit, or a failed copy), PrepareSandbox aborts before resolving the home
+// volume, so no fresh home is created and the project's recorded reference is
+// left intact for a later copy.
+func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
+		return req, nil
+	})
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+				},
+			}, nil
+		},
+	})
+
+	var createdVolumes int
+	mock := &msb.MockMsbClient{
+		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			createdVolumes++
+			return &msb.MockVolumeHandle{Name_: name}, nil
+		},
+	}
+	msb.WithMsbMock(t, mock)
+
+	origOffer := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error {
+		return runtimemigration.ErrMigrationPending
+	}
+	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
+
+	ui := termio.NewTestMock(t)
+	if _, err := PrepareSandbox(
+		context.Background(),
+		options.RunOptions{},
+		&ui,
+	); !errors.Is(
+		err,
+		runtimemigration.ErrMigrationPending,
+	) {
+		t.Fatalf("PrepareSandbox() error = %v, want ErrMigrationPending", err)
+	}
+	if createdVolumes != 0 {
+		t.Errorf("CreateVolume called %d times, want 0 (no fresh home created)", createdVolumes)
 	}
 }
 

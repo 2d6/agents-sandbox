@@ -2,6 +2,7 @@ package runtimemigration
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,7 +136,12 @@ func TestOfferNothingNecessaryDoesNotPrompt(t *testing.T) {
 	}
 }
 
-func TestOfferNonInteractiveWarnsAndNeverCopies(t *testing.T) {
+// TestOfferNonInteractiveBlocksBeforeFreshHome pins option D: a non-interactive
+// session with a pending migration must not proceed, because resolving the home
+// volume would create a fresh one and overwrite the project's recorded
+// reference before the user can accept the copy. It returns the pending error
+// and touches no volumes.
+func TestOfferNonInteractiveBlocksBeforeFreshHome(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
@@ -143,14 +149,12 @@ func TestOfferNonInteractiveWarnsAndNeverCopies(t *testing.T) {
 	ui := &termio.Mock{IsInteractiveResult: false}
 	client := &msb.MockMsbClient{}
 
-	if err := Offer(context.Background(), client, ui); err != nil {
-		t.Fatalf("Offer() error = %v", err)
+	err := Offer(context.Background(), client, ui)
+	if !errors.Is(err, ErrMigrationPending) {
+		t.Fatalf("Offer() error = %v, want ErrMigrationPending", err)
 	}
-	if len(ui.WarnCalls) != 1 {
-		t.Fatalf("WarnCalls = %v, want exactly one reminder", ui.WarnCalls)
-	}
-	if !strings.Contains(ui.WarnCalls[0], "interactive") {
-		t.Errorf("warning %q does not mention running interactively", ui.WarnCalls[0])
+	if !strings.Contains(err.Error(), "interactive") {
+		t.Errorf("error %q does not mention running interactively", err.Error())
 	}
 	if len(client.RemovedVolumes) != 0 || len(client.Volumes) != 0 {
 		t.Error("Offer() touched volumes in a non-interactive session")
@@ -176,14 +180,12 @@ func TestOfferAssumeYesBehavesLikeNonInteractive(t *testing.T) {
 	ui.SetAssumeYes(true)
 	client := &msb.MockMsbClient{}
 
-	if err := Offer(context.Background(), client, ui); err != nil {
-		t.Fatalf("Offer() error = %v", err)
+	err := Offer(context.Background(), client, ui)
+	if !errors.Is(err, ErrMigrationPending) {
+		t.Fatalf("Offer() error = %v, want ErrMigrationPending under --yes", err)
 	}
 	if selectCalls != 0 {
 		t.Errorf("Select called %d times under --yes, want 0", selectCalls)
-	}
-	if len(ui.WarnCalls) != 1 {
-		t.Errorf("WarnCalls = %v, want exactly one reminder under --yes", ui.WarnCalls)
 	}
 }
 
@@ -216,10 +218,11 @@ func TestOfferChooseCopyCopiesVolumes(t *testing.T) {
 	assertFileWithMode(t, target+"/settings.json", "{}", 0o600)
 }
 
-// TestOfferCopyErrorIsReportedNonFatally verifies that a failed copy is
-// reported through the UI but does not abort the session; the per-volume copy
-// already removed any partial volume, so necessity stays true.
-func TestOfferCopyErrorIsReportedNonFatally(t *testing.T) {
+// TestOfferCopyErrorAborts verifies that a failed copy aborts the session rather
+// than continuing to a fresh home, which would overwrite the recorded reference
+// and orphan the old data. The partial volume is already removed, so necessity
+// stays true and the offer returns next session.
+func TestOfferCopyErrorAborts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
@@ -233,11 +236,8 @@ func TestOfferCopyErrorIsReportedNonFatally(t *testing.T) {
 	var prompted bool
 	ui := interactiveUI(choiceCopy, &prompted)
 
-	if err := Offer(context.Background(), client, ui); err != nil {
-		t.Fatalf("Offer() error = %v, want nil (copy failure is non-fatal)", err)
-	}
-	if len(ui.ErrorCalls) != 1 {
-		t.Fatalf("ErrorCalls = %v, want exactly one copy-error report", ui.ErrorCalls)
+	if err := Offer(context.Background(), client, ui); err == nil {
+		t.Fatal("Offer() error = nil, want a copy failure to abort the session")
 	}
 }
 
@@ -263,17 +263,19 @@ func TestOfferChooseStartFreshPersistsDismissal(t *testing.T) {
 	}
 }
 
-func TestOfferChooseLaterLeavesStateUnchanged(t *testing.T) {
+// TestOfferChooseQuitAborts pins that quitting the prompt aborts the session
+// without a decision: no copy, no dismissal, and the migration stays pending.
+func TestOfferChooseQuitAborts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
 
 	var prompted bool
-	ui := interactiveUI("q", &prompted)
+	ui := interactiveUI(choiceQuit, &prompted)
 	client := &msb.MockMsbClient{}
 
-	if err := Offer(context.Background(), client, ui); err != nil {
-		t.Fatalf("Offer() error = %v", err)
+	if err := Offer(context.Background(), client, ui); !errors.Is(err, ErrMigrationPending) {
+		t.Fatalf("Offer() error = %v, want ErrMigrationPending on quit", err)
 	}
 
 	root, err := state.ReadRootState()
@@ -281,13 +283,13 @@ func TestOfferChooseLaterLeavesStateUnchanged(t *testing.T) {
 		t.Fatalf("ReadRootState: %v", err)
 	}
 	if root.RuntimeHomeMigration.Dismissed {
-		t.Error("choose-later dismissed the migration; want it offered again next time")
+		t.Error("quit dismissed the migration; want it still pending")
 	}
 }
 
-// TestOfferSelectErrorLeavesStateUnchanged verifies that a failing prompt (e.g.
-// the terminal closed) is treated as "ask later": no copy, no dismissal.
-func TestOfferSelectErrorLeavesStateUnchanged(t *testing.T) {
+// TestOfferSelectErrorAborts verifies that a failing prompt (e.g. the terminal
+// closed) aborts the session rather than proceeding to a fresh home.
+func TestOfferSelectErrorAborts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
@@ -300,17 +302,28 @@ func TestOfferSelectErrorLeavesStateUnchanged(t *testing.T) {
 	}
 	client := &msb.MockMsbClient{}
 
-	if err := Offer(context.Background(), client, ui); err != nil {
-		t.Fatalf("Offer() error = %v, want nil on prompt failure", err)
+	if err := Offer(context.Background(), client, ui); !errors.Is(err, ErrMigrationPending) {
+		t.Fatalf("Offer() error = %v, want ErrMigrationPending on prompt failure", err)
 	}
 	root, err := state.ReadRootState()
 	if err != nil {
 		t.Fatalf("ReadRootState: %v", err)
 	}
 	if root.RuntimeHomeMigration.Dismissed {
-		t.Error("a failed prompt dismissed the migration; want it offered again")
+		t.Error("a failed prompt dismissed the migration; want it still pending")
 	}
 	if len(client.RemovedVolumes) != 0 || len(client.Volumes) != 0 {
 		t.Error("a failed prompt touched volumes")
 	}
+}
+
+// TestOfferChoicesAreCopyFreshQuit pins that "decide later" is gone: the only
+// outcomes are copy, start fresh, or quit.
+func TestOfferChoicesAreCopyFreshQuit(t *testing.T) {
+	choices := offerChoices()
+	got := make([]string, len(choices))
+	for i, c := range choices {
+		got[i] = c.Key
+	}
+	assertSameSet(t, got, []string{choiceCopy, choiceFresh, choiceQuit})
 }
