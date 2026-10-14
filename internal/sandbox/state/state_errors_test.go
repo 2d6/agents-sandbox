@@ -39,21 +39,6 @@ func TestWriteState_MkdirAllError(t *testing.T) {
 	}
 }
 
-func TestWriteState_WriteTempError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := Key{Slug: "tmpproj-a", Agent: "opencode"}
-
-	sdir := KeyDir(k)
-	// A directory at the temp file path makes os.WriteFile fail.
-	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err == nil {
-		t.Fatal("expected error when the temp file cannot be written")
-	}
-}
-
 func TestWriteState_RenameErrorCleansTemp(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "renproj-a", Agent: "opencode"}
@@ -68,9 +53,13 @@ func TestWriteState_RenameErrorCleansTemp(t *testing.T) {
 		t.Fatal("expected error when the state file cannot be renamed")
 	}
 
-	// The temp file should have been cleaned up after the failed rename.
-	if _, err := os.Stat(filepath.Join(sdir, ".state.yaml.tmp")); !os.IsNotExist(err) {
-		t.Fatalf("temp file should be removed after failed rename, got %v", err)
+	// The unique temp file should have been cleaned up after the failed rename.
+	matches, err := filepath.Glob(filepath.Join(sdir, ".state.yaml.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("leftover temp files = %v, want none", matches)
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/inoio/agents-sandbox/internal/atomicwrite"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -52,22 +54,12 @@ func ReadRootState() (*RootState, error) {
 
 // WriteRootState atomically writes the launcher-global state to disk.
 func WriteRootState(s RootState) error {
-	dir := stateRoot()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create state root %s: %w", dir, err)
-	}
-	tmpFile := filepath.Join(dir, ".state.yaml.tmp")
 	data, err := marshalRootState(s)
 	if err != nil {
 		return fmt.Errorf("marshal root state: %w", err)
 	}
-	if err := os.WriteFile(tmpFile, data, 0o600); err != nil {
-		return fmt.Errorf("write root state temp: %w", err)
-	}
-	if err := os.Rename(tmpFile, rootStateFile()); err != nil {
-		// best-effort cleanup of temp file if rename failed
-		_ = os.Remove(tmpFile)
-		return fmt.Errorf("rename root state file: %w", err)
+	if err := atomicwrite.WriteFile(rootStateFile(), data); err != nil {
+		return fmt.Errorf("write root state: %w", err)
 	}
 	return nil
 }

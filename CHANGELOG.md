@@ -32,12 +32,21 @@ command reports the bare version (e.g. `0.1.0`).
   Dockerfile body.
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
 - Runtime: on the first interactive `run`/`shell`, agents-sandbox offers once to copy legacy
-  `~/.microsandbox/volumes/agents-sandbox-home-*` volumes into its private runtime home. Declining persists
-  `runtime_home_migration.dismissed: true` in `~/.local/state/agents-sandbox/state.yaml`; `--yes` and non-interactive runs
-  never copy and print a one-line reminder instead.
+  `~/.microsandbox/volumes/agents-sandbox-home-*` volumes into its private runtime home. The choice is now mandatory:
+  copy, start fresh (persisted as `runtime_home_migration.dismissed: true` in `~/.local/state/agents-sandbox/state.yaml`),
+  or quit. While legacy volumes remain, `--yes` and non-interactive runs never copy and stop with a message to run an
+  interactive session once, so the project's recorded home-volume reference is never overwritten before the copy can
+  happen.
 
 ### Fixed
 
+- State: launcher-global `state.yaml` (the legacy-migration dismissal lives here) is now written through a uniquely named
+  temp file, so two concurrent sessions choosing "Start fresh" no longer collide on one shared temp name and abort a
+  session. All persistent state/config writers (`state.WriteState`, `state.WriteRootState`, `vm.saveUpgradeState`,
+  `upgrade.saveState`) now share one atomic-write helper (`internal/atomicwrite`).
+- Runtime: the legacy home-volume copy is now crash-safe. A finished copy is marked with a sentinel file inside the
+  volume, and necessity treats an unmarked private volume as still-to-copy, so a copy interrupted by a crash is
+  discarded and retried instead of being used as a truncated home.
 - Runner image: each tool stage now pins its version as an `ARG` default in the rendered Dockerfile (Node, agent, Docker),
   so a version bump changes the build content and reliably invalidates that stage's install layer. Previously only the
   agent version build arg carried the version, which could leave the agent layer cached (and the image on the old release)

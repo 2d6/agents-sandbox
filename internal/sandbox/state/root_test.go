@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -159,22 +160,9 @@ func TestWriteRootState_MkdirAllError(t *testing.T) {
 	}
 }
 
-// TestWriteRootState_WriteTempError covers the temp-file write failure: a
-// directory occupies the temp file's path.
-func TestWriteRootState_WriteTempError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	if err := os.MkdirAll(filepath.Join(stateRoot(), ".state.yaml.tmp"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := WriteRootState(RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}}); err == nil {
-		t.Fatal("WriteRootState() error = nil, want temp write failure")
-	}
-}
-
 // TestWriteRootState_RenameErrorCleansTemp covers the rename failure: a
-// directory occupies the final state file path. The temp file must be cleaned.
+// directory occupies the final state file path. The unique temp file must be
+// cleaned up.
 func TestWriteRootState_RenameErrorCleansTemp(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -185,7 +173,45 @@ func TestWriteRootState_RenameErrorCleansTemp(t *testing.T) {
 	if err := WriteRootState(RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}}); err == nil {
 		t.Fatal("WriteRootState() error = nil, want rename failure")
 	}
-	if _, err := os.Stat(filepath.Join(stateRoot(), ".state.yaml.tmp")); !os.IsNotExist(err) {
-		t.Fatalf("temp file should be removed after failed rename, got %v", err)
+	assertNoRootStateTempFiles(t)
+}
+
+// TestWriteRootState_ConcurrentWritesDoNotCollide is the regression guard for
+// issue #3: the launcher-global state root is shared by every project, so two
+// concurrent writers must not collide on the temporary file name. With a fixed
+// temp name, the first rename removed it and the second failed, aborting a
+// dismissing session.
+func TestWriteRootState_ConcurrentWritesDoNotCollide(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	const writers = 16
+	var wg sync.WaitGroup
+	errs := make(chan error, writers)
+	for range writers {
+		wg.Go(func() {
+			errs <- WriteRootState(RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}})
+		})
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Errorf("concurrent WriteRootState() error = %v", err)
+		}
+	}
+	if _, err := ReadRootState(); err != nil {
+		t.Fatalf("ReadRootState() after concurrent writes: %v", err)
+	}
+}
+
+func assertNoRootStateTempFiles(t *testing.T) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(stateRoot(), ".state.yaml.*"))
+	if err != nil {
+		t.Fatalf("glob temp files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("leftover root state temp files = %v, want none", matches)
 	}
 }
