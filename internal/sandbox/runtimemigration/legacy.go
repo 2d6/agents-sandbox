@@ -22,11 +22,31 @@ func legacyVolumeNames(legacyHome string) ([]string, error) {
 	return homeVolumeNames(legacyHome)
 }
 
-// privateVolumeNames returns the basenames of agents-sandbox home volumes under
-// <privateHome>/volumes, with the same missing/unreadable tolerance as
-// legacyVolumeNames.
+// privateVolumeNames returns the basenames of completed agents-sandbox home
+// volumes under <privateHome>/volumes, with the same missing/unreadable
+// tolerance as legacyVolumeNames. A volume whose copy was interrupted (it lacks
+// the completion marker) is excluded, so necessity treats it as still-to-copy.
 func privateVolumeNames(privateHome string) ([]string, error) {
-	return homeVolumeNames(privateHome)
+	names, err := homeVolumeNames(privateHome)
+	if err != nil {
+		return nil, err
+	}
+
+	completed := make([]string, 0, len(names))
+	for _, name := range names {
+		if hasCopyCompleteMarker(privateHome, name) {
+			completed = append(completed, name)
+		}
+	}
+	return completed, nil
+}
+
+// hasCopyCompleteMarker reports whether the named private volume carries the
+// copy completion marker, i.e. a finished copy rather than an interrupted one.
+func hasCopyCompleteMarker(privateHome, name string) bool {
+	marker := filepath.Join(privateHome, "volumes", name, copyCompleteMarker)
+	_, err := os.Stat(marker)
+	return err == nil
 }
 
 // necessaryVolumes returns the legacy home volume names that are absent from the

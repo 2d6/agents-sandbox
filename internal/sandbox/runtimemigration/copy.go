@@ -14,14 +14,21 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// copyCompleteMarker names the sentinel file written into a private home volume
+// once its legacy copy has finished. Necessity treats a private volume without
+// it as still-to-copy, so a copy interrupted by a crash (which runs no cleanup)
+// is retried instead of being mistaken for a complete one.
+const copyCompleteMarker = ".agents-sandbox-copy-complete"
+
 // Filesystem seams. A real filesystem makes some failure branches (chmod, copy,
-// close, readlink) impractical to trigger, so tests substitute them to exercise
-// the error handling.
+// close, readlink, marker write) impractical to trigger, so tests substitute
+// them to exercise the error handling.
 var (
-	ioCopy    = io.Copy
-	chmodPath = os.Chmod
-	closeFile = (*os.File).Close
-	readLink  = os.Readlink
+	ioCopy          = io.Copy
+	chmodPath       = os.Chmod
+	closeFile       = (*os.File).Close
+	readLink        = os.Readlink
+	writeMarkerFile = os.WriteFile
 )
 
 // CopyVolumes copies the named legacy home volumes into newly created volumes
@@ -45,6 +52,10 @@ func CopyVolumes(ctx context.Context, client msb.Client, names []string, ui term
 }
 
 func copyVolume(ctx context.Context, client msb.Client, legacyHome, name string) error {
+	if err := discardIncompleteVolume(ctx, client, name); err != nil {
+		return err
+	}
+
 	volume, err := client.CreateVolume(ctx, name, msbSdk.WithVolumeKind(msbSdk.VolumeKindDir))
 	if err != nil {
 		return fmt.Errorf("create volume %q: %w", name, err)
@@ -55,7 +66,30 @@ func copyVolume(ctx context.Context, client msb.Client, legacyHome, name string)
 		removeVolumeBestEffort(ctx, client, name)
 		return fmt.Errorf("copy volume %q: %w", name, err)
 	}
+	if err := markCopyComplete(volume.Path()); err != nil {
+		removeVolumeBestEffort(ctx, client, name)
+		return fmt.Errorf("mark volume %q complete: %w", name, err)
+	}
 	return nil
+}
+
+// discardIncompleteVolume removes a leftover private volume under the target
+// name before a (re)copy. Such a volume is always an interrupted prior copy —
+// necessity only offers names absent or unmarked in the private home — so it
+// must be discarded for CreateVolume to recreate it.
+func discardIncompleteVolume(ctx context.Context, client msb.Client, name string) error {
+	if _, err := client.GetVolume(ctx, name); err != nil {
+		return nil //nolint:nilerr // a failed lookup means there is nothing to discard
+	}
+	if err := client.RemoveVolume(ctx, name); err != nil {
+		return fmt.Errorf("discard incomplete volume %q: %w", name, err)
+	}
+	return nil
+}
+
+// markCopyComplete writes the completion sentinel into a finished volume.
+func markCopyComplete(dir string) error {
+	return writeMarkerFile(filepath.Join(dir, copyCompleteMarker), nil, 0o600)
 }
 
 // removeVolumeBestEffort discards a partially copied volume so it does not

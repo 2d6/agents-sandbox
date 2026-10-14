@@ -225,6 +225,120 @@ func TestCopyVolumesRemovesVolumeOnCopyFailure(t *testing.T) {
 		t.Fatalf("RemovedVolumes = %v, want [%q] (partial copy cleaned up)", client.RemovedVolumes, name)
 	}
 }
+
+// TestCopyVolumesWritesCompletionMarker pins that a finished copy is marked
+// complete, so necessity stops offering it. A copy that crashes before the
+// marker is written stays unmarked and is retried instead of being mistaken for
+// a complete one.
+func TestCopyVolumesWritesCompletionMarker(t *testing.T) {
+	legacy := installLegacyHome(t)
+	name := naming.HomePrefix + "legacy"
+	addVolumeDir(t, legacy, name)
+	writeFileWithMode(t, filepath.Join(legacy, "volumes", name, "config", "settings.json"), "{}", 0o600)
+
+	target := t.TempDir()
+	client := &msb.MockMsbClient{
+		CreateVolumeFn: func(_ context.Context, volumeName string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName, Path_: target}, nil
+		},
+	}
+
+	ui := termio.NewTestMock(t)
+	if err := CopyVolumes(context.Background(), client, []string{name}, &ui); err != nil {
+		t.Fatalf("CopyVolumes() error = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(target, copyCompleteMarker)); err != nil {
+		t.Fatalf("completion marker not written: %v", err)
+	}
+}
+
+// TestCopyVolumesReplacesIncompleteVolume pins that a leftover partial volume
+// from a crashed copy is discarded before the retry, so CreateVolume can
+// recreate it and the copy completes cleanly.
+func TestCopyVolumesReplacesIncompleteVolume(t *testing.T) {
+	legacy := installLegacyHome(t)
+	name := naming.HomePrefix + "legacy"
+	addVolumeDir(t, legacy, name)
+	writeFileWithMode(t, filepath.Join(legacy, "volumes", name, "f.txt"), "x", 0o600)
+
+	target := t.TempDir()
+	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName, Path_: target}, nil
+		},
+		CreateVolumeFn: func(_ context.Context, volumeName string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName, Path_: target}, nil
+		},
+	}
+
+	ui := termio.NewTestMock(t)
+	if err := CopyVolumes(context.Background(), client, []string{name}, &ui); err != nil {
+		t.Fatalf("CopyVolumes() error = %v", err)
+	}
+
+	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != name {
+		t.Fatalf(
+			"RemovedVolumes = %v, want [%q] (incomplete volume discarded before retry)",
+			client.RemovedVolumes,
+			name,
+		)
+	}
+	if _, err := os.Stat(filepath.Join(target, copyCompleteMarker)); err != nil {
+		t.Fatalf("completion marker not written: %v", err)
+	}
+}
+
+// TestCopyVolumesDiscardIncompleteVolumeError covers the failure to discard a
+// leftover partial volume: the copy aborts rather than leaving a volume
+// CreateVolume cannot recreate.
+func TestCopyVolumesDiscardIncompleteVolumeError(t *testing.T) {
+	installLegacyHome(t)
+	name := naming.HomePrefix + "legacy"
+
+	wantErr := errors.New("remove boom")
+	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+		},
+		RemoveVolumeFn: func(_ context.Context, _ string) error { return wantErr },
+	}
+
+	ui := termio.NewTestMock(t)
+	if err := CopyVolumes(context.Background(), client, []string{name}, &ui); !errors.Is(err, wantErr) {
+		t.Fatalf("CopyVolumes() error = %v, want %v", err, wantErr)
+	}
+}
+
+// TestCopyVolumesRemovesVolumeOnMarkerFailure pins that a copy whose completion
+// marker cannot be written is discarded, so it is retried rather than left as an
+// unmarked partial.
+func TestCopyVolumesRemovesVolumeOnMarkerFailure(t *testing.T) {
+	legacy := installLegacyHome(t)
+	name := naming.HomePrefix + "legacy"
+	addVolumeDir(t, legacy, name)
+
+	wantErr := errors.New("marker boom")
+	orig := writeMarkerFile
+	writeMarkerFile = func(string, []byte, os.FileMode) error { return wantErr }
+	t.Cleanup(func() { writeMarkerFile = orig })
+
+	target := t.TempDir()
+	client := &msb.MockMsbClient{
+		CreateVolumeFn: func(_ context.Context, volumeName string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName, Path_: target}, nil
+		},
+	}
+
+	ui := termio.NewTestMock(t)
+	if err := CopyVolumes(context.Background(), client, []string{name}, &ui); !errors.Is(err, wantErr) {
+		t.Fatalf("CopyVolumes() error = %v, want %v", err, wantErr)
+	}
+	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != name {
+		t.Fatalf("RemovedVolumes = %v, want [%q]", client.RemovedVolumes, name)
+	}
+}
+
 func writeFileWithMode(t *testing.T, path, content string, mode os.FileMode) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {

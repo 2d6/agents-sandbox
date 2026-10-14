@@ -120,7 +120,7 @@ func TestNecessaryVolumesPresentInBothIsNotNecessary(t *testing.T) {
 	private := newHome(t)
 	name := naming.HomePrefix + "shared"
 	addVolumeDir(t, legacy, name)
-	addVolumeDir(t, private, name)
+	addCompletedVolumeDir(t, private, name)
 
 	got, err := necessaryVolumes(legacy, private)
 	if err != nil {
@@ -151,7 +151,7 @@ func TestNecessaryVolumesReportsOnlyMissingLegacyNames(t *testing.T) {
 	missing := naming.HomePrefix + "missing"
 	addVolumeDir(t, legacy, present)
 	addVolumeDir(t, legacy, missing)
-	addVolumeDir(t, private, present)
+	addCompletedVolumeDir(t, private, present)
 	addVolumeDir(t, private, naming.HomePrefix+"private-only")
 
 	got, err := necessaryVolumes(legacy, private)
@@ -164,7 +164,7 @@ func TestNecessaryVolumesReportsOnlyMissingLegacyNames(t *testing.T) {
 func TestPrivateVolumeNamesFiltersByPrefix(t *testing.T) {
 	private := newHome(t)
 	want := []string{naming.HomePrefix + "alpha"}
-	addVolumeDir(t, private, want[0])
+	addCompletedVolumeDir(t, private, want[0])
 	addVolumeDir(t, private, "not-ours")
 
 	got, err := privateVolumeNames(private)
@@ -172,6 +172,24 @@ func TestPrivateVolumeNamesFiltersByPrefix(t *testing.T) {
 		t.Fatalf("privateVolumeNames() error = %v", err)
 	}
 	assertSameSet(t, got, want)
+}
+
+// TestNecessaryVolumesIncompletePrivateCopyIsNecessary pins that a private home
+// volume without the completion marker — a copy interrupted before it finished —
+// is treated as still-to-copy, so the offer is retried instead of using a
+// partial home.
+func TestNecessaryVolumesIncompletePrivateCopyIsNecessary(t *testing.T) {
+	legacy := newHome(t)
+	private := newHome(t)
+	name := naming.HomePrefix + "interrupted"
+	addVolumeDir(t, legacy, name)
+	addVolumeDir(t, private, name)
+
+	got, err := necessaryVolumes(legacy, private)
+	if err != nil {
+		t.Fatalf("necessaryVolumes() error = %v", err)
+	}
+	assertSameSet(t, got, []string{name})
 }
 
 func TestNecessaryResolvesHomes(t *testing.T) {
@@ -244,6 +262,17 @@ func addVolumeDir(t *testing.T, home, name string) {
 	path := filepath.Join(home, "volumes", name)
 	if err := os.MkdirAll(path, 0o750); err != nil {
 		t.Fatalf("create volume dir %q: %v", name, err)
+	}
+}
+
+// addCompletedVolumeDir creates a private home volume that carries the copy
+// completion marker, i.e. one necessity treats as fully copied.
+func addCompletedVolumeDir(t *testing.T, home, name string) {
+	t.Helper()
+	addVolumeDir(t, home, name)
+	marker := filepath.Join(home, "volumes", name, copyCompleteMarker)
+	if err := os.WriteFile(marker, nil, 0o600); err != nil {
+		t.Fatalf("write completion marker for %q: %v", name, err)
 	}
 }
 
