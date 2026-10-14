@@ -14,6 +14,16 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// Filesystem seams. A real filesystem makes some failure branches (chmod, copy,
+// close, readlink) impractical to trigger, so tests substitute them to exercise
+// the error handling.
+var (
+	ioCopy    = io.Copy
+	chmodPath = os.Chmod
+	closeFile = (*os.File).Close
+	readLink  = os.Readlink
+)
+
 // CopyVolumes copies the named legacy home volumes into newly created volumes
 // in the private runtime home. Each volume is a VolumeKindDir created through
 // the client (which places it under the private home); its contents are then
@@ -100,7 +110,7 @@ func copyDir(src, dst string, info os.FileInfo) error {
 
 	// Re-apply dir metadata after writing children, which would otherwise bump
 	// the destination directory's mtime.
-	if err := os.Chmod(dst, perm); err != nil {
+	if err := chmodPath(dst, perm); err != nil {
 		return err
 	}
 	return os.Chtimes(dst, info.ModTime(), info.ModTime())
@@ -119,22 +129,22 @@ func copyFile(src, dst string, info os.FileInfo) error {
 		return err
 	}
 
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := ioCopy(out, in); err != nil {
 		_ = out.Close()
 		return err
 	}
-	if err := out.Close(); err != nil {
+	if err := closeFile(out); err != nil {
 		return err
 	}
 
-	if err := os.Chmod(dst, perm); err != nil {
+	if err := chmodPath(dst, perm); err != nil {
 		return err
 	}
 	return os.Chtimes(dst, info.ModTime(), info.ModTime())
 }
 
 func copySymlink(src, dst string) error {
-	target, err := os.Readlink(src)
+	target, err := readLink(src)
 	if err != nil {
 		return err
 	}

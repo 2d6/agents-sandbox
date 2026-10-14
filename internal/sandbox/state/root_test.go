@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestRootStateFile(t *testing.T) {
@@ -104,5 +106,86 @@ func TestReadRootState_ParseError(t *testing.T) {
 
 	if _, err := ReadRootState(); err == nil {
 		t.Fatal("ReadRootState() error = nil, want a parse error")
+	}
+}
+
+// TestReadRootState_NonNotFoundReadError covers a read failure that is not
+// "not exist": a directory at the state file path.
+func TestReadRootState_NonNotFoundReadError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	if err := os.MkdirAll(rootStateFile(), 0o700); err != nil {
+		t.Fatalf("mkdir at state file path: %v", err)
+	}
+
+	if _, err := ReadRootState(); err == nil {
+		t.Fatal("ReadRootState() error = nil, want a non-not-exist read error")
+	}
+}
+
+// TestWriteRootState_MarshalError covers the marshal failure via the seam: the
+// concrete RootState shape cannot make yaml.Marshal fail.
+func TestWriteRootState_MarshalError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	wantErr := errors.New("marshal boom")
+	orig := marshalRootState
+	marshalRootState = func(any) ([]byte, error) { return nil, wantErr }
+	t.Cleanup(func() { marshalRootState = orig })
+
+	if err := WriteRootState(
+		RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}},
+	); !errors.Is(
+		err,
+		wantErr,
+	) {
+		t.Fatalf("WriteRootState() error = %v, want %v", err, wantErr)
+	}
+}
+
+// TestWriteRootState_MkdirAllError covers the state-root creation failure: a
+// regular file occupies the directory's path.
+func TestWriteRootState_MkdirAllError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	root := stateRoot()
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, root, "not a directory")
+
+	if err := WriteRootState(RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}}); err == nil {
+		t.Fatal("WriteRootState() error = nil, want MkdirAll failure")
+	}
+}
+
+// TestWriteRootState_WriteTempError covers the temp-file write failure: a
+// directory occupies the temp file's path.
+func TestWriteRootState_WriteTempError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	if err := os.MkdirAll(filepath.Join(stateRoot(), ".state.yaml.tmp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteRootState(RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}}); err == nil {
+		t.Fatal("WriteRootState() error = nil, want temp write failure")
+	}
+}
+
+// TestWriteRootState_RenameErrorCleansTemp covers the rename failure: a
+// directory occupies the final state file path. The temp file must be cleaned.
+func TestWriteRootState_RenameErrorCleansTemp(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	if err := os.MkdirAll(rootStateFile(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteRootState(RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}}); err == nil {
+		t.Fatal("WriteRootState() error = nil, want rename failure")
+	}
+	if _, err := os.Stat(filepath.Join(stateRoot(), ".state.yaml.tmp")); !os.IsNotExist(err) {
+		t.Fatalf("temp file should be removed after failed rename, got %v", err)
 	}
 }

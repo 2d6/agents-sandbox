@@ -73,11 +73,7 @@ func NecessaryVolumes() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	privateHome, err := runtime.PrivateHome()
-	if err != nil {
-		return nil, err
-	}
-	return necessaryVolumes(legacyHome, privateHome)
+	return necessaryVolumes(legacyHome, runtime.PrivateHome())
 }
 
 func homeVolumeNames(home string) ([]string, error) {

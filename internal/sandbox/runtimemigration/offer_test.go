@@ -216,6 +216,31 @@ func TestOfferChooseCopyCopiesVolumes(t *testing.T) {
 	assertFileWithMode(t, target+"/settings.json", "{}", 0o600)
 }
 
+// TestOfferCopyErrorIsReportedNonFatally verifies that a failed copy is
+// reported through the UI but does not abort the session; the per-volume copy
+// already removed any partial volume, so necessity stays true.
+func TestOfferCopyErrorIsReportedNonFatally(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
+
+	client := &msb.MockMsbClient{
+		CreateVolumeFn: func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			return nil, context.Canceled
+		},
+	}
+
+	var prompted bool
+	ui := interactiveUI(choiceCopy, &prompted)
+
+	if err := Offer(context.Background(), client, ui); err != nil {
+		t.Fatalf("Offer() error = %v, want nil (copy failure is non-fatal)", err)
+	}
+	if len(ui.ErrorCalls) != 1 {
+		t.Fatalf("ErrorCalls = %v, want exactly one copy-error report", ui.ErrorCalls)
+	}
+}
+
 func TestOfferChooseStartFreshPersistsDismissal(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)

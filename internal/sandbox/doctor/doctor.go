@@ -85,9 +85,6 @@ func checkMsb(ctx context.Context) ([]string, error) {
 	if err := ensureMsbInstalled(ctx); err != nil {
 		return nil, fmt.Errorf("msb runtime setup failed: %w", err)
 	}
-	home, err := runtime.PrivateHome()
-	if err != nil {
-		return nil, fmt.Errorf("resolve runtime home: %w", err)
-	}
+	home := runtime.PrivateHome()
 	return []string{fmt.Sprintf("msb runtime installed at %s", filepath.Join(home, "bin"))}, nil
 }

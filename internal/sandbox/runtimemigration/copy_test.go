@@ -3,6 +3,7 @@ package runtimemigration
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -224,7 +225,6 @@ func TestCopyVolumesRemovesVolumeOnCopyFailure(t *testing.T) {
 		t.Fatalf("RemovedVolumes = %v, want [%q] (partial copy cleaned up)", client.RemovedVolumes, name)
 	}
 }
-
 func writeFileWithMode(t *testing.T, path, content string, mode os.FileMode) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
@@ -235,6 +235,195 @@ func writeFileWithMode(t *testing.T, path, content string, mode os.FileMode) {
 	}
 	if err := os.Chmod(path, mode); err != nil {
 		t.Fatalf("chmod %q: %v", path, err)
+	}
+}
+
+// overrideChmod makes the chmod seam fail, exercising copy error propagation
+// that a real filesystem will not surface.
+func overrideChmod(t *testing.T, err error) {
+	t.Helper()
+	orig := chmodPath
+	chmodPath = func(string, os.FileMode) error { return err }
+	t.Cleanup(func() { chmodPath = orig })
+}
+
+// TestCopyVolumesLegacyHomeError covers the failure to resolve the legacy home
+// (here, $HOME is unset), which aborts the copy before touching any volume.
+func TestCopyVolumesLegacyHomeError(t *testing.T) {
+	t.Setenv("HOME", "")
+
+	ui := termio.NewTestMock(t)
+	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, []string{"x"}, &ui); err == nil {
+		t.Fatal("CopyVolumes() error = nil, want legacy-home resolution error")
+	}
+}
+
+// TestCopyTreeDirDestinationIsFile covers copyDir failing to create the
+// destination because a regular file already occupies its path.
+func TestCopyTreeDirDestinationIsFile(t *testing.T) {
+	src := t.TempDir()
+	writeFileWithMode(t, filepath.Join(src, "child.txt"), "x", 0o600)
+
+	dst := filepath.Join(t.TempDir(), "blocker")
+	writeFileWithMode(t, dst, "x", 0o600)
+
+	if err := copyTree(src, dst); err == nil {
+		t.Fatal("copyTree() error = nil, want MkdirAll failure for a file destination")
+	}
+}
+
+// TestCopyTreeUnreadableSourceDir covers copyDir's ReadDir failure.
+func TestCopyTreeUnreadableSourceDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0 does not block directory reads")
+	}
+	src := t.TempDir()
+	if err := os.Chmod(src, 0o000); err != nil {
+		t.Fatalf("chmod src: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(src, 0o750) })
+
+	if err := copyTree(src, t.TempDir()); err == nil {
+		t.Fatal("copyTree() error = nil, want ReadDir failure for an unreadable source dir")
+	}
+}
+
+// TestCopyTreeUnreadableChild covers both copyDir's child-copy error propagation
+// and copyFile's open failure for an unreadable source file.
+func TestCopyTreeUnreadableChild(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0 does not block reads")
+	}
+	src := t.TempDir()
+	child := filepath.Join(src, "secret.txt")
+	writeFileWithMode(t, child, "x", 0o600)
+	if err := os.Chmod(child, 0o000); err != nil {
+		t.Fatalf("chmod child: %v", err)
+	}
+
+	if err := copyTree(src, t.TempDir()); err == nil {
+		t.Fatal("copyTree() error = nil, want open failure for an unreadable child")
+	}
+}
+
+// TestCopyTreeFileDestinationIsDir covers copyFile's OpenFile failure when the
+// destination path is an existing directory.
+func TestCopyTreeFileDestinationIsDir(t *testing.T) {
+	src := t.TempDir()
+	file := filepath.Join(src, "plain.txt")
+	writeFileWithMode(t, file, "x", 0o600)
+
+	if err := copyTree(file, t.TempDir()); err == nil {
+		t.Fatal("copyTree() error = nil, want OpenFile failure for a directory destination")
+	}
+}
+
+// TestCopyTreeFileCopyError covers copyFile's io.Copy failure via the seam.
+func TestCopyTreeFileCopyError(t *testing.T) {
+	wantErr := errors.New("copy boom")
+	orig := ioCopy
+	ioCopy = func(io.Writer, io.Reader) (int64, error) { return 0, wantErr }
+	t.Cleanup(func() { ioCopy = orig })
+
+	src := t.TempDir()
+	writeFileWithMode(t, filepath.Join(src, "file.txt"), "x", 0o600)
+
+	if err := copyTree(src, t.TempDir()); !errors.Is(err, wantErr) {
+		t.Fatalf("copyTree() error = %v, want %v", err, wantErr)
+	}
+}
+
+// TestCopyTreeFileCloseError covers copyFile's close failure via the seam. The
+// replacement closes the file first so the descriptor is not leaked.
+func TestCopyTreeFileCloseError(t *testing.T) {
+	wantErr := errors.New("close boom")
+	orig := closeFile
+	closeFile = func(f *os.File) error {
+		_ = f.Close()
+		return wantErr
+	}
+	t.Cleanup(func() { closeFile = orig })
+
+	src := t.TempDir()
+	writeFileWithMode(t, filepath.Join(src, "file.txt"), "x", 0o600)
+
+	if err := copyTree(src, t.TempDir()); !errors.Is(err, wantErr) {
+		t.Fatalf("copyTree() error = %v, want %v", err, wantErr)
+	}
+}
+
+// TestCopyTreeFileChmodError covers copyFile's chmod failure via the seam.
+func TestCopyTreeFileChmodError(t *testing.T) {
+	wantErr := errors.New("chmod boom")
+	overrideChmod(t, wantErr)
+
+	src := t.TempDir()
+	writeFileWithMode(t, filepath.Join(src, "file.txt"), "x", 0o600)
+
+	if err := copyTree(src, t.TempDir()); !errors.Is(err, wantErr) {
+		t.Fatalf("copyTree() error = %v, want %v", err, wantErr)
+	}
+}
+
+// TestCopyTreeDirChmodError covers copyDir's chmod failure via the seam. The
+// source is empty so the chmod is the first failing step.
+func TestCopyTreeDirChmodError(t *testing.T) {
+	wantErr := errors.New("chmod boom")
+	overrideChmod(t, wantErr)
+
+	if err := copyTree(t.TempDir(), t.TempDir()); !errors.Is(err, wantErr) {
+		t.Fatalf("copyTree() error = %v, want %v", err, wantErr)
+	}
+}
+
+// TestCopyTreeSymlinkReadlinkError covers copySymlink's readlink failure.
+func TestCopyTreeSymlinkReadlinkError(t *testing.T) {
+	wantErr := errors.New("readlink boom")
+	orig := readLink
+	readLink = func(string) (string, error) { return "", wantErr }
+	t.Cleanup(func() { readLink = orig })
+
+	src := t.TempDir()
+	if err := os.Symlink("target", filepath.Join(src, "link")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	if err := copyTree(src, t.TempDir()); !errors.Is(err, wantErr) {
+		t.Fatalf("copyTree() error = %v, want %v", err, wantErr)
+	}
+}
+
+// TestCopyTreeSymlinkParentIsFile covers copySymlink's MkdirAll failure when a
+// regular file occupies the destination's parent path.
+func TestCopyTreeSymlinkParentIsFile(t *testing.T) {
+	src := t.TempDir()
+	file := filepath.Join(src, "link")
+	if err := os.Symlink("target", file); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	parent := filepath.Join(t.TempDir(), "blocker")
+	writeFileWithMode(t, parent, "x", 0o600)
+
+	if err := copyTree(file, filepath.Join(parent, "link")); err == nil {
+		t.Fatal("copyTree() error = nil, want MkdirAll failure for a file parent")
+	}
+}
+
+// TestCopyTreeSymlinkRemoveError covers copySymlink's failure to remove an
+// existing non-empty destination directory.
+func TestCopyTreeSymlinkRemoveError(t *testing.T) {
+	src := t.TempDir()
+	file := filepath.Join(src, "link")
+	if err := os.Symlink("target", file); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	dst := filepath.Join(t.TempDir(), "link")
+	writeFileWithMode(t, filepath.Join(dst, "occupied.txt"), "x", 0o600)
+
+	if err := copyTree(file, dst); err == nil {
+		t.Fatal("copyTree() error = nil, want Remove failure for a non-empty destination")
 	}
 }
 

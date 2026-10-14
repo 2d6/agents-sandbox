@@ -158,6 +158,54 @@ func TestInspectRuntimeMissingBinary(t *testing.T) {
 	}
 }
 
+// TestInspectRuntimeMsbStatError covers an unexpected stat failure on the msb
+// binary path (a symlink loop yields ELOOP, not "not exist").
+func TestInspectRuntimeMsbStatError(t *testing.T) {
+	home := mockRuntimeHome(t)
+	binDir := filepath.Join(home, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("msb", filepath.Join(binDir, "msb")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := InspectRuntime(); err == nil {
+		t.Fatal("InspectRuntime() error = nil, want msb stat error")
+	}
+}
+
+// TestInspectRuntimeLibraryStatError covers an unexpected stat failure on the
+// libkrunfw path after a valid msb is present.
+func TestInspectRuntimeLibraryStatError(t *testing.T) {
+	home := mockRuntimeHome(t)
+	writeRuntimeFiles(t, home, currentMSBVersion())
+
+	lib := filepath.Join(home, "lib", "libkrunfw.so.5.6.1")
+	if err := os.Remove(lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("libkrunfw.so.5.6.1", lib); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := InspectRuntime(); err == nil {
+		t.Fatal("InspectRuntime() error = nil, want libkrunfw stat error")
+	}
+}
+
+func TestPrepareRuntimeApplyHomeError(t *testing.T) {
+	resetRuntimeState(t)
+	wantErr := errors.New("setenv boom")
+	orig := setenv
+	setenv = func(string, string) error { return wantErr }
+	t.Cleanup(func() { setenv = orig })
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want ApplyHome error")
+	}
+}
+
 func TestDefaultRuntimeCommandSeams(t *testing.T) {
 	root := t.TempDir()
 	versionPath := filepath.Join(root, "msb-version")

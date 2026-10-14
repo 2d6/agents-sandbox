@@ -254,6 +254,47 @@ func addRegularFile(t *testing.T, dir, name string) {
 	}
 }
 
+// loopedVolumeHome returns a home whose volumes entry is a symlink to itself,
+// so os.ReadDir on it fails with ELOOP: an unexpected error that
+// homeVolumeNames must propagate rather than tolerate.
+func loopedVolumeHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.Symlink("volumes", filepath.Join(home, "volumes")); err != nil {
+		t.Fatalf("symlink volumes: %v", err)
+	}
+	return home
+}
+
+func TestNecessaryVolumesLegacyReadError(t *testing.T) {
+	got, err := necessaryVolumes(loopedVolumeHome(t), newHome(t))
+	if err == nil {
+		t.Fatal("necessaryVolumes() error = nil, want legacy listing error")
+	}
+	if got != nil {
+		t.Errorf("necessaryVolumes() = %v, want nil on error", got)
+	}
+}
+
+func TestNecessaryVolumesPrivateReadError(t *testing.T) {
+	got, err := necessaryVolumes(newHome(t), loopedVolumeHome(t))
+	if err == nil {
+		t.Fatal("necessaryVolumes() error = nil, want private listing error")
+	}
+	if got != nil {
+		t.Errorf("necessaryVolumes() = %v, want nil on error", got)
+	}
+}
+
+func TestNecessaryPropagatesLegacyHomeError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("HOME", "")
+
+	if _, err := Necessary(); err == nil {
+		t.Fatal("Necessary() error = nil, want legacy-home resolution error")
+	}
+}
+
 func assertSameSet(t *testing.T, got, want []string) {
 	t.Helper()
 	gotSet := make(map[string]bool, len(got))

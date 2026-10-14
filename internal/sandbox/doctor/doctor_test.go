@@ -46,10 +46,7 @@ func TestCheckMsbReportsPrivateHomeBinPathWithoutPathHints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkMsb() error = %v", err)
 	}
-	home, err := runtime.PrivateHome()
-	if err != nil {
-		t.Fatal(err)
-	}
+	home := runtime.PrivateHome()
 	binDir := filepath.Join(home, "bin")
 	outStr := strings.Join(warnings, " ")
 	if !strings.Contains(outStr, binDir) {
@@ -75,10 +72,7 @@ func TestCheckMsbIgnoresMsbHomeAndMsbPathEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkMsb() error = %v", err)
 	}
-	home, err := runtime.PrivateHome()
-	if err != nil {
-		t.Fatal(err)
-	}
+	home := runtime.PrivateHome()
 	outStr := strings.Join(warnings, " ")
 	if !strings.Contains(outStr, filepath.Join(home, "bin")) {
 		t.Errorf("expected the private-home bin path, got %q", outStr)
@@ -191,16 +185,27 @@ func TestCollectChecksMsbInfoNamesPrivateHome(t *testing.T) {
 			t.Fatalf("expected no msb error, got %v", err)
 		}
 	}
-	home, err := runtime.PrivateHome()
-	if err != nil {
-		t.Fatal(err)
-	}
+	home := runtime.PrivateHome()
 	joined := strings.Join(messages, " ")
 	if !strings.Contains(joined, filepath.Join(home, "bin")) {
 		t.Errorf("expected the private-home bin path, got %q", joined)
 	}
 	if strings.Contains(joined, "PATH") {
 		t.Errorf("expected no PATH hint, got %q", joined)
+	}
+}
+
+// TestCollectChecksCollectsMsbError covers collectChecks appending the msb check
+// failure when the private runtime cannot be ensured.
+func TestCollectChecksCollectsMsbError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	MockedCheckDocker(t, true)
+	MockedEnsureInstalled(t, true)
+
+	_, errs := collectChecks(context.Background())
+	joined := strings.Join(errStrings(errs), " ")
+	if !strings.Contains(joined, "msb runtime setup failed") {
+		t.Errorf("expected an msb setup failure, got %q", joined)
 	}
 }
 

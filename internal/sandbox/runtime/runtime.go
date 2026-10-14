@@ -99,10 +99,7 @@ func InspectRuntime() (Inspection, error) {
 // inspectRuntime contains the version-independent inspection logic so invalid
 // SDK metadata can be tested without mutating the linked SDK package.
 func inspectRuntime(requiredVersion string) (Inspection, error) {
-	selected, err := selectRuntime()
-	if err != nil {
-		return Inspection{}, err
-	}
+	selected := selectRuntime()
 	inspection := Inspection{
 		RequiredVersion: requiredVersion,
 		MSBHome:         selected.Home,
@@ -137,23 +134,22 @@ func inspectRuntime(requiredVersion string) (Inspection, error) {
 		return inspection, nil //nolint:nilerr // malformed version output is classified as unknown
 	}
 	inspection.InstalledVersion = installedVersion
-	inspection.Relation, err = compareRuntimeVersions(requiredVersion, installedVersion)
+	relation, err := compareRuntimeVersions(requiredVersion, installedVersion)
 	if err != nil {
 		inspection.Relation = RuntimeUnknown
+		return inspection, nil //nolint:nilerr // invalid version metadata is classified as unknown
 	}
+	inspection.Relation = relation
 	return inspection, nil
 }
 
-func selectRuntime() (selectedRuntime, error) {
-	home, err := PrivateHome()
-	if err != nil {
-		return selectedRuntime{}, err
-	}
+func selectRuntime() selectedRuntime {
+	home := PrivateHome()
 	return selectedRuntime{
 		Home:          home,
 		MSBPath:       filepath.Join(home, "bin", msbFilename()),
 		LibkrunfwPath: filepath.Join(home, "lib", libkrunfwFilename()),
-	}, nil
+	}
 }
 
 func runtimeFilePresent(path string) (bool, error) {

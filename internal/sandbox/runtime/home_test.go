@@ -11,10 +11,7 @@ import (
 
 func TestPrivateHomeUsesDataDir(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	got, err := PrivateHome()
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := PrivateHome()
 	want := filepath.Join(configpaths.Get().UserDataDir(), "msb")
 	if got != want || filepath.Base(got) != "msb" {
 		t.Errorf("PrivateHome() = %q, want %q", got, want)
@@ -30,6 +27,17 @@ func TestApplyHomeSetsMSBHome(t *testing.T) {
 	}
 	if os.Getenv("MSB_HOME") != home {
 		t.Errorf("MSB_HOME = %q, want %q", os.Getenv("MSB_HOME"), home)
+	}
+}
+func TestApplyHomeWrapsSetenvError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("setenv boom")
+	orig := setenv
+	setenv = func(string, string) error { return wantErr }
+	t.Cleanup(func() { setenv = orig })
+
+	if _, err := ApplyHome(); !errors.Is(err, wantErr) {
+		t.Fatalf("ApplyHome() error = %v, want %v", err, wantErr)
 	}
 }
 

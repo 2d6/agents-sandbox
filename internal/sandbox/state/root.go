@@ -28,6 +28,10 @@ func rootStateFile() string {
 	return filepath.Join(stateRoot(), "state.yaml")
 }
 
+// marshalRootState is a seam over yaml.Marshal so tests can exercise the
+// marshal failure path, which the concrete RootState shape cannot trigger.
+var marshalRootState = yaml.Marshal
+
 // ReadRootState loads the launcher-global state. A missing file yields a zero
 // RootState with no error; parse and other I/O failures are returned.
 func ReadRootState() (*RootState, error) {
@@ -53,7 +57,7 @@ func WriteRootState(s RootState) error {
 		return fmt.Errorf("create state root %s: %w", dir, err)
 	}
 	tmpFile := filepath.Join(dir, ".state.yaml.tmp")
-	data, err := yaml.Marshal(s)
+	data, err := marshalRootState(s)
 	if err != nil {
 		return fmt.Errorf("marshal root state: %w", err)
 	}

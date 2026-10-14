@@ -9,9 +9,10 @@ import (
 )
 
 // PrivateHome is the microsandbox home agents-sandbox owns: a private directory
-// under the tool's data dir, never the user's ~/.microsandbox.
-func PrivateHome() (string, error) {
-	return filepath.Join(configpaths.Get().UserDataDir(), "msb"), nil
+// under the tool's data dir, never the user's ~/.microsandbox. It derives purely
+// from the config paths, so it cannot fail.
+func PrivateHome() string {
+	return filepath.Join(configpaths.Get().UserDataDir(), "msb")
 }
 
 // LegacyHome is the shared microsandbox home a user's own install may occupy.
@@ -24,13 +25,14 @@ func LegacyHome() (string, error) {
 	return filepath.Join(home, ".microsandbox"), nil
 }
 
+// setenv is a seam over os.Setenv so tests can exercise the failure path. A
+// real Setenv of a valid constant key cannot fail.
+var setenv = os.Setenv
+
 // ApplyHome points the microsandbox SDK at the private home for this process.
 func ApplyHome() (string, error) {
-	home, err := PrivateHome()
-	if err != nil {
-		return "", err
-	}
-	if err := os.Setenv("MSB_HOME", home); err != nil {
+	home := PrivateHome()
+	if err := setenv("MSB_HOME", home); err != nil {
 		return "", err
 	}
 	return home, nil

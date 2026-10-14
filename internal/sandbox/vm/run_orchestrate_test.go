@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -90,6 +91,34 @@ func TestPrepareHomeVolumeDryRunVMStillOffers(t *testing.T) {
 	}
 	if !offered {
 		t.Error("prepareHomeVolume skipped the migration offer under --dry-run-vm, want it offered")
+	}
+}
+
+// TestPrepareHomeVolumeOfferErrorPropagates verifies that a failure from the
+// runtime-home migration offer aborts volume setup with a wrapped error.
+func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+
+	k := state.Key{Slug: "slug", Agent: "opencode"}
+	wantErr := errors.New("offer boom")
+	origOffer := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error {
+		return wantErr
+	}
+	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
+
+	ui := termio.NewTestMock(t)
+	_, _, _, _, err := prepareHomeVolume(
+		context.Background(),
+		k,
+		sandboximage.ImageInfo{},
+		options.RunOptions{},
+		&ui,
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("prepareHomeVolume() error = %v, want %v", err, wantErr)
 	}
 }
 
