@@ -184,6 +184,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 		ui,
 		false,
 		vmBootStarted,
+		mounts.WorkspaceMountPath,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -275,7 +276,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	}
 	target, err := setUpSandbox(
 		context.Background(), sb, options.RunOptions{},
-		cfs, &ui, true, vmBootStarted,
+		cfs, &ui, true, vmBootStarted, mounts.WorkspaceMountPath,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -328,6 +329,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 		&ui,
 		true,
 		vmBootStarted,
+		mounts.WorkspaceMountPath,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -385,6 +387,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 		ui,
 		false, // restart=false (user chose "keep")
 		vmBootStarted,
+		mounts.WorkspaceMountPath,
 	)
 	if err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
@@ -430,7 +433,16 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sb.AttachCmd = ""
 			sb.AttachUser = ""
-			_, err := setUpSandbox(context.Background(), sb, options.RunOptions{}, cfs, ui, false, tc.boot)
+			_, err := setUpSandbox(
+				context.Background(),
+				sb,
+				options.RunOptions{},
+				cfs,
+				ui,
+				false,
+				tc.boot,
+				mounts.WorkspaceMountPath,
+			)
 			if err != nil {
 				t.Fatalf("setUpSandbox: %v", err)
 			}
@@ -472,7 +484,7 @@ func TestSetUpSandboxProvisionsMirrorOnly(t *testing.T) {
 		},
 	}
 	if _, err := setUpSandbox(
-		context.Background(), sb, options.RunOptions{}, cfs, ui, false, vmBootStarted,
+		context.Background(), sb, options.RunOptions{}, cfs, ui, false, vmBootStarted, mounts.WorkspaceMountPath,
 	); err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
 	}

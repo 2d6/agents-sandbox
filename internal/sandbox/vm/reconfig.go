@@ -70,6 +70,7 @@ func setUpSandbox(
 	ui termio.UI,
 	restart bool,
 	boot vmBoot,
+	guestCWD string,
 ) (string, error) {
 	a, ok := agent.Lookup(opts.Agent)
 	if !ok {
@@ -101,7 +102,7 @@ func setUpSandbox(
 		if provisioned {
 			restartDaemons(ctx, a, sb, opts.ServeOnly, ui)
 		}
-		return ResolveTarget(ctx, a, sb, opts.Worktree, ui)
+		return ResolveTarget(ctx, a, sb, opts.Worktree, guestCWD, ui)
 	}
 
 	if len(cfs.Hooks) > 0 && boot.booted() {
@@ -116,7 +117,7 @@ func setUpSandbox(
 		return "", daemonErr
 	}
 
-	return ResolveTarget(ctx, a, sb, opts.Worktree, ui)
+	return ResolveTarget(ctx, a, sb, opts.Worktree, guestCWD, ui)
 }
 
 // decideReconfig centralizes all reconfiguration decisions: the image-change

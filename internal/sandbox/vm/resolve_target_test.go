@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -16,7 +17,14 @@ import (
 func TestResolveTargetListError(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{ShellErr: errors.New("list failed")}
-	_, err := ResolveTarget(context.Background(), opencodeAgent(t), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
+	_, err := ResolveTarget(
+		context.Background(),
+		opencodeAgent(t),
+		sb,
+		options.WorktreeSpec{Name: "feat-x"},
+		mounts.WorkspaceMountPath,
+		ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when listing worktrees fails")
 	}
@@ -34,7 +42,14 @@ func TestResolveTargetCreateNonSuccess(t *testing.T) {
 			createCmd:                  msb.NewTestResult(false, 1, "", "failed", nil),
 		},
 	}
-	_, err := ResolveTarget(context.Background(), opencodeAgent(t), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
+	_, err := ResolveTarget(
+		context.Background(),
+		opencodeAgent(t),
+		sb,
+		options.WorktreeSpec{Name: "feat-x"},
+		mounts.WorkspaceMountPath,
+		ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when the create command exits non-zero")
 	}
@@ -52,7 +67,14 @@ func TestResolveTargetParseError(t *testing.T) {
 			createCmd:                  msb.NewTestResult(true, 0, "not-json", "", nil),
 		},
 	}
-	_, err := ResolveTarget(context.Background(), opencodeAgent(t), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
+	_, err := ResolveTarget(
+		context.Background(),
+		opencodeAgent(t),
+		sb,
+		options.WorktreeSpec{Name: "feat-x"},
+		mounts.WorkspaceMountPath,
+		ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when parsing the create response fails")
 	}

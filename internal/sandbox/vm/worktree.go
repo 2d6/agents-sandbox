@@ -16,11 +16,6 @@ import (
 
 const defaultTargetDir = mounts.WorkspaceMountPath
 
-// resolveTargetNoBranch returns the default worktree directory when no branch is requested.
-func resolveTargetNoBranch() string {
-	return defaultTargetDir
-}
-
 // validateWorktreeBase confirms the base ref resolves among existing local refs
 // inside the VM. It never fetches: the ref must already be present locally.
 func validateWorktreeBase(ctx context.Context, sb msb.Sandbox, dir, base string) error {
@@ -71,28 +66,30 @@ func findWorktreeDir(listStdout string, slug string) (string, bool) {
 	return "", false
 }
 
-// ResolveTarget returns the --dir target for attach. An empty spec → /workspace.
+// ResolveTarget returns the --dir target for attach. An empty spec → defaultDir.
 // With a name → reuse an existing worktree via the provider's HTTP API when one
 // already exists for that name, otherwise create a new one, and return its
 // directory path. When a base is present on an existing (reused) worktree the
 // base is silently ignored with a warning. When a base is present on a fresh
 // create the base is validated (no fetch) and the create body carries a
 // `git reset --hard <base>` startCommand. An agent without a worktree provider
-// falls back to the default directory.
+// falls back to defaultDir. defaultDir is the workspace bind root the session
+// was launched from.
 func ResolveTarget(
 	ctx context.Context,
 	a agent.Agent,
 	sb msb.Sandbox,
 	spec options.WorktreeSpec,
+	defaultDir string,
 	ui termio.UI,
 ) (string, error) {
 	provider, hasWorktree := agent.AsWorktreeProvider(a)
 	if !hasWorktree {
-		return resolveTargetNoBranch(), nil
+		return defaultDir, nil
 	}
 
 	if spec.Name == "" {
-		return resolveTargetNoBranch(), nil
+		return defaultDir, nil
 	}
 
 	ui.Verbosef("checking for an existing worktree %q", spec.Name)

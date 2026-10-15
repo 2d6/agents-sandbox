@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -29,6 +30,7 @@ type Session struct {
 	name          string
 	target        string
 	cwd           string
+	guestCWD      string
 	serveHostPort int
 }
 
@@ -48,6 +50,12 @@ func (s *Session) Sandbox() msb.Sandbox {
 // Target returns the agent attach target directory.
 func (s *Session) Target() string {
 	return s.target
+}
+
+// GuestCWD returns the guest directory the agent should start in, derived from
+// where the session was launched relative to the workspace bind root.
+func (s *Session) GuestCWD() string {
+	return s.guestCWD
 }
 
 // ServeHostPort returns the published host port the agent server is reachable
@@ -89,6 +97,8 @@ func PrepareSandbox(
 	if err != nil {
 		return nil, err
 	}
+
+	layout, guestCWD := resolveBindLayout(cwd, ui)
 
 	projectSlug := git.ProjectSlug()
 
@@ -159,7 +169,7 @@ func PrepareSandbox(
 	opts.Recreate = recreate
 	opts.ServeHostPort = resolveServeHostPort(opts, serveHostPort)
 
-	sb, boot, err := ensureProjectVM(ctx, opts, imageInfo.Tag, homeVol, cwd, imageInfo.Env, k, ui)
+	sb, boot, err := ensureProjectVM(ctx, opts, imageInfo.Tag, homeVol, layout.BindRoot, imageInfo.Env, k, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -171,9 +181,9 @@ func PrepareSandbox(
 	var sandboxErr error
 	if sb == nil {
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
-		sandboxTarget = resolveTargetNoBranch()
+		sandboxTarget = guestCWD
 	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfs, ui, restart, boot)
+		sandboxTarget, sandboxErr = setUpSandbox(ctx, sb, opts, cfs, ui, restart, boot, guestCWD)
 		if sandboxErr != nil {
 			return nil, sandboxErr
 		}
@@ -186,6 +196,7 @@ func PrepareSandbox(
 		name:          name,
 		target:        sandboxTarget,
 		cwd:           cwd,
+		guestCWD:      guestCWD,
 		serveHostPort: opts.ServeHostPort,
 	}, nil
 }
@@ -221,6 +232,34 @@ func resolveWorkspacePath(dir string) (string, error) {
 		return "", fmt.Errorf("resolve symlinks in %q: %w", dir, err)
 	}
 	return resolved, nil
+}
+
+// resolveBindLayout decides which host directory to bind at /workspace and the
+// guest directory the agent should start in. A worktree outside its enclosing
+// checkout is bound as-is (keeping today's binding) with a warning, since its
+// shared git dir would not be reachable in the VM.
+func resolveBindLayout(cwd string, ui termio.UI) (git.WorkspaceLayout, string) {
+	layout := git.ResolveWorkspaceLayout(cwd)
+	if layout.OutsideWorktree {
+		ui.Warnf(
+			"worktree %q is outside its checkout %q; git may not resolve inside the VM — keep worktrees inside the checkout",
+			cwd,
+			layout.CheckoutRoot,
+		)
+	}
+	return layout, guestWorkspacePath(layout.BindRoot, cwd)
+}
+
+// guestWorkspacePath maps the host cwd to the directory the agent should start
+// in inside the VM, given the host directory bound at /workspace. When cwd is
+// the bind root (or cannot be related to it) the workspace mount path itself is
+// returned; otherwise the relative path is appended using POSIX separators.
+func guestWorkspacePath(bindRoot, cwd string) string {
+	rel, err := filepath.Rel(bindRoot, cwd)
+	if err != nil || rel == "." {
+		return mounts.WorkspaceMountPath
+	}
+	return path.Join(mounts.WorkspaceMountPath, filepath.ToSlash(rel))
 }
 
 // resolveServeHostPort returns the host port to publish in serve-only mode. When
