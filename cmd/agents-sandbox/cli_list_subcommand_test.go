@@ -372,12 +372,40 @@ func TestListSandboxesQuietNames(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	for _, want := range []string{"agents-sandbox-vm-alpha", "agents-sandbox-vm-beta"} {
-		if !containsNormalized(ui.OutCalls, want) {
-			t.Errorf("OutCalls missing name %q; got: %v", want, ui.OutCalls)
+		if !containsNormalized(ui.PrintCalls, want) {
+			t.Errorf("PrintCalls missing name %q; got: %v", want, ui.PrintCalls)
 		}
 	}
 	if containsNormalized(ui.OutCalls, "NAME IMAGE STATUS CREATED") {
 		t.Errorf("column header should be absent in quiet mode; got: %v", ui.OutCalls)
+	}
+	listCmd, _, err := cmd.Find([]string{cmdList})
+	if err != nil {
+		t.Fatalf("find list command: %v", err)
+	}
+	if flag := listCmd.Flags().Lookup(pFlagNames); flag == nil || flag.Deprecated == "" {
+		t.Errorf("--names should be marked deprecated, got %+v", flag)
+	}
+}
+
+func TestListSandboxesQuiet(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Sandboxes = []sandboxmsb.SandboxHandle{
+		projectSandbox("agents-sandbox-vm-alpha", nil),
+		projectSandbox("agents-sandbox-vm-beta", nil),
+	}
+	cmd, ui := setupCommandFixtures(t, cmdList, "--quiet")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"agents-sandbox-vm-alpha", "agents-sandbox-vm-beta"} {
+		if !containsNormalized(ui.PrintCalls, want) {
+			t.Errorf("PrintCalls missing name %q; got: %v", want, ui.PrintCalls)
+		}
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("quiet list should not write table output, got: %v", ui.OutCalls)
 	}
 }
 
@@ -419,6 +447,11 @@ func TestListSandboxesFormatJSON(t *testing.T) {
 
 func TestListSandboxesFormatJSONAndNamesConflict(t *testing.T) {
 	runListCmdTest(t, []string{cmdList, "--names", "--format", "json"},
+		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
+}
+
+func TestListSandboxesFormatJSONQuietConflict(t *testing.T) {
+	runListCmdTest(t, []string{cmdList, "--quiet", "--format", "json"},
 		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
 }
 

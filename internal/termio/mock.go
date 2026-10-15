@@ -30,6 +30,7 @@ type Mock struct {
 	ErrorCalls   []ErrorCall
 	VerboseCalls []string
 	OutCalls     []string
+	PrintCalls   []string
 	SpinnerCalls []string
 	StdOutBuffer bytes.Buffer
 	StdErrBuffer bytes.Buffer
@@ -101,6 +102,14 @@ func (m *Mock) Out(msg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.OutCalls = append(m.OutCalls, stripANSICodes(msg))
+}
+
+// Print records a data line written regardless of the quiet setting, mirroring
+// the production printer's Print.
+func (m *Mock) Print(msg string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PrintCalls = append(m.PrintCalls, stripANSICodes(msg))
 }
 
 // Header records a table header line in OutCalls. The mock never applies ANSI

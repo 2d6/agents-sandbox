@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -169,11 +168,10 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox list",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if namesOnly && format != "" {
-				return errors.New("--names and --format are mutually exclusive")
-			}
-			if format != "" && format != formatJSON {
-				return fmt.Errorf("unsupported format %q: only %q is supported", format, formatJSON)
+			quiet, _ := cmd.Flags().GetBool(pFlagQuiet)
+			mode, err := resolveListOutput(format, quiet || namesOnly)
+			if err != nil {
+				return err
 			}
 			labels, err := parseLabelFlags(labelsStr)
 			if err != nil {
@@ -193,25 +191,16 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if namesOnly {
-				for _, s := range sandboxes {
-					ui.Out(s.Name)
-				}
-				return nil
-			}
-			if format == formatJSON {
-				return printSandboxesJSON(ui, sandboxes)
-			}
-			printItems(sandboxes, "No sandboxes found.", sandboxListHeaders(), ui,
+			return printList(ui, mode, sandboxes, "No sandboxes found.", sandboxListHeaders(), sandboxJSON,
 				func(s sandbox.Info) string { return s.Name },
 				func(s sandbox.Info) string { return s.Image },
 				func(s sandbox.Info) string { return termio.StyleStatus(s.Status) },
 				func(s sandbox.Info) string { return s.CreatedAt },
 			)
-			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&namesOnly, pFlagNames, false, "Print only sandbox names")
+	_ = cmd.Flags().MarkDeprecated(pFlagNames, "use --quiet")
 	cmd.Flags().
 		StringArrayVar(&labelsStr, flagLabel, nil, "Only show sandboxes carrying this label KEY=VALUE (repeatable, all must match)")
 	cmd.Flags().Uint32Var(&limit, flagLimit, 0, "Limit the number of sandboxes shown")
@@ -242,7 +231,7 @@ type jsonSandbox struct {
 	Labels  map[string]string `json:"labels"`
 }
 
-func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
+func sandboxJSON(infos []sandbox.Info) any {
 	out := make([]jsonSandbox, 0, len(infos))
 	for _, s := range infos {
 		out = append(out, jsonSandbox{
@@ -254,12 +243,7 @@ func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
 			Labels:  s.Labels,
 		})
 	}
-	data, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	ui.Out(string(data))
-	return nil
+	return out
 }
 
 func buildConfigCmd(ui termio.UI) *cobra.Command {
@@ -545,13 +529,12 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(images, "No images found.", imageListHeaders(), ui,
+			return printList(ui, listOutputTable, images, "No images found.", imageListHeaders(), nil,
 				func(i image.Info) string { return i.Reference },
 				func(i image.Info) string { return truncateDigest(i.Digest) },
 				func(i image.Info) string { return i.Size },
 				func(i image.Info) string { return i.CreatedAt },
 			)
-			return nil
 		},
 	})
 	cmd.AddCommand(buildBuildCmd(ui))
@@ -575,13 +558,12 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printItems(volumes, "No volumes found.", volumeListHeaders(), ui,
+			return printList(ui, listOutputTable, volumes, "No volumes found.", volumeListHeaders(), nil,
 				func(v volume.VolumeInfo) string { return v.Name },
 				func(v volume.VolumeInfo) string { return v.Kind },
 				func(v volume.VolumeInfo) string { return volumeSize(v.Kind, v.QuotaMiB, v.CapacityBytes) },
 				func(v volume.VolumeInfo) string { return v.CreatedAt },
 			)
-			return nil
 		},
 	})
 

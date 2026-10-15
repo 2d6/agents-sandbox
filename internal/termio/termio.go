@@ -81,6 +81,7 @@ type UI interface {
 	Verbosef(format string, args ...any)
 	Out(msg string)
 	Outf(format string, args ...any)
+	Print(msg string)
 	Header(msg string)
 	NewTable(headers ...string) *Table
 	Spinner(msg string) Spinner
