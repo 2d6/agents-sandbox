@@ -41,7 +41,7 @@ func ResolveWorkspaceLayout(cwd string) WorkspaceLayout {
 	return WorkspaceLayout{BindRoot: cwd, CheckoutRoot: checkoutRoot, OutsideWorktree: true}
 }
 
-// findWorktreeRoot returns the topmost directory at or above cwd that contains a
+// findWorktreeRoot returns the nearest directory at or above cwd that contains a
 // .git entry (a directory for a normal checkout, a file for a linked worktree or
 // a bare layout's worktree), or "" when none is found.
 func findWorktreeRoot(cwd string) string {
@@ -60,9 +60,12 @@ func findWorktreeRoot(cwd string) string {
 
 // within reports whether child is parent or under it.
 func within(parent, child string) bool {
-	rel, err := filepath.Rel(parent, child)
-	if err != nil {
-		return false
+	if child == parent {
+		return true
 	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+	prefix := parent
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
+	}
+	return strings.HasPrefix(child, prefix)
 }

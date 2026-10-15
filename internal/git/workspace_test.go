@@ -96,6 +96,49 @@ func TestResolveWorkspaceLayoutOutsideWorktree(t *testing.T) {
 	}
 }
 
+func TestResolveWorkspaceLayoutMalformedGitFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("this is not a gitdir pointer"), 0o644); err != nil {
+		t.Fatalf("write .git: %v", err)
+	}
+
+	got := ResolveWorkspaceLayout(dir)
+
+	if got.BindRoot != dir {
+		t.Errorf("BindRoot = %q, want %q", got.BindRoot, dir)
+	}
+	if got.CheckoutRoot != "" {
+		t.Errorf("CheckoutRoot = %q, want empty", got.CheckoutRoot)
+	}
+	if got.OutsideWorktree {
+		t.Errorf("OutsideWorktree = true, want false")
+	}
+}
+
+func TestResolveWorkspaceLayoutBareGitDirNotNamedDotGit(t *testing.T) {
+	origin := testutil.InitRepo(t)
+	tmp := t.TempDir()
+	bare := filepath.Join(tmp, "bare.git")
+	testutil.RunGit(t, tmp, "clone", "--bare", origin, "bare.git")
+	wt := filepath.Join(tmp, "wt")
+	testutil.RunGit(t, bare, "worktree", "add", wt)
+
+	// The shared git dir is not named ".git" and does not sit under the
+	// worktree's parent, so the checkout root cannot contain the worktree: this
+	// is the submodule / --separate-git-dir classification, treated as outside.
+	got := ResolveWorkspaceLayout(wt)
+
+	if !got.OutsideWorktree {
+		t.Errorf("OutsideWorktree = false, want true")
+	}
+	if got.BindRoot != wt {
+		t.Errorf("BindRoot = %q, want %q", got.BindRoot, wt)
+	}
+	if got.CheckoutRoot != bare {
+		t.Errorf("CheckoutRoot = %q, want %q", got.CheckoutRoot, bare)
+	}
+}
+
 func TestResolveWorkspaceLayoutBareWorktree(t *testing.T) {
 	origin := testutil.InitRepo(t)
 	root := t.TempDir()
@@ -124,12 +167,21 @@ func TestResolveWorkspaceLayoutBareWorktree(t *testing.T) {
 		if got.BindRoot != root {
 			t.Errorf("BindRoot = %q, want %q", got.BindRoot, root)
 		}
+		if got.CheckoutRoot != root {
+			t.Errorf("CheckoutRoot = %q, want %q", got.CheckoutRoot, root)
+		}
+		if got.OutsideWorktree {
+			t.Errorf("OutsideWorktree = true, want false")
+		}
 	})
 
 	t.Run("bare root", func(t *testing.T) {
 		got := ResolveWorkspaceLayout(root)
 		if got.BindRoot != root {
 			t.Errorf("BindRoot = %q, want %q", got.BindRoot, root)
+		}
+		if got.CheckoutRoot != root {
+			t.Errorf("CheckoutRoot = %q, want %q", got.CheckoutRoot, root)
 		}
 		if got.OutsideWorktree {
 			t.Errorf("OutsideWorktree = true, want false")
