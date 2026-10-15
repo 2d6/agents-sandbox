@@ -3,17 +3,18 @@ package volume
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // RemoveVolumes removes the named private home volumes. Unless force is set, it
 // refuses when any name is still referenced by a project state file, listing the
 // referencing projects, so a project's recorded home is never silently orphaned.
-func RemoveVolumes(ctx context.Context, names []string, force bool) error {
+// It prompts for confirmation after the reference guard passes.
+func RemoveVolumes(ctx context.Context, names []string, force bool, ui termio.UI) error {
 	if !force {
 		references, err := state.HomeVolumeReferences()
 		if err != nil {
@@ -22,6 +23,9 @@ func RemoveVolumes(ctx context.Context, names []string, force bool) error {
 		if err := refuseReferencedVolumes(names, references); err != nil {
 			return err
 		}
+	}
+	if err := termio.ConfirmAction(ui, fmt.Sprintf("Remove %d home volume(s)?", len(names))); err != nil {
+		return err
 	}
 	for _, name := range names {
 		if err := msb.Get().RemoveVolume(ctx, name); err != nil {
@@ -38,7 +42,7 @@ func refuseReferencedVolumes(names []string, references map[string][]state.Key) 
 	var refused []string
 	for _, name := range names {
 		if keys := references[name]; len(keys) > 0 {
-			refused = append(refused, fmt.Sprintf("%s (referenced by %s)", name, formatKeys(keys)))
+			refused = append(refused, fmt.Sprintf("%s (referenced by %s)", name, state.FormatKeys(keys)))
 		}
 	}
 	if len(refused) == 0 {
@@ -49,19 +53,4 @@ func refuseReferencedVolumes(names []string, references map[string][]state.Key) 
 			"re-run with --force to remove anyway",
 		strings.Join(refused, "; "),
 	)
-}
-
-// formatKeys renders referencing project keys as "slug/agent" (or "slug" for a
-// legacy agent-less key), sorted for stable output.
-func formatKeys(keys []state.Key) string {
-	labels := make([]string, 0, len(keys))
-	for _, k := range keys {
-		if k.Agent == "" {
-			labels = append(labels, k.Slug)
-			continue
-		}
-		labels = append(labels, k.Slug+"/"+k.Agent)
-	}
-	sort.Strings(labels)
-	return strings.Join(labels, ", ")
 }
