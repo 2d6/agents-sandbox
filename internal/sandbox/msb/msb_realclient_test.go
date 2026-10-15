@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // TestGetFactory exercises the package-level Client factory, which the test
@@ -53,6 +55,30 @@ func TestRealMsbClientImagePruneCanceled(t *testing.T) {
 	cancel()
 	if _, err := (&realMsbClient{}).ImagePrune(ctx); err == nil {
 		t.Fatal("ImagePrune() with a canceled context = nil error, want cancellation error")
+	}
+}
+
+// TestRealMsbClientStorageUsageCanceled covers the StorageUsage adapter without
+// a runtime: a canceled context fails before the native call.
+func TestRealMsbClientStorageUsageCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (&realMsbClient{}).StorageUsage(ctx); err == nil {
+		t.Fatal("StorageUsage() with a canceled context = nil error, want cancellation error")
+	}
+}
+
+// TestRealMsbClientImageInspectInjected covers the success path of the
+// ImageInspect adapter through the inspect seam.
+func TestRealMsbClientImageInspectInjected(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{Config: &msbSdk.ImageConfig{Digest: "sha256:abc"}}, nil
+	}
+	cfg, err := (&realMsbClient{}).ImageInspect(context.Background(), "ref")
+	if err != nil || cfg == nil || cfg.Digest != "sha256:abc" {
+		t.Fatalf("ImageInspect = %v, %v", cfg, err)
 	}
 }
 

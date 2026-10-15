@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 )
 
@@ -36,8 +37,17 @@ type runtimeAccumulator struct {
 }
 
 func (a *runtimeAccumulator) scan(root string, includeObjects bool) error {
+	if _, err := os.Stat(root); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("scan runtime artifacts in %s: %w", root, err)
+	}
 	err := filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
-		return a.visit(path, info, err, includeObjects)
+		if err != nil {
+			return err
+		}
+		return a.visit(path, info, includeObjects)
 	})
 	if err != nil {
 		return fmt.Errorf("scan runtime artifacts in %s: %w", root, err)
@@ -45,13 +55,10 @@ func (a *runtimeAccumulator) scan(root string, includeObjects bool) error {
 	return nil
 }
 
-func (a *runtimeAccumulator) visit(path string, info fs.FileInfo, err error, includeObjects bool) error {
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return fs.SkipDir
-		}
-		return err
-	}
+// visit sums one regular file. A missing subtree root is handled by scan before
+// the walk starts, so an error here (a file that vanished mid-walk, an
+// unreadable directory) propagates rather than silently under-reporting.
+func (a *runtimeAccumulator) visit(path string, info fs.FileInfo, includeObjects bool) error {
 	if info.IsDir() {
 		return nil
 	}

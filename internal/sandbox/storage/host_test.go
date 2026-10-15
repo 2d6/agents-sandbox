@@ -77,6 +77,16 @@ func TestObserveRuntimeMissingHomeIsKnownZero(t *testing.T) {
 	}
 }
 
+func TestObserveRuntimeNonDirHomeErrorPropagates(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "afile")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+	if _, err := observeRuntime(file, Options{}); err == nil {
+		t.Fatal("observeRuntime() with a regular file as home = nil error, want stat error")
+	}
+}
+
 func TestObserveRuntimeWalkErrorPropagates(t *testing.T) {
 	if _, err := observeRuntime(lockedRuntimeHome(t), Options{}); err == nil {
 		t.Fatal("observeRuntime() error = nil, want propagation of unreadable subtree")

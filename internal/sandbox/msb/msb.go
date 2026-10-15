@@ -373,8 +373,12 @@ func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) (er
 	return nil
 }
 
+// realImageInspect is a seam over the SDK image inspect so the adapter's success
+// path is unit-testable without a populated image cache.
+var realImageInspect = msbSdk.Image.Inspect
+
 func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
-	detail, err := msbSdk.Image.Inspect(ctx, ref)
+	detail, err := realImageInspect(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
