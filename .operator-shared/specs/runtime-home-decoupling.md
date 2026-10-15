@@ -1,16 +1,21 @@
 ---
-description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: a private XDG data home, no user-facing msb, retired version-matching recovery, and an opt-in copy of legacy home volumes recorded as `runtime_home_migration.dismissed` in root `state.yaml`.
-read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu, or the legacy home-volume copy prompt.
+description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: a private XDG data home, no user-facing msb, retired version-matching recovery, and an opt-in copy of legacy home volumes whose progress is tracked in a host-owned `migrations` registry (`runtime_home` entry with `copying`/`completed`/`dismissed` status plus transient `copied`/`excluded` sets) in root `state.yaml`.
+read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu, or the legacy home-volume copy prompt and its persisted migration state.
 ---
 
 # Runtime home decoupling
 
 Date: 2026-10-13
 
-Status: **implemented** — all Decisions below are in place. The implementation
-plan is [2026-10-13-runtime-home-decoupling](../plans/2026-10-13-runtime-home-decoupling.md).
-The single item still outstanding is the ownership-mapping verification under
-"Open verification".
+Status: **implemented**, with one review-driven revision pending. The original
+copy state model tracked completion with an in-volume sentinel and no
+cross-process locking; review found it unsafe (guest-controlled completion,
+symlink-followable marker write, concurrent sessions deleting each other's
+copy). The copy state model is therefore superseded by the host-owned
+`migrations` registry in "Persisted state"; everything else in "Decisions" is in
+place. The ownership-mapping verification under "Open verification" also
+remains. The original implementation plan is
+[2026-10-13-runtime-home-decoupling](../plans/2026-10-13-runtime-home-decoupling.md).
 
 ## Intent
 
@@ -153,9 +158,16 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 - Source selection is by name, not by our per-project state: any directory under
   `~/.microsandbox/volumes/` matching `agents-sandbox-home-*` that is absent from
   the private home. No layout guessing beyond this convention.
-- A failed copy aborts the session: continuing would orphan the old data, while
-  the per-volume copy already removed any partial volume, so necessity stays true
-  and the offer returns next session.
+- Failure scope governs exclusion:
+  - A **volume-scoped** failure (source unreadable, a file's permission denied,
+    ENOSPC, or a chmod/copy error on one volume) is recoverable: that volume is
+    **excluded** from the campaign and recorded as such, the remaining volumes
+    are copied, and the campaign can still reach `completed`. The legacy source
+    is never written, so an exclusion costs only that volume's data. Exclusion
+    is automatic, with a warning naming the volumes left behind.
+  - A **campaign-scoped** failure (writing `state.yaml`, taking the lock, or
+    listing the homes) aborts the session and leaves the campaign open
+    (`copying`) to resume next time.
 - A clean break (user chooses "Start fresh") is recorded as the dismissal: the
   legacy volumes remain, so without a persisted decision the offer would keep
   returning.
@@ -187,50 +199,82 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   evidence of a host→guest translation.
 - A recursive copy preserves file mode and modification time; symlinks are
   recreated as symlinks, never followed.
-- Interruption handling: a per-volume copy that fails removes that volume
-  best-effort, so the name is again absent from the private home and necessity
-  stays derived true, letting the next interactive start re-offer. Previously
-  completed volumes are left in place and simply stop being necessary.
-- Crash safety: a copy stopped by a crash or kill runs no cleanup, so a
-  half-populated private volume could otherwise look complete. A finished copy
-  therefore writes a completion sentinel inside the volume, and private
-  presence requires that sentinel: an unmarked private volume counts as
-  still-to-copy, so an interrupted copy is re-offered. A retry discards the
-  leftover partial volume before recreating it. This means the presence check is
-  no longer a pure name listing for the private home (it also checks the
-  sentinel); legacy necessity itself is unchanged.
+- Interruption handling: a volume-scoped copy failure removes that volume
+  best-effort and records it in `excluded`, so it is not retried this campaign
+  while the others proceed. Previously completed volumes are recorded in
+  `copied` and simply stop being necessary.
+- Cross-process safety: the campaign holds a host-only advisory lock
+  (`state.FlockExclusive`) for its duration and (re-)derives necessity under the
+  lock, so a second session sees the in-flight status and never discards or
+  re-copies a volume another session is copying.
+- Crash safety: a copy stopped by a crash or kill runs no cleanup, but the
+  persisted status is `copying`, so the next session treats every present
+  private volume not in `copied` as an unambiguous partial: it discards and
+  re-copies exactly those, and leaves `copied` volumes alone. Completion is a
+  host-owned record, never a file inside the guest-writable volume.
+- Symlink safety: the copy recreates symlinks without following them, and after
+  the copy the host performs **no** further write into the copied tree (the
+  completion record is host-side), so a symlink planted in a legacy volume
+  cannot redirect a host write onto a host file outside the volume.
 
 ### Persisted state
 
-- Necessity is **derived** each run from the two homes: at least one directory
-  matching `agents-sandbox-home-*` exists under `~/.microsandbox/volumes/` and
-  its name is not a *completed* volume in the private home's `volumes/` (present
-  and carrying the copy-completion sentinel). Nothing is persisted for it, and
-  it does not depend on any per-project state.
-- Completion is also **derived**: once copied volumes are present in the private
-  home, necessity is false and no offer is made.
-- The only persisted value is the user's opt-out, a single key in root
-  `~/.local/state/agents-sandbox/state.yaml`:
+- **Necessity is derived, never stored.** Legacy necessity means a directory
+  matching `agents-sandbox-home-*` under `~/.microsandbox/volumes/` whose name is
+  not completed in the private home. The migration *status* only changes what
+  "necessary" means (below); it is not itself a necessity record.
+- The migration decision and any in-flight progress live in root
+  `~/.local/state/agents-sandbox/state.yaml`, under a **`migrations` registry**
+  keyed by migration name, so a future one-time migration adds a key without
+  changing `RootState`'s shape:
 
   ```yaml
-  runtime_home_migration:
-    dismissed: true
+  migrations:
+    runtime_home:
+      status: copying        # copying | completed | dismissed
+      copied:                # present only while status: copying
+        - agents-sandbox-home-1mjusbm3wikhb0
+      excluded:              # present only while status: copying
+        - agents-sandbox-home-1mjusbm3wikhb1
   ```
 
-  The key name is `runtime_home_migration` — scoped by `home` so it does not
-  collide with the existing volume (`CmdMigrate`) or config-migration senses of
-  "migration", and it keeps the codebase's "runtime" abstraction rather than
-  leaking the vendor name `msb`. The inner key is `dismissed`, reusing the
-  established opt-out term (`upgrade.json`'s `dismissed_versions`; onboarding's
-  `state: dismissed`). It stays flat until a second axis appears.
-- `dismissed` is a permanent flag with no re-arming (unlike onboarding's
-  source-hash re-arm). After a dismissal, agents-sandbox never offers again;
-  there is no in-product re-entry.
+- `status` is the only mandatory field; **absence of the `runtime_home` entry is
+  the `pending` state** and is always derived, never written:
+  - **pending** (absent) — offer if any legacy name is not present in the private
+    home.
+  - **copying** — a campaign is open. Necessary = legacy names minus `copied`
+    minus `excluded`. Any present private volume not in `copied` is an
+    unambiguous partial: discard and re-copy. `copied` gives exact per-volume
+    resume; `excluded` stops a volume that failed from being retried.
+  - **completed** — campaign over, no offer, permanent.
+  - **dismissed** — user chose start-fresh, no offer, permanent.
+- `copied` and `excluded` are transient: written only while `copying` and
+  dropped when the campaign reaches a terminal word. Terminal words are
+  permanent with no re-arm (unlike onboarding's source-hash re-arm); after
+  `completed` or `dismissed`, agents-sandbox never re-offers and never re-probes.
+- Concurrent sessions are serialized by a host-only advisory lock
+  (`state.FlockExclusive`) held for the campaign, at a path under the private
+  home (`$MSB_HOME/.agents-sandbox/migration.lock`). The flock auto-releases on
+  process exit, so a crashed holder never pins the campaign. Necessity is
+  (re-)derived under the lock; a second session therefore sees `copying` and
+  never clobbers a live copy.
+- Completion is **host-owned**, never a file inside the guest-writable volume.
+  The original design's in-volume `.agents-sandbox-copy-complete` sentinel is
+  removed: it lived in a directory the guest can write, could be deleted to make
+  a finished home look interrupted (a silent data-loss path), and its
+  `os.WriteFile` followed a copied symlink to truncate a host file. The
+  `migrations` entry replaces it as the sole completion record.
+- Only the terminal words are long-lived (one line per migration the tool ships,
+  not per run). There is no new state file: the registry lives in the already-
+  existing root `state.yaml`; the lock file is the only new path and is
+  transient. Because the PR has not shipped, the previous
+  `runtime_home_migration.dismissed` key is replaced outright — no compat
+  shim.
 
 ### State-file placement (related, separate)
 
 - Folding launcher-global state into a single scope-based `state.yaml` is issue
-  #141. This work only adds its `runtime_home_migration` key to root
+  #141. This work only adds its `migrations.runtime_home` entry to root
   `state.yaml`; it must not introduce a feature-named file of its own.
 
 ## Left to the builder
@@ -262,9 +306,10 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 
 ## Open question deferred to the builder
 
-- Whether a dismissed decision should ever be reversible in-product. This design
-  says no; if that proves user-hostile, the natural future shape is a subkey
-  (e.g. a `completed` / timestamp alongside `dismissed`) rather than a new file.
+- Whether a terminal decision should ever be reversible in-product. This design
+  says no; the `migrations.runtime_home` entry already carries a `status`, so a
+  future re-arm is a status change (e.g. back to `pending`), not a new field or
+  file.
 
 ## Relationship to other specs and issues
 
