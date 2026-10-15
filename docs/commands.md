@@ -395,9 +395,9 @@ on stdout). The two are mutually exclusive.
 #### image inspect
 
 Show the full detail of a cached runner image: its reference, manifest digest,
-size, creation time, the parsed OCI config (env, cmd, entrypoint, working dir,
-user, labels, stop signal), and every layer (diff ID, blob digest, media type,
-compressed and erofs sizes).
+architecture, OS, size, creation time, the parsed OCI config (env, cmd,
+entrypoint, working dir, user, labels, stop signal), and every layer (diff ID,
+blob digest, media type, compressed and erofs sizes).
 
 ```console
 agents-sandbox image inspect agents-sandbox/runner-myproj-aBc1234D:latest
@@ -422,7 +422,7 @@ agents-sandbox image build
 
 ### sandbox
 
-Parent command that groups sandbox-related subcommands. Individual commands (`run`, `shell`, `stop`, `kill`, `list`, `inspect`) are also available at the top level where applicable.
+Parent command that groups sandbox-related subcommands. Most (`run`, `shell`, `stop`, `kill`, `list`) are also available at the top level; `sandbox inspect` lives only under this group.
 
 ```console
 agents-sandbox sandbox run

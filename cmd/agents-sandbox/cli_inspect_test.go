@@ -140,6 +140,8 @@ func TestImageInspect(t *testing.T) {
 			return &sandboxmsb.ImageDetail{
 				Reference:      "agents-sandbox/runner-proj:latest",
 				ManifestDigest: "sha256:abc123",
+				Architecture:   "arm64",
+				OS:             "linux",
 				SizeBytes:      &size,
 				CreatedAt:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 				Config: msbSdk.ImageConfig{
@@ -170,6 +172,8 @@ func TestImageInspect(t *testing.T) {
 	for _, want := range []string{
 		"reference: agents-sandbox/runner-proj:latest",
 		"digest: sha256:abc123",
+		"architecture: arm64",
+		"os: linux",
 		"size: 2 GiB",
 		"created: 2026-08-17 10:42:36",
 		"working dir: /workspace",
@@ -192,6 +196,8 @@ func TestImageInspectFormatJSON(t *testing.T) {
 			return &sandboxmsb.ImageDetail{
 				Reference:      "agents-sandbox/runner-proj:latest",
 				ManifestDigest: "sha256:abc123",
+				Architecture:   "amd64",
+				OS:             "linux",
 				Config:         msbSdk.ImageConfig{Labels: map[string]string{"k": "v"}},
 				Layers:         []msbSdk.ImageLayer{{Position: 2, DiffID: "sha256:l"}},
 			}, nil
@@ -204,10 +210,12 @@ func TestImageInspectFormatJSON(t *testing.T) {
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
 	var got struct {
-		Reference string   `json:"reference"`
-		Digest    string   `json:"digest"`
-		Env       []string `json:"env"`
-		Layers    []struct {
+		Reference    string   `json:"reference"`
+		Digest       string   `json:"digest"`
+		Architecture string   `json:"architecture"`
+		OS           string   `json:"os"`
+		Env          []string `json:"env"`
+		Layers       []struct {
 			Position int    `json:"position"`
 			DiffID   string `json:"diff_id"`
 		} `json:"layers"`
@@ -215,7 +223,8 @@ func TestImageInspectFormatJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(joined), &got); err != nil {
 		t.Fatalf("json.Unmarshal: %v; output: %q", err, joined)
 	}
-	if got.Reference != "agents-sandbox/runner-proj:latest" || got.Digest != "sha256:abc123" {
+	if got.Reference != "agents-sandbox/runner-proj:latest" || got.Digest != "sha256:abc123" ||
+		got.Architecture != "amd64" || got.OS != "linux" {
 		t.Errorf("unexpected identity JSON: %+v", got)
 	}
 	if got.Env == nil || len(got.Env) != 0 {
@@ -317,7 +326,8 @@ func TestSandboxInspectFormatJSON(t *testing.T) {
 			CreatedAt_:   time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC),
 			UpdatedAt_:   time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
 			Cfg: &msbSdk.SandboxConfig{
-				Image: "agents-sandbox/runner-proj:latest",
+				Image:     "agents-sandbox/runner-proj:latest",
+				MemoryMiB: 4096,
 				Volumes: map[string]msbSdk.MountConfig{
 					"/workspace": msbSdk.Mount.Bind("/host/workspace", msbSdk.MountOptions{Readonly: true}),
 				},
@@ -335,6 +345,8 @@ func TestSandboxInspectFormatJSON(t *testing.T) {
 		ID      string `json:"id"`
 		Status  string `json:"status"`
 		Backend string `json:"backend"`
+		Memory  string `json:"memory"`
+		CPUs    int    `json:"cpus"`
 		Mounts  []struct {
 			GuestPath string `json:"guest_path"`
 			Kind      string `json:"kind"`
@@ -348,6 +360,13 @@ func TestSandboxInspectFormatJSON(t *testing.T) {
 	if got.Name != "agents-sandbox-vm-abc" || got.ID != "sbx-123" || got.Status != "stopped" ||
 		got.Backend != "local" {
 		t.Errorf("unexpected identity JSON: %+v", got)
+	}
+	if got.Memory != "4 GiB" || got.CPUs != 0 {
+		t.Errorf(
+			"sandbox resource JSON should be humanized memory and integer cpus, got memory=%q cpus=%d",
+			got.Memory,
+			got.CPUs,
+		)
 	}
 	if len(got.Mounts) != 1 || got.Mounts[0].GuestPath != "/workspace" ||
 		got.Mounts[0].Kind != "bind" || got.Mounts[0].Source != "/host/workspace" ||

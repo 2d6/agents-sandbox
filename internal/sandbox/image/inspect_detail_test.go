@@ -19,6 +19,8 @@ func TestInspectImagePopulatesDetail(t *testing.T) {
 		return &msb.ImageDetail{
 			Reference:      "agents-sandbox/runner-proj:latest",
 			ManifestDigest: "sha256:abc123",
+			Architecture:   "arm64",
+			OS:             "linux",
 			SizeBytes:      &size,
 			CreatedAt:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 			Config: msbSdk.ImageConfig{
@@ -49,6 +51,7 @@ func TestInspectImagePopulatesDetail(t *testing.T) {
 		t.Fatalf("InspectImage() error = %v", err)
 	}
 	if got.Reference != "agents-sandbox/runner-proj:latest" || got.Digest != "sha256:abc123" ||
+		got.Architecture != "arm64" || got.OS != "linux" ||
 		got.Size != "2 GiB" || got.CreatedAt != "2026-08-17 10:42:36" {
 		t.Errorf("InspectImage() identity = %+v", got)
 	}

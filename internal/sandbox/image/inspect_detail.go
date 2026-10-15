@@ -20,18 +20,20 @@ type LayerInfo struct {
 // ImageDetail is the inspected identity, manifest, and OCI config of a cached
 // runner image.
 type ImageDetail struct {
-	Reference  string
-	Digest     string
-	Size       string
-	CreatedAt  string
-	Env        []string
-	Cmd        []string
-	Entrypoint []string
-	WorkingDir string
-	User       string
-	Labels     map[string]string
-	StopSignal string
-	Layers     []LayerInfo
+	Reference    string
+	Digest       string
+	Architecture string
+	OS           string
+	Size         string
+	CreatedAt    string
+	Env          []string
+	Cmd          []string
+	Entrypoint   []string
+	WorkingDir   string
+	User         string
+	Labels       map[string]string
+	StopSignal   string
+	Layers       []LayerInfo
 }
 
 // InspectImage returns the full detail of a cached image by reference.
@@ -52,17 +54,19 @@ func InspectImage(ctx context.Context, ref string) (ImageDetail, error) {
 		})
 	}
 	return ImageDetail{
-		Reference:  detail.Reference,
-		Digest:     detail.ManifestDigest,
-		Size:       imageSize(detail.SizeBytes),
-		CreatedAt:  FormatImageTime(detail.CreatedAt),
-		Env:        detail.Config.Env,
-		Cmd:        detail.Config.Cmd,
-		Entrypoint: detail.Config.Entrypoint,
-		WorkingDir: detail.Config.WorkingDir,
-		User:       detail.Config.User,
-		Labels:     detail.Config.Labels,
-		StopSignal: detail.Config.StopSignal,
-		Layers:     layers,
+		Reference:    detail.Reference,
+		Digest:       detail.ManifestDigest,
+		Architecture: detail.Architecture,
+		OS:           detail.OS,
+		Size:         imageSize(detail.SizeBytes),
+		CreatedAt:    FormatImageTime(detail.CreatedAt),
+		Env:          detail.Config.Env,
+		Cmd:          detail.Config.Cmd,
+		Entrypoint:   detail.Config.Entrypoint,
+		WorkingDir:   detail.Config.WorkingDir,
+		User:         detail.Config.User,
+		Labels:       detail.Config.Labels,
+		StopSignal:   detail.Config.StopSignal,
+		Layers:       layers,
 	}, nil
 }

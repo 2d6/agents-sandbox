@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -9,80 +11,65 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// buildVolumeInspectCmd builds `volume inspect <name>`, which prints the full
-// detail of a home volume.
-func buildVolumeInspectCmd(ui termio.UI) *cobra.Command {
+// buildInspectCmd builds an `<group> inspect <name>` command. It resolves the
+// shared output mode, inspects the object by its argument, and renders the
+// detail through the shared printInspect path (identifier / JSON / human block).
+func buildInspectCmd[T any](
+	ui termio.UI,
+	argName, short string,
+	inspect func(ctx context.Context, name string) (T, error),
+	identifier func(T) string,
+	human func(termio.UI, T),
+	jsonValue func(T) any,
+) *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
-		Use:   cmdInspect + " <name>",
+		Use:   cmdInspect + " <" + argName + ">",
 		Args:  cobra.ExactArgs(1),
-		Short: "Show detailed information about a home volume",
+		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode, err := resolveListOutput(format, ui.Quiet())
 			if err != nil {
 				return err
 			}
-			detail, err := volume.InspectVolume(cmd.Context(), args[0])
+			detail, err := inspect(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			return printInspect(ui, mode, detail.Name,
-				func() { printVolumeInspect(ui, detail) },
-				newVolumeInspectJSON(detail))
+			return printInspect(ui, mode, identifier(detail),
+				func() { human(ui, detail) }, jsonValue(detail))
 		},
 	}
 	cmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
 	return cmd
+}
+
+// buildVolumeInspectCmd builds `volume inspect <name>`, which prints the full
+// detail of a home volume.
+func buildVolumeInspectCmd(ui termio.UI) *cobra.Command {
+	return buildInspectCmd(ui, "name", "Show detailed information about a home volume",
+		volume.InspectVolume,
+		func(detail volume.VolumeDetail) string { return detail.Name },
+		printVolumeInspect,
+		func(detail volume.VolumeDetail) any { return newVolumeInspectJSON(detail) })
 }
 
 // buildImageInspectCmd builds `image inspect <ref>`, which prints a cached
 // runner image's manifest, layers, and OCI config.
 func buildImageInspectCmd(ui termio.UI) *cobra.Command {
-	var format string
-	cmd := &cobra.Command{
-		Use:   cmdInspect + " <ref>",
-		Args:  cobra.ExactArgs(1),
-		Short: "Show detailed information about a cached runner image",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			mode, err := resolveListOutput(format, ui.Quiet())
-			if err != nil {
-				return err
-			}
-			detail, err := image.InspectImage(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			return printInspect(ui, mode, detail.Reference,
-				func() { printImageInspect(ui, detail) },
-				newImageInspectJSON(detail))
-		},
-	}
-	cmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
-	return cmd
+	return buildInspectCmd(ui, "ref", "Show detailed information about a cached runner image",
+		image.InspectImage,
+		func(detail image.ImageDetail) string { return detail.Reference },
+		printImageInspect,
+		func(detail image.ImageDetail) any { return newImageInspectJSON(detail) })
 }
 
 // buildSandboxInspectCmd builds `sandbox inspect <name>`, which prints a
 // sandbox VM's status, image, labels, mounts, resources, ID, and backend.
 func buildSandboxInspectCmd(ui termio.UI) *cobra.Command {
-	var format string
-	cmd := &cobra.Command{
-		Use:   cmdInspect + " <name>",
-		Args:  cobra.ExactArgs(1),
-		Short: "Show detailed information about a sandbox VM",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			mode, err := resolveListOutput(format, ui.Quiet())
-			if err != nil {
-				return err
-			}
-			detail, err := sandbox.InspectSandbox(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			return printInspect(ui, mode, detail.Name,
-				func() { printSandboxInspect(ui, detail) },
-				newSandboxInspectJSON(detail))
-		},
-	}
-	cmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
-	return cmd
+	return buildInspectCmd(ui, "name", "Show detailed information about a sandbox VM",
+		sandbox.InspectSandbox,
+		func(detail sandbox.SandboxDetail) string { return detail.Name },
+		printSandboxInspect,
+		func(detail sandbox.SandboxDetail) any { return newSandboxInspectJSON(detail) })
 }

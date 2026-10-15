@@ -160,6 +160,8 @@ type ImageHandle interface {
 type ImageDetail struct {
 	Reference      string
 	ManifestDigest string
+	Architecture   string
+	OS             string
 	SizeBytes      *int64
 	CreatedAt      time.Time
 	Config         msbSdk.ImageConfig
@@ -410,6 +412,8 @@ func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Image
 	if detail.ImageHandle != nil {
 		out.Reference = detail.Reference()
 		out.ManifestDigest = detail.ManifestDigest()
+		out.Architecture = detail.Architecture()
+		out.OS = detail.OS()
 		out.SizeBytes = detail.SizeBytes()
 		out.CreatedAt = detail.CreatedAt()
 	}

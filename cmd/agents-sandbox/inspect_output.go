@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,11 +27,7 @@ func printInspect(ui termio.UI, mode listOutput, identifier string, human func()
 	case listOutputIdentifiers:
 		ui.Print(identifier)
 	case listOutputJSON:
-		data, err := json.MarshalIndent(jsonValue, "", "  ")
-		if err != nil {
-			return err
-		}
-		ui.Out(string(data))
+		return writeJSON(ui, jsonValue)
 	case listOutputTable:
 		human()
 	}
@@ -53,29 +48,23 @@ func printKeyValues(ui termio.UI, rows [][2]string) {
 	}
 }
 
-// formatBytesOrDash humanizes a byte count, or renders "-" for an absent one.
-func formatBytesOrDash(bytes *uint64) string {
-	if bytes == nil {
-		return "-"
-	}
-	return humanize.FormatBytes(*bytes)
-}
-
-// formatMiBOrDash humanizes a MiB count as bytes, or renders "-" for an absent
-// one.
-func formatMiBOrDash(mib *uint32) string {
-	if mib == nil {
-		return "-"
-	}
-	return humanize.FormatBytes(uint64(*mib) * 1024 * 1024)
-}
-
-// derefStringOrDash returns the pointed-to string, or "-" for nil.
-func derefStringOrDash(value *string) string {
+// derefOr formats a pointed-to value, or renders "-" when the pointer is nil.
+// Unknown (nil) fields render as "-" so the human and JSON output stay
+// consistent.
+func derefOr[T any](value *T, format func(T) string) string {
 	if value == nil {
 		return "-"
 	}
-	return *value
+	return format(*value)
+}
+
+// identityString is the string formatter for derefOr when the pointed-to value
+// is already a display string.
+func identityString(value string) string { return value }
+
+// mibString humanizes a MiB count as bytes.
+func mibString(mib uint32) string {
+	return humanize.FormatBytes(uint64(mib) * 1024 * 1024)
 }
 
 // joinLabels renders a label map as a stable "k=v, k2=v2" string, or "-" when
@@ -120,11 +109,11 @@ func printVolumeInspect(ui termio.UI, detail volume.VolumeDetail) {
 		{"name", detail.Name},
 		{"kind", detail.Kind},
 		{"path", detail.Path},
-		{"quota", formatMiBOrDash(detail.QuotaMiB)},
+		{"quota", derefOr(detail.QuotaMiB, mibString)},
 		{"used", humanize.FormatBytes(detail.UsedBytes)},
-		{"capacity", formatBytesOrDash(detail.CapacityBytes)},
-		{"disk format", derefStringOrDash(detail.DiskFormat)},
-		{"disk fstype", derefStringOrDash(detail.DiskFstype)},
+		{"capacity", derefOr(detail.CapacityBytes, humanize.FormatBytes)},
+		{"disk format", derefOr(detail.DiskFormat, identityString)},
+		{"disk fstype", derefOr(detail.DiskFstype, identityString)},
 		{inspectKeyLabels, joinLabels(detail.Labels)},
 		{inspectKeyCreated, detail.CreatedAt},
 	})
@@ -148,11 +137,11 @@ func newVolumeInspectJSON(detail volume.VolumeDetail) jsonVolumeInspect {
 		Name:       detail.Name,
 		Kind:       detail.Kind,
 		Path:       detail.Path,
-		Quota:      formatMiBOrDash(detail.QuotaMiB),
+		Quota:      derefOr(detail.QuotaMiB, mibString),
 		Used:       humanize.FormatBytes(detail.UsedBytes),
-		Capacity:   formatBytesOrDash(detail.CapacityBytes),
-		DiskFormat: derefStringOrDash(detail.DiskFormat),
-		DiskFstype: derefStringOrDash(detail.DiskFstype),
+		Capacity:   derefOr(detail.CapacityBytes, humanize.FormatBytes),
+		DiskFormat: derefOr(detail.DiskFormat, identityString),
+		DiskFstype: derefOr(detail.DiskFstype, identityString),
 		Labels:     detail.Labels,
 		Created:    detail.CreatedAt,
 	}
@@ -164,6 +153,8 @@ func printImageInspect(ui termio.UI, detail image.ImageDetail) {
 	printKeyValues(ui, [][2]string{
 		{"reference", detail.Reference},
 		{"digest", detail.Digest},
+		{"architecture", detail.Architecture},
+		{"os", detail.OS},
 		{"size", detail.Size},
 		{inspectKeyCreated, detail.CreatedAt},
 		{"working dir", detail.WorkingDir},
@@ -193,18 +184,20 @@ type jsonImageLayer struct {
 }
 
 type jsonImageInspect struct {
-	Reference  string            `json:"reference"`
-	Digest     string            `json:"digest"`
-	Size       string            `json:"size"`
-	Created    string            `json:"created"`
-	Env        []string          `json:"env"`
-	Cmd        []string          `json:"cmd"`
-	Entrypoint []string          `json:"entrypoint"`
-	WorkingDir string            `json:"working_dir"`
-	User       string            `json:"user"`
-	Labels     map[string]string `json:"labels"`
-	StopSignal string            `json:"stop_signal"`
-	Layers     []jsonImageLayer  `json:"layers"`
+	Reference    string            `json:"reference"`
+	Digest       string            `json:"digest"`
+	Architecture string            `json:"architecture"`
+	OS           string            `json:"os"`
+	Size         string            `json:"size"`
+	Created      string            `json:"created"`
+	Env          []string          `json:"env"`
+	Cmd          []string          `json:"cmd"`
+	Entrypoint   []string          `json:"entrypoint"`
+	WorkingDir   string            `json:"working_dir"`
+	User         string            `json:"user"`
+	Labels       map[string]string `json:"labels"`
+	StopSignal   string            `json:"stop_signal"`
+	Layers       []jsonImageLayer  `json:"layers"`
 }
 
 func newImageInspectJSON(detail image.ImageDetail) jsonImageInspect {
@@ -220,18 +213,20 @@ func newImageInspectJSON(detail image.ImageDetail) jsonImageInspect {
 		})
 	}
 	return jsonImageInspect{
-		Reference:  detail.Reference,
-		Digest:     detail.Digest,
-		Size:       detail.Size,
-		Created:    detail.CreatedAt,
-		Env:        nonNilStrings(detail.Env),
-		Cmd:        nonNilStrings(detail.Cmd),
-		Entrypoint: nonNilStrings(detail.Entrypoint),
-		WorkingDir: detail.WorkingDir,
-		User:       detail.User,
-		Labels:     detail.Labels,
-		StopSignal: detail.StopSignal,
-		Layers:     layers,
+		Reference:    detail.Reference,
+		Digest:       detail.Digest,
+		Architecture: detail.Architecture,
+		OS:           detail.OS,
+		Size:         detail.Size,
+		Created:      detail.CreatedAt,
+		Env:          nonNilStrings(detail.Env),
+		Cmd:          nonNilStrings(detail.Cmd),
+		Entrypoint:   nonNilStrings(detail.Entrypoint),
+		WorkingDir:   detail.WorkingDir,
+		User:         detail.User,
+		Labels:       detail.Labels,
+		StopSignal:   detail.StopSignal,
+		Layers:       layers,
 	}
 }
 
@@ -246,9 +241,9 @@ func printSandboxInspect(ui termio.UI, detail sandbox.SandboxDetail) {
 		{"backend", detail.Backend},
 		{inspectKeyCreated, detail.CreatedAt},
 		{"updated", detail.UpdatedAt},
-		{"memory", formatMiBOrDash(&detail.MemoryMiB)},
+		{"memory", mibString(detail.MemoryMiB)},
 		{"cpus", strconv.FormatUint(uint64(detail.CPUs), 10)},
-		{"max memory", formatMiBOrDash(&detail.MaxMemoryMiB)},
+		{"max memory", mibString(detail.MaxMemoryMiB)},
 		{"max cpus", strconv.FormatUint(uint64(detail.MaxCPUs), 10)},
 		{inspectKeyLabels, joinLabels(detail.Labels)},
 	})
@@ -272,19 +267,19 @@ type jsonSandboxMount struct {
 }
 
 type jsonSandboxInspect struct {
-	Name         string             `json:"name"`
-	ID           string             `json:"id"`
-	Status       string             `json:"status"`
-	Image        string             `json:"image"`
-	Backend      string             `json:"backend"`
-	Created      string             `json:"created"`
-	Updated      string             `json:"updated"`
-	Labels       map[string]string  `json:"labels"`
-	Mounts       []jsonSandboxMount `json:"mounts"`
-	MemoryMiB    uint32             `json:"memory_mib"`
-	CPUs         uint8              `json:"cpus"`
-	MaxMemoryMiB uint32             `json:"max_memory_mib"`
-	MaxCPUs      uint8              `json:"max_cpus"`
+	Name      string             `json:"name"`
+	ID        string             `json:"id"`
+	Status    string             `json:"status"`
+	Image     string             `json:"image"`
+	Backend   string             `json:"backend"`
+	Created   string             `json:"created"`
+	Updated   string             `json:"updated"`
+	Labels    map[string]string  `json:"labels"`
+	Mounts    []jsonSandboxMount `json:"mounts"`
+	Memory    string             `json:"memory"`
+	CPUs      int                `json:"cpus"`
+	MaxMemory string             `json:"max_memory"`
+	MaxCPUs   int                `json:"max_cpus"`
 }
 
 func newSandboxInspectJSON(detail sandbox.SandboxDetail) jsonSandboxInspect {
@@ -298,18 +293,18 @@ func newSandboxInspectJSON(detail sandbox.SandboxDetail) jsonSandboxInspect {
 		})
 	}
 	return jsonSandboxInspect{
-		Name:         detail.Name,
-		ID:           detail.ID,
-		Status:       detail.Status,
-		Image:        detail.Image,
-		Backend:      detail.Backend,
-		Created:      detail.CreatedAt,
-		Updated:      detail.UpdatedAt,
-		Labels:       detail.Labels,
-		Mounts:       mounts,
-		MemoryMiB:    detail.MemoryMiB,
-		CPUs:         detail.CPUs,
-		MaxMemoryMiB: detail.MaxMemoryMiB,
-		MaxCPUs:      detail.MaxCPUs,
+		Name:      detail.Name,
+		ID:        detail.ID,
+		Status:    detail.Status,
+		Image:     detail.Image,
+		Backend:   detail.Backend,
+		Created:   detail.CreatedAt,
+		Updated:   detail.UpdatedAt,
+		Labels:    detail.Labels,
+		Mounts:    mounts,
+		Memory:    mibString(detail.MemoryMiB),
+		CPUs:      int(detail.CPUs),
+		MaxMemory: mibString(detail.MaxMemoryMiB),
+		MaxCPUs:   int(detail.MaxCPUs),
 	}
 }
