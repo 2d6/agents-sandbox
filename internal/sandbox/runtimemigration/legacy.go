@@ -18,9 +18,19 @@ import (
 // legacyVolumeNames returns the basenames of agents-sandbox home volumes under
 // <legacyHome>/volumes. A volumes directory that is missing, not a directory, or
 // unreadable (permission denied) yields no names and no error: there is simply
-// nothing usable to copy, so necessity is false rather than a failure.
+// nothing usable to copy, so necessity is false rather than a failure. This is
+// the pending-state tolerance; an open campaign uses the strict variant below.
 func legacyVolumeNames(legacyHome string) ([]string, error) {
-	return homeVolumeNames(legacyHome)
+	return homeVolumeNames(legacyHome, true)
+}
+
+// campaignLegacyVolumeNames returns the legacy home volume names for an open
+// copying campaign. Only a missing volumes directory counts as empty; a volumes
+// directory that exists but cannot be listed (permission denied, not-a-directory,
+// or an I/O error) is returned as an error, so the campaign fails closed (stays
+// copying) instead of finalizing completed on an under-migrated home.
+func campaignLegacyVolumeNames(legacyHome string) ([]string, error) {
+	return homeVolumeNames(legacyHome, false)
 }
 
 // presentPrivateVolumeNames returns the basenames of agents-sandbox home volumes
@@ -29,7 +39,7 @@ func legacyVolumeNames(legacyHome string) ([]string, error) {
 // present volume counts as copied is a status question the caller (see
 // necessaryVolumes) answers from the migration registry, not from the volume.
 func presentPrivateVolumeNames(privateHome string) ([]string, error) {
-	return homeVolumeNames(privateHome)
+	return homeVolumeNames(privateHome, true)
 }
 
 // necessaryVolumes returns the legacy home volume names that still need copying,
@@ -83,7 +93,7 @@ func pendingNecessaryVolumes(legacyHome, privateHome string) ([]string, error) {
 // ignores the private listing, because during a campaign a present-but-unrecorded
 // private volume is a partial that must be re-copied.
 func copyingNecessaryVolumes(legacyHome string, m state.Migration) ([]string, error) {
-	legacy, err := legacyVolumeNames(legacyHome)
+	legacy, err := campaignLegacyVolumeNames(legacyHome)
 	if err != nil {
 		return nil, err
 	}
@@ -105,30 +115,6 @@ func copyingNecessaryVolumes(legacyHome string, m state.Migration) ([]string, er
 	return necessary, nil
 }
 
-// Necessary reports whether any legacy home volume needs copying into the
-// private home. Homes and the migration status are resolved via the runtime and
-// state helpers.
-func Necessary() (bool, error) {
-	names, err := NecessaryVolumes()
-	if err != nil {
-		return false, err
-	}
-	return len(names) > 0, nil
-}
-
-// NecessaryVolumes returns the legacy home volumes that need copying, given the
-// persisted migration status. Both homes are resolved via the runtime helpers;
-// the migration entry is read from root state (an absent entry is the pending
-// state).
-func NecessaryVolumes() ([]string, error) {
-	root, err := state.ReadRootState()
-	if err != nil {
-		return nil, err
-	}
-	m, _ := root.Migration(MigrationName)
-	return necessaryVolumesFor(m)
-}
-
 // necessaryVolumesFor resolves both homes and delegates to necessaryVolumes.
 func necessaryVolumesFor(m state.Migration) ([]string, error) {
 	legacyHome, err := runtime.LegacyHome()
@@ -138,11 +124,19 @@ func necessaryVolumesFor(m state.Migration) ([]string, error) {
 	return necessaryVolumes(legacyHome, runtime.PrivateHome(), m)
 }
 
-func homeVolumeNames(home string) ([]string, error) {
+// homeVolumeNames lists the agents-sandbox home volumes under <home>/volumes. A
+// missing volumes directory is always empty. When tolerateUnreadable is true an
+// existing-but-unlistable directory (not-a-directory or permission denied) is
+// also empty; when false only the missing case is empty and any other read
+// failure is returned, so an open campaign fails closed.
+func homeVolumeNames(home string, tolerateUnreadable bool) ([]string, error) {
 	volumesDir := filepath.Join(home, "volumes")
 	entries, err := os.ReadDir(volumesDir)
 	if err != nil {
-		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, fs.ErrPermission) {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		if tolerateUnreadable && (errors.Is(err, syscall.ENOTDIR) || errors.Is(err, fs.ErrPermission)) {
 			return nil, nil
 		}
 		return nil, err

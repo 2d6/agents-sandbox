@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
@@ -203,46 +202,32 @@ func TestNecessaryVolumesCopyingIgnoresPrivatePresence(t *testing.T) {
 	assertSameSet(t, got, []string{name})
 }
 
-func TestNecessaryResolvesHomes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	installLegacyHome(t)
+// TestNecessaryVolumesCopyingFailsClosedOnUnlistableLegacyHome pins the review
+// finding: during a copying campaign an existing-but-unlistable legacy volumes
+// directory must be a campaign-scoped error so the campaign never finalizes
+// completed on an under-migrated home. The pending state keeps the tolerant
+// behavior and treats the same directory as empty.
+func TestNecessaryVolumesCopyingFailsClosedOnUnlistableLegacyHome(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0 does not block directory reads")
+	}
+	legacy := newHome(t)
+	addVolumeDir(t, legacy, naming.HomePrefix+"hidden")
 
-	necessary, err := Necessary()
-	if err != nil {
-		t.Fatalf("Necessary() error = %v", err)
+	volumesDir := filepath.Join(legacy, "volumes")
+	if err := os.Chmod(volumesDir, 0o000); err != nil {
+		t.Fatalf("chmod volumes dir: %v", err)
 	}
-	if necessary {
-		t.Error("Necessary() = true, want false for a fresh legacy home")
-	}
+	t.Cleanup(func() { _ = os.Chmod(volumesDir, 0o750) })
 
-	names, err := NecessaryVolumes()
-	if err != nil {
-		t.Fatalf("NecessaryVolumes() error = %v", err)
-	}
-	if len(names) != 0 {
-		t.Errorf("NecessaryVolumes() = %v, want empty", names)
-	}
-}
-
-func TestNecessarySeesLegacyVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	legacy := installLegacyHome(t)
-	name := naming.HomePrefix + "legacy"
-	addVolumeDir(t, legacy, name)
-
-	necessary, err := Necessary()
-	if err != nil {
-		t.Fatalf("Necessary() error = %v", err)
-	}
-	if !necessary {
-		t.Error("Necessary() = false, want true with an uncopied legacy volume")
+	got, err := necessaryVolumes(legacy, newHome(t), state.Migration{})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("pending: got %v, %v; want empty, nil (unreadable dir tolerated)", got, err)
 	}
 
-	names, err := NecessaryVolumes()
-	if err != nil {
-		t.Fatalf("NecessaryVolumes() error = %v", err)
+	if got, err := necessaryVolumes(legacy, newHome(t), state.Migration{Status: state.MigrationCopying}); err == nil {
+		t.Fatalf("copying: got %v, nil; want an error (campaign fails closed)", got)
 	}
-	assertSameSet(t, names, []string{name})
 }
 
 // installLegacyHome points runtime.LegacyHome() at a fresh legacy home by
@@ -312,15 +297,6 @@ func TestNecessaryVolumesPrivateReadError(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("necessaryVolumes() = %v, want nil on error", got)
-	}
-}
-
-func TestNecessaryPropagatesLegacyHomeError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	t.Setenv("HOME", "")
-
-	if _, err := Necessary(); err == nil {
-		t.Fatal("Necessary() error = nil, want legacy-home resolution error")
 	}
 }
 

@@ -51,6 +51,8 @@ command reports the bare version (e.g. `0.1.0`).
   resumes exactly — volumes already recorded as copied are left alone, while any present private volume not recorded as
   copied is treated as a partial and re-copied instead of being used as a truncated home. A volume that cannot be copied
   is excluded from the campaign and recorded, so the remaining volumes still migrate and the campaign can still complete.
+- Runtime: a legacy `~/.microsandbox/volumes` directory that exists but is transiently unlistable during a copy campaign
+  no longer silently finalizes the migration as complete; the campaign stays `copying` and retries next session.
 - Runner image: each tool stage now pins its version as an `ARG` default in the rendered Dockerfile (Node, agent, Docker),
   so a version bump changes the build content and reliably invalidates that stage's install layer. Previously only the
   agent version build arg carried the version, which could leave the agent layer cached (and the image on the old release)

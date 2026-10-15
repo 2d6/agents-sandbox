@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -211,6 +212,30 @@ func TestOfferStartFreshIsNotLostToACompletedCampaign(t *testing.T) {
 	}
 }
 
+// TestOfferStartFreshLockFailureSurfaces pins that a migration-lock acquisition
+// failure on the start-fresh path surfaces as an Offer error rather than a
+// silent no-op. A regular file occupying $MSB_HOME/.agents-sandbox makes the
+// lock directory creation fail.
+func TestOfferStartFreshLockFailureSurfaces(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
+
+	privateHome := runtime.PrivateHome()
+	if err := os.MkdirAll(privateHome, 0o750); err != nil {
+		t.Fatalf("mkdir private home: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(privateHome, ".agents-sandbox"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("block lock dir: %v", err)
+	}
+
+	var prompted bool
+	ui := interactiveUI(choiceFresh, &prompted)
+	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err == nil {
+		t.Fatal("Offer() error = nil, want a lock-acquisition failure on start-fresh")
+	}
+}
+
 func TestOfferNothingNecessaryDoesNotPrompt(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	installLegacyHome(t)
@@ -312,10 +337,6 @@ func TestOfferChooseCopyCopiesVolumes(t *testing.T) {
 	assertFileWithMode(t, target+"/settings.json", "{}", 0o600)
 }
 
-// TestOfferCopyErrorAborts verifies that a failed copy aborts the session rather
-// than continuing to a fresh home, which would overwrite the recorded reference
-// and orphan the old data. The partial volume is already removed, so necessity
-// stays true and the offer returns next session.
 // TestOfferCopyErrorAborts verifies that a campaign-scoped copy failure aborts
 // the session rather than continuing to a fresh home, which would overwrite the
 // recorded reference and orphan the old data. Here the state root is unwritable,

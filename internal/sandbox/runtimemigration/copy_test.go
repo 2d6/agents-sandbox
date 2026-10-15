@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -312,9 +314,18 @@ func TestCopyVolumesResumesFromCopying(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
+	// A present private volume not recorded as copied is a partial: it must be
+	// discarded (removed) before being re-copied, while "done" is left alone.
+	privateHome := runtime.PrivateHome()
+	if err := os.MkdirAll(filepath.Join(privateHome, "volumes", partial), 0o750); err != nil {
+		t.Fatalf("seed private partial: %v", err)
+	}
 	target := t.TempDir()
 	var created []string
 	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, n string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: n}, nil
+		},
 		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
 			created = append(created, n)
 			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
@@ -326,6 +337,12 @@ func TestCopyVolumesResumesFromCopying(t *testing.T) {
 	}
 	if len(created) != 1 || created[0] != partial {
 		t.Fatalf("created = %v, want only %q (resume skips copied)", created, partial)
+	}
+	if !slices.Contains(client.RemovedVolumes, partial) {
+		t.Errorf("RemovedVolumes = %v, want %q discarded before re-copy", client.RemovedVolumes, partial)
+	}
+	if slices.Contains(client.RemovedVolumes, done) {
+		t.Errorf("RemovedVolumes = %v, want recorded %q left alone", client.RemovedVolumes, done)
 	}
 }
 
@@ -364,8 +381,8 @@ func TestCopyVolumesDoesNotFollowCopiedSymlink(t *testing.T) {
 
 // TestCopyVolumesStateWriteFailureAborts pins the campaign-scoped rule: a
 // failure to persist the initial copying status returns the error and aborts the
-// campaign. The state root path occupied by a non-empty directory makes the
-// atomic rename fail.
+// campaign. The state directory is made read-only, so the atomic write's temp
+// file cannot be created.
 func TestCopyVolumesStateWriteFailureAborts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
