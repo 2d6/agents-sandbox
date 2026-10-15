@@ -9,6 +9,16 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
+func TestFormatKeys(t *testing.T) {
+	got := FormatKeys([]Key{
+		{Slug: "legacy-aBc1234D"},
+		{Slug: "proj-aBc1234D", Agent: "opencode"},
+	})
+	if got != "legacy-aBc1234D, proj-aBc1234D/opencode" {
+		t.Fatalf("FormatKeys = %q, want %q", got, "legacy-aBc1234D, proj-aBc1234D/opencode")
+	}
+}
+
 func TestHomeVolumeReferencesScansBothLayouts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 

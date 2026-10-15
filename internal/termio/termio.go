@@ -32,6 +32,20 @@ const (
 	errorString   = "error"
 )
 
+// ConfirmAction prompts for a destructive action and maps the answer to an
+// error: nil on yes, ErrConfirmationRequired when non-interactive without
+// assume-yes (from ui.Confirm), and a "cancelled" error when declined.
+func ConfirmAction(ui UI, prompt string) error {
+	ok, err := ui.Confirm(prompt, false)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("cancelled")
+	}
+	return nil
+}
+
 // String returns the canonical lower-case name of the level.
 func (l Level) String() string {
 	switch l {
