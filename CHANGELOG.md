@@ -97,6 +97,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Runner image: the node/agent/docker install stages now build on a tool-owned `agents-sandbox-toolbase`
+  (`debian:trixie-slim` plus `curl`/`ca-certificates`/`tar`) instead of the user's base, so a custom base no longer needs
+  `curl`/`tar` inside the image and the tool layers cache across bases. The docker runtime-prerequisite check no longer
+  requires `curl`/`tar`. Fixes #143.
 - CLI: `prune` and its `image`/`volume`/`sandbox` subcommands now ask for confirmation before removing anything,
   defaulting to no. Pass the global `--yes` to skip the prompt — required in non-interactive contexts, which otherwise
   fail fast rather than block; `--dry-run` only previews and never prompts.
