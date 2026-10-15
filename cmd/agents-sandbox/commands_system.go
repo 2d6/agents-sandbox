@@ -720,7 +720,28 @@ func buildSandboxCmd(ui termio.UI) *cobra.Command {
 	cmd.AddCommand(buildStopCmd(ui))
 	cmd.AddCommand(buildKillCmd(ui))
 	cmd.AddCommand(buildSandboxInspectCmd(ui))
+	cmd.AddCommand(buildSandboxRemoveCmd(ui))
 	cmd.AddCommand(buildSandboxPruneCmd(ui))
+	return cmd
+}
+
+// buildSandboxRemoveCmd builds `sandbox remove <name>`, which removes a project
+// VM by name. It refuses a running VM unless --force is set (which stops it
+// first), and drops the persisted project state only when --force is set.
+func buildSandboxRemoveCmd(ui termio.UI) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:     cmdRemove + " <name>",
+		Aliases: cmdRemoveAliases,
+		Args:    cobra.ExactArgs(1),
+		Short:   "Remove a project sandbox VM by name",
+		Long: "Remove an agents-sandbox project VM. Refuses a running VM unless --force is set, " +
+			"which stops it first. --force also drops the project's persisted state. Prompts unless --yes is set.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return sandbox.RemoveSandbox(cmd.Context(), args[0], force, ui)
+		},
+	}
+	cmd.Flags().BoolVar(&force, flagForce, false, "Remove a running VM and drop its persisted project state")
 	return cmd
 }
 
