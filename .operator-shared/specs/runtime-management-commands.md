@@ -7,13 +7,14 @@ read_if: Adding or reviewing volume/image/sandbox inspection and removal command
 
 Date: 2026-10-15
 
-Status: **design; Slices 0–1 implemented** (Slice 0 merged in PR #174; Slice 1
-on branch `issue-169-runtime-management-slice-1`, PR pending). Tracked as issue
-#165; delivered as sub-issues #168 (Slice 0, implemented), #169 (Slice 1,
-implemented), #170 (Slice 2), #171 (Slice 3), #172 (Slice 4), and #155
-(Slice 5). Slice 6 is dropped. Builds on `specs/runtime-home-decoupling.md`
-(the private `$MSB_HOME` home) and the reference in
-`guides/microsandbox-release-notes.md`.
+Status: **design; Slices 0–2 implemented** (Slice 0 merged in PR #174; Slice 1
+on branch `issue-169-runtime-management-slice-1`, PR pending; Slice 2 on branch
+`issue-170-runtime-management-slice-2`, PR pending). Tracked as issue #165;
+delivered as sub-issues #168 (Slice 0, implemented), #169 (Slice 1,
+implemented), #170 (Slice 2, implemented), #171 (Slice 3), #172 (Slice 4), and
+#155 (Slice 5). Slice 6 is dropped. Builds on
+`specs/runtime-home-decoupling.md` (the private `$MSB_HOME` home) and the
+reference in `guides/microsandbox-release-notes.md`.
 
 ## Intent
 
@@ -152,6 +153,15 @@ use), and runtime/FFI artifacts. `ErrUnsupportedOperation` from the observation
 are marked unknown rather than reported as zero.
 
 Depends on: nothing (parallel with Slices 0–1). Needed by Slice 5.
+
+Implemented (issue #170) in `internal/sandbox/storage`: `Observe` emits the six
+microsandbox categories (nil counters stay unknown; `ErrUnsupportedOperation`
+marks them unknown with a note) followed by a `runtime` category that walks the
+private home's `bin`/`lib` for the runtime/FFI artifacts. The host-side buildkit
+cache and docker images were **deferred out of this seam**: the buildkit cache is
+a named msb volume already covered by the `volumes` category, and host Docker's
+store is outside the private home. Revisit when a docker-backend image store
+lands.
 
 ### Slice 3 — Object inspection (read-only commands)
 
