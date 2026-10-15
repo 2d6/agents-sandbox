@@ -34,6 +34,13 @@ func findHashSuffix(name string) int {
 	return -1
 }
 
+// RunnerImageRef returns the per-agent "-latest" runner image reference for a
+// project slug and agent, e.g. "agents-sandbox/runner-myproject:opencode-latest".
+// It is the builder counterpart to ParseImageTag.
+func RunnerImageRef(slug, agent string) string {
+	return ImagePrefix + slug + ":" + agent + "-latest"
+}
+
 // ParseImageTag extracts the slug, digest, and agent from a Docker image
 // reference. Examples: "agents-sandbox/runner-myproject:xYz1234AbCdEfGh"
 //

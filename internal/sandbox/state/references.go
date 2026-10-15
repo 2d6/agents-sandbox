@@ -6,24 +6,28 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
-// HomeVolumeReferences maps each home volume name recorded in a project state
-// file to the project keys that reference it. It scans both the per-agent layout
-// <root>/<slug>/<agent>/state.yaml and the legacy agent-less
-// <root>/<slug>/state.yaml, skipping the launcher-global root state file.
+// projectStateReferences walks every project state file under the state root and
+// maps an object name to the project keys that reference it. extract returns the
+// object name a state references, and false when the state references no such
+// object. Both the per-agent layout <root>/<slug>/<agent>/state.yaml and the
+// legacy agent-less <root>/<slug>/state.yaml are scanned; the launcher-global
+// root state file is skipped.
 //
-// A state file that cannot be read or parsed is an error: the caller cannot prove
-// the volume is unreferenced, so a destructive removal must fail closed (with an
-// explicit override) rather than risk orphaning a project.
-func HomeVolumeReferences() (map[string][]Key, error) {
+// A state file that cannot be read or parsed is an error: the caller cannot
+// prove the object is unreferenced, so a destructive removal must fail closed
+// (with an explicit override) rather than risk orphaning a project.
+func projectStateReferences(extract func(Key, *HomeState) (string, bool)) (map[string][]Key, error) {
 	root := stateRoot()
 	references := map[string][]Key{}
 	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			// A missing state root means there are no project references to
 			// protect, so a deletion of the launcher state must not force
-			// --force on an otherwise unreferenced volume. An unreadable
+			// --force on an otherwise unreferenced object. An unreadable
 			// directory or file still fails closed.
 			if path == root && errors.Is(err, fs.ErrNotExist) {
 				return nil
@@ -41,15 +45,43 @@ func HomeVolumeReferences() (map[string][]Key, error) {
 		if readErr != nil {
 			return readErr
 		}
-		if st.HomeVolume != "" {
-			references[st.HomeVolume] = append(references[st.HomeVolume], key)
+		name, ok := extract(key, st)
+		if !ok || name == "" {
+			return nil
 		}
+		references[name] = append(references[name], key)
 		return nil
 	})
 	if walkErr != nil {
 		return nil, fmt.Errorf("scan project state references: %w", walkErr)
 	}
 	return references, nil
+}
+
+// HomeVolumeReferences maps each home volume name recorded in a project state
+// file to the project keys that reference it, so a destructive removal can fail
+// closed on an unreadable or corrupt state (see projectStateReferences).
+func HomeVolumeReferences() (map[string][]Key, error) {
+	return projectStateReferences(func(_ Key, st *HomeState) (string, bool) {
+		return st.HomeVolume, true
+	})
+}
+
+// ImageReferences maps each per-agent runner image reference to the project keys
+// that own it. A project owns the runner image its slug and agent name derive
+// (naming.RunnerImageRef), whether or not its ImageDigest is set: ownership is
+// state presence, not digest content. A legacy agent-less key owns none, because
+// runner images are per-agent; a legacy VM pinned to a non-"-latest" ref is
+// caught by the kept-sandbox scan in image.InUseImageReferences instead. Removal
+// of an image a project state still owns must fail closed (see
+// projectStateReferences).
+func ImageReferences() (map[string][]Key, error) {
+	return projectStateReferences(func(k Key, _ *HomeState) (string, bool) {
+		if k.Agent == "" {
+			return "", false
+		}
+		return naming.RunnerImageRef(k.Slug, k.Agent), true
+	})
 }
 
 // keyForStateFile derives the project key for a state.yaml path discovered under

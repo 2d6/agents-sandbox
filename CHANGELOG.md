@@ -28,6 +28,10 @@ command reports the bare version (e.g. `0.1.0`).
   cold CI runner and was tripping Go's default 10m per-package limit.
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
+- Internal: generalize the fail-closed reference scan behind `volume remove` into a shared `projectStateReferences`
+  walk, and add `state.ImageReferences` (the per-agent runner-image analogue of `state.HomeVolumeReferences`) plus
+  `image.InUseImageReferences`, which unions the project-state scan with the runner image references held by kept sandboxes
+  so a later `image remove` can refuse an in-use runner image. Slice 1 of the runtime-management epic (#165).
 - Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the
   Docker install block is injected, e.g. to run `buildx`/`docker compose` setup after the engine is installed (the legacy
   `# agents-sandbox:dind` marker is still recognized). Without the marker the block is still appended after the

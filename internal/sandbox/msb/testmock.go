@@ -330,6 +330,7 @@ type MockSandboxHandle struct {
 	KillErr         error
 	RemoveErr       error
 	Cfg             *msbSdk.SandboxConfig
+	ConfigErr       error
 	ModifyErr       error
 	Plan            *msbSdk.SandboxModificationPlan
 	ModifiedOptions []msbSdk.ModifyOptions
@@ -394,6 +395,9 @@ func (m *MockSandboxHandle) Remove(_ context.Context) error {
 func (m *MockSandboxHandle) DidRemove() bool { return m.DidRmv }
 
 func (m *MockSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
+	if m.ConfigErr != nil {
+		return nil, m.ConfigErr
+	}
 	return m.Cfg, nil
 }
 

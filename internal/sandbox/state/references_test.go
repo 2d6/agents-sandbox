@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
 func TestHomeVolumeReferencesScansBothLayouts(t *testing.T) {
@@ -104,5 +105,68 @@ func TestHomeVolumeReferencesErrorsOnCorruptStateFile(t *testing.T) {
 	}
 	if _, err := HomeVolumeReferences(); err == nil {
 		t.Fatal("HomeVolumeReferences() error = nil, want a parse failure to fail closed")
+	}
+}
+
+func TestImageReferencesScansPerAgentStates(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	key := Key{Slug: "proj-aBc1234D", Agent: "opencode"}
+	if err := WriteState(key, HomeState{ImageDigest: "sha256:abc"}); err != nil {
+		t.Fatalf("write per-agent state: %v", err)
+	}
+
+	references, err := ImageReferences()
+	if err != nil {
+		t.Fatalf("ImageReferences: %v", err)
+	}
+	ref := naming.RunnerImageRef(key.Slug, key.Agent)
+	keys := references[ref]
+	if len(keys) != 1 || keys[0] != key {
+		t.Fatalf("references[%q] = %v, want [%v]", ref, keys, key)
+	}
+}
+
+func TestImageReferencesIgnoresLegacyAgentlessState(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := Key{Slug: "legacy-aBc1234D"}
+	if err := WriteState(legacy, HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatalf("write legacy state: %v", err)
+	}
+
+	references, err := ImageReferences()
+	if err != nil {
+		t.Fatalf("ImageReferences: %v", err)
+	}
+	if len(references) != 0 {
+		t.Fatalf("references = %v, want empty (no per-agent runner ref for a legacy key)", references)
+	}
+}
+
+func TestImageReferencesErrorsOnUnreadableDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0 does not block directory reads")
+	}
+	configpaths.WithMockConfigPaths(t)
+	blocked := filepath.Join(configpaths.Get().UserStateDir(), "blocked")
+	if err := os.MkdirAll(blocked, 0o000); err != nil {
+		t.Fatalf("mkdir blocked: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o750) })
+	if _, err := ImageReferences(); err == nil {
+		t.Fatal("ImageReferences() error = nil, want a walk error")
+	}
+}
+
+func TestImageReferencesErrorsOnCorruptStateFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	dir := KeyDir(Key{Slug: "proj-aBc1234D", Agent: "opencode"})
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.yaml"), []byte("image_digest: ["), 0o600); err != nil {
+		t.Fatalf("write corrupt state: %v", err)
+	}
+	if _, err := ImageReferences(); err == nil {
+		t.Fatal("ImageReferences() error = nil, want a parse failure to fail closed")
 	}
 }
