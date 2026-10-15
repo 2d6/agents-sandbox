@@ -455,20 +455,19 @@ func TestBuildPruneStateKeysByAgent(t *testing.T) {
 
 func TestPruneAggregateParity(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
+	stopped := &msb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
+		Status_:    msbSdk.SandboxStatusStopped,
+		UpdatedAt_: old,
+	}
+	running := &msb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-live-1mjusbm3wikhb0",
+		Status_:    msbSdk.SandboxStatusRunning,
+		UpdatedAt_: old,
+		Image_:     "agents-sandbox/runner-live-1mjusbm3wikhb0:opencode-latest",
+	}
 	client := &msb.MockMsbClient{
-		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
-				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusStopped,
-				UpdatedAt_: old,
-			},
-			&msb.MockSandboxHandle{
-				Name_:      "agents-sandbox-vm-live-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusRunning,
-				UpdatedAt_: old,
-				Image_:     "agents-sandbox/runner-live-1mjusbm3wikhb0:opencode-latest",
-			},
-		},
+		Sandboxes: []msb.SandboxHandle{stopped, running},
 		Volumes: []msb.VolumeHandle{
 			&msb.MockVolumeHandle{Name_: "agents-sandbox-home-proj-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
 			&msb.MockVolumeHandle{Name_: "agents-sandbox-home-live-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
@@ -493,8 +492,14 @@ func TestPruneAggregateParity(t *testing.T) {
 	if err := Prune(context.Background(), 7*24*time.Hour, false, &testUI); err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
-	if got := len(client.RemovedSandboxes); got != 1 {
-		t.Errorf("RemovedSandboxes = %d, want 1", got)
+	if !stopped.DidRemove() {
+		t.Error("expected the stopped sandbox to be removed via its handle")
+	}
+	if running.DidRemove() {
+		t.Error("running sandbox was removed")
+	}
+	if got := len(client.RemovedSandboxes); got != 0 {
+		t.Errorf("removal used name-based client call: %v", client.RemovedSandboxes)
 	}
 	if got := len(client.RemovedVolumes); got != 1 {
 		t.Errorf("RemovedVolumes = %d, want 1", got)
