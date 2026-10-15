@@ -41,9 +41,12 @@ var ErrMigrationPending = errors.New("legacy home-volume migration pending")
 //
 // The offer is global: one acceptance copies every necessary volume. It is shown
 // while the migration is undismissed and either has volumes to copy or has
-// present private volumes of unclear status (a previous copy whose progress was
-// lost). The latter is surfaced so the user decides explicitly instead of the
-// session silently adopting a possibly-incomplete home.
+// present private volumes of unclear status. The latter is surfaced so the user
+// decides explicitly instead of the session silently adopting a possibly
+// incomplete home. The copy option's wording follows the status: while a campaign
+// is already copying it is a resume that discards and re-copies the interrupted
+// partials it names; in the pending ambiguous state it copies only the missing
+// volumes and leaves the present ones recordable as kept.
 //
 // A non-interactive session is never prompted and never copies: because
 // proceeding would overwrite the project's recorded home-volume reference before
@@ -95,7 +98,11 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 		)
 	}
 
-	choice, err := ui.Select(offerPrompt(len(names), len(unclear)), offerChoices(migration, len(unclear)), choiceQuit)
+	choice, err := ui.Select(
+		offerPrompt(migration, len(names), len(unclear)),
+		offerChoices(migration, len(unclear)),
+		choiceQuit,
+	)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrMigrationPending, err)
 	}
@@ -223,12 +230,24 @@ func removeUnclearDestinations(ctx context.Context, client msb.Client, m state.M
 	return nil
 }
 
-// offerPrompt builds the prompt text, appending the unclear-volumes notice and
-// the user's cleanup options when present.
-func offerPrompt(copyCount, unclearCount int) string {
+// offerPrompt builds the prompt text, appending the relevant notice when
+// present private volumes of unclear status exist. The notice differs by status:
+// while a campaign is copying, such a volume is an interrupted partial that
+// resuming discards and re-copies, so the prompt says so. In the pending state it
+// is a copy whose registry entry was lost, and the copy option leaves it in place
+// (recorded as kept), so the prompt explains the ambiguous-state choice and the
+// `volume remove --force` cleanup path.
+func offerPrompt(m state.Migration, copyCount, unclearCount int) string {
 	text := fmt.Sprintf("Copy %d legacy home volume(s) into agents-sandbox?", copyCount)
 	if unclearCount == 0 {
 		return text
+	}
+	if m.Status == state.MigrationCopying {
+		return text + fmt.Sprintf(
+			"\n\n%d private volume(s) were left unfinished by an interrupted copy; resuming discards and "+
+				"re-copies them.",
+			unclearCount,
+		)
 	}
 	return text + fmt.Sprintf(
 		"\n\n%d present private volume(s) have unclear status: a previous copy whose progress was lost, "+
@@ -242,7 +261,11 @@ func offerPrompt(copyCount, unclearCount int) string {
 
 // offerChoices builds the menu. "Start fresh" is used only when the migration is
 // pending and there is nothing unclear to clean up; otherwise the opt-out is
-// worded "Dismiss" because it removes the unclear private volumes.
+// worded "Dismiss" because it removes the unclear private volumes. The copy
+// option is a resume while a campaign is already copying (present private
+// volumes are interrupted partials that are discarded and re-copied); in the
+// pending ambiguous state it copies only the missing volumes and keeps the
+// present ones, and the label says so.
 func offerChoices(m state.Migration, unclearCount int) []termio.Choice {
 	copyLabel := "Copy the volumes"
 	copyDescription := "carry your old sandbox home data into agents-sandbox"
@@ -250,7 +273,14 @@ func offerChoices(m state.Migration, unclearCount int) []termio.Choice {
 	dismissDescription := "never offer again; leave the old volumes untouched"
 	quitDescription := "abort this session; ask again next time"
 
-	if unclearCount > 0 {
+	switch {
+	case m.Status == state.MigrationCopying:
+		copyLabel = "Resume the copy"
+		copyDescription = "copy the remaining volumes"
+		if unclearCount > 0 {
+			copyDescription = "discard and re-copy the interrupted volumes, then copy the rest"
+		}
+	case unclearCount > 0:
 		copyLabel = "Copy the missing volumes; dismiss the existing private volumes from the migration"
 		copyDescription = "copy the absent volumes; the unclear private volumes are left untouched"
 	}

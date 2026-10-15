@@ -179,6 +179,15 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   `agents-sandbox volume remove --force <name>` (the copy is still referenced by
   its project's state, so `--force` is required), then run again to re-copy them;
   keep the copies they do not want migrated.
+- The above describes the **pending** state only. While a campaign is already
+  `copying`, a present-unaccounted private volume is an unambiguous interrupted
+  partial (see "Crash safety"), not a lost-registry ambiguity: resuming the copy
+  discards and re-copies it. The offer therefore words the copy option as a
+  **resume** ("Resume the copy — discard and re-copy the interrupted volumes, then
+  copy the rest") and its notice says those volumes will be re-copied; it must not
+  show the pending ambiguous-state "left untouched" promise or the
+  `volume remove --force` cleanup instructions, which would misstate what the
+  resume does.
 - Never copies binaries, `libkrunfw`, the FFI cache, the runtime database, VM
   records, or image caches — those are re-provisioned/rebuildable. The buildkit
   cache volume (`agents-sandbox-buildkit-cache`) is likewise excluded.

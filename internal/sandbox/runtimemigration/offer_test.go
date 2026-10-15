@@ -728,18 +728,58 @@ func TestOfferChoicesWording(t *testing.T) {
 	})
 }
 
+// TestOfferChoicesCopyingResumeWording pins that while a campaign is open the
+// copy option is a resume that discloses the re-copy: unlike the pending
+// ambiguous state (which records present volumes as kept), an open campaign's
+// present-unaccounted volume is an interrupted partial that CopyVolumes discards
+// and re-copies. The label must not promise to leave it untouched.
+func TestOfferChoicesCopyingResumeWording(t *testing.T) {
+	choices := offerChoices(state.Migration{Status: state.MigrationCopying}, 1)
+	byKey := map[string]termio.Choice{}
+	for _, c := range choices {
+		byKey[c.Key] = c
+	}
+	copyChoice := byKey[choiceCopy]
+	if copyChoice.Label != "Resume the copy" {
+		t.Errorf("copy label = %q, want %q", copyChoice.Label, "Resume the copy")
+	}
+	if !strings.Contains(copyChoice.Description, "re-copy") {
+		t.Errorf("copy description = %q, want it to disclose re-copying", copyChoice.Description)
+	}
+	if strings.Contains(copyChoice.Description, "left untouched") {
+		t.Errorf("copy description = %q, must not promise untouched volumes while copying", copyChoice.Description)
+	}
+}
+
 // TestOfferPromptIncludesUnclearNotice pins the ambiguous-state instructions: the
 // prompt explains the unclear volumes and the `volume remove --force` cleanup
 // path, and omits them when there is nothing unclear.
 func TestOfferPromptIncludesUnclearNotice(t *testing.T) {
-	plain := offerPrompt(1, 0)
+	plain := offerPrompt(state.Migration{}, 1, 0)
 	if strings.Contains(plain, "unclear") {
 		t.Errorf("plain prompt mentions unclear volumes: %q", plain)
 	}
-	noted := offerPrompt(1, 2)
+	pending := offerPrompt(state.Migration{}, 1, 2)
 	for _, want := range []string{"unclear", "volume remove --force", "Quit"} {
-		if !strings.Contains(noted, want) {
-			t.Errorf("prompt %q missing %q", noted, want)
+		if !strings.Contains(pending, want) {
+			t.Errorf("pending prompt %q missing %q", pending, want)
+		}
+	}
+}
+
+// TestOfferPromptCopyingResumeNotice pins that in the copying state the notice
+// describes re-copying the interrupted volumes rather than the pending
+// ambiguous-state "leave them untouched / volume remove --force" instructions.
+func TestOfferPromptCopyingResumeNotice(t *testing.T) {
+	resume := offerPrompt(state.Migration{Status: state.MigrationCopying}, 1, 2)
+	for _, want := range []string{"interrupted", "re-cop"} {
+		if !strings.Contains(resume, want) {
+			t.Errorf("resume prompt %q missing %q", resume, want)
+		}
+	}
+	for _, unwanted := range []string{"unclear", "left untouched", "volume remove --force"} {
+		if strings.Contains(resume, unwanted) {
+			t.Errorf("resume prompt %q must not contain %q", resume, unwanted)
 		}
 	}
 }
@@ -797,6 +837,47 @@ func TestOfferAmbiguousStateCopyKeepsExisting(t *testing.T) {
 	}
 	if slices.Contains(client.RemovedVolumes, present) {
 		t.Errorf("RemovedVolumes = %v, want present %q kept", client.RemovedVolumes, present)
+	}
+	root, _ := state.ReadRootState()
+	if got, _ := root.Migration(MigrationName); got.Status != state.MigrationCompleted {
+		t.Fatalf("status = %q, want completed", got.Status)
+	}
+}
+
+// TestOfferCopyingResumeRecopiesPartial pins the behavior behind the resume
+// wording: while a campaign is open, accepting "Resume the copy" discards an
+// interrupted partial destination and re-copies it, reaching completed.
+func TestOfferCopyingResumeRecopiesPartial(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	name := naming.HomePrefix + "partial"
+	seedPartialDestination(t, legacy, name)
+
+	target := t.TempDir()
+	var created []string
+	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+		},
+		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			created = append(created, n)
+			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+		},
+	}
+	var prompted bool
+	ui := interactiveUI(choiceCopy, &prompted)
+
+	if err := Offer(context.Background(), client, ui); err != nil {
+		t.Fatalf("Offer: %v", err)
+	}
+	if !prompted {
+		t.Fatal("Offer did not prompt while copying")
+	}
+	if !slices.Contains(client.RemovedVolumes, name) {
+		t.Errorf("RemovedVolumes = %v, want the interrupted partial %q discarded", client.RemovedVolumes, name)
+	}
+	if len(created) != 1 || created[0] != name {
+		t.Errorf("created = %v, want the partial %q re-copied", created, name)
 	}
 	root, _ := state.ReadRootState()
 	if got, _ := root.Migration(MigrationName); got.Status != state.MigrationCompleted {
