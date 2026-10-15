@@ -212,6 +212,9 @@ func (m *Mock) Input(prompt, defaultValue string) (string, error) {
 func (m *Mock) Confirm(prompt string, defaultYes bool) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.assumeYes {
+		return true, nil
+	}
 	m.ConfirmCalls = append(m.ConfirmCalls, prompt)
 	return m.ConfirmResult, m.ConfirmErr
 }

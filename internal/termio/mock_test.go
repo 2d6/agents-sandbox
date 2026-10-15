@@ -98,6 +98,22 @@ func TestMockConfirmRecordsPromptAndReturnsConfigured(t *testing.T) {
 	}
 }
 
+func TestMockConfirmReturnsTrueWithoutRecordingWhenAssumeYes(t *testing.T) {
+	m := &Mock{ConfirmResult: false}
+	m.SetAssumeYes(true)
+
+	got, err := m.Confirm("Remove it?", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got {
+		t.Error("expected true under assume-yes")
+	}
+	if len(m.ConfirmCalls) != 0 {
+		t.Errorf("expected no recorded prompt under assume-yes, got: %v", m.ConfirmCalls)
+	}
+}
+
 func TestMockIsSafeForConcurrentUse(t *testing.T) {
 	m := &Mock{}
 	const workers = 8

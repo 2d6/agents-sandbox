@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -11,7 +12,28 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+func TestVolumePruneNonInteractiveRequiresYes(t *testing.T) {
+	m := &msb.MockMsbClient{}
+	m.Volumes = append(m.Volumes, &msb.MockVolumeHandle{
+		Name_:      "agents-sandbox-home-orphan-1mjusbm3wikhb0-20260806T143022",
+		CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
+	})
+
+	cmd, ui := setupCommandFixtures(t, "volume", "prune")
+	msb.WithMsbMock(t, m)
+	ui.ConfirmErr = termio.ErrConfirmationRequired
+
+	err := cmd.Execute()
+	if !errors.Is(err, termio.ErrConfirmationRequired) {
+		t.Fatalf("expected ErrConfirmationRequired, got: %v", err)
+	}
+	if len(m.RemovedVolumes) != 0 {
+		t.Errorf("expected no removals, got: %v", m.RemovedVolumes)
+	}
+}
 
 func TestVolumePrune(t *testing.T) {
 	t.Run("prunes home volumes of stale slugs", func(t *testing.T) {
@@ -30,7 +52,7 @@ func TestVolumePrune(t *testing.T) {
 				},
 			},
 		}
-		cmd, ui := setupCommandFixtures(t, "volume", "prune")
+		cmd, ui := setupCommandFixtures(t, "volume", "prune", "--yes")
 		msb.WithMsbMock(t, m)
 		docker.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
@@ -42,7 +64,7 @@ func TestVolumePrune(t *testing.T) {
 	})
 
 	t.Run("invalid age error", func(t *testing.T) {
-		cmd, _ := setupCommandFixtures(t, "volume", "prune", "--age", "invalid")
+		cmd, _ := setupCommandFixtures(t, "volume", "prune", "--age", "invalid", "--yes")
 		msb.WithMsbMock(t, &msb.MockMsbClient{})
 		err := cmd.Execute()
 		if err == nil {
@@ -70,7 +92,7 @@ func TestVolumePruneFormatJSON(t *testing.T) {
 			},
 		},
 	}
-	cmd, ui := setupCommandFixtures(t, "volume", "prune", "--format", "json")
+	cmd, ui := setupCommandFixtures(t, "volume", "prune", "--format", "json", "--yes")
 	msb.WithMsbMock(t, m)
 	docker.WithNoopDockerMock(t)
 	if err := cmd.Execute(); err != nil {

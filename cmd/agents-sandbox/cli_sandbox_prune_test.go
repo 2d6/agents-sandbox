@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -10,7 +11,30 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+func TestSandboxPruneNonInteractiveRequiresYes(t *testing.T) {
+	vm := &msb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
+		Status_:    msbSdk.SandboxStatusStopped,
+		UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
+	}
+	m := &msb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, vm)
+
+	cmd, ui := setupCommandFixtures(t, "sandbox", "prune")
+	msb.WithMsbMock(t, m)
+	ui.ConfirmErr = termio.ErrConfirmationRequired
+
+	err := cmd.Execute()
+	if !errors.Is(err, termio.ErrConfirmationRequired) {
+		t.Fatalf("expected ErrConfirmationRequired, got: %v", err)
+	}
+	if vm.DidRemove() {
+		t.Error("expected no removals")
+	}
+}
 
 func TestSandboxPrune(t *testing.T) {
 	t.Run("prunes stale sandbox", func(t *testing.T) {
@@ -23,7 +47,7 @@ func TestSandboxPrune(t *testing.T) {
 				},
 			},
 		}
-		cmd, ui := setupCommandFixtures(t, "sandbox", "prune")
+		cmd, ui := setupCommandFixtures(t, "sandbox", "prune", "--yes")
 		msb.WithMsbMock(t, m)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -44,7 +68,7 @@ func TestSandboxPruneFormatJSON(t *testing.T) {
 			},
 		},
 	}
-	cmd, ui := setupCommandFixtures(t, "sandbox", "prune", "--format", "json")
+	cmd, ui := setupCommandFixtures(t, "sandbox", "prune", "--format", "json", "--yes")
 	msb.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)

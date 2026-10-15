@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 type pruneJSONDetail struct {
@@ -172,7 +174,7 @@ func TestPrune(t *testing.T) {
 				mock.Images = append(mock.Images,
 					msbImg("agents-sandbox/runner-stale-1mjusbm3wikhb0:v2"))
 
-				cmd, ui := setupCommandFixtures(t, append([]string{"prune"}, flags...)...)
+				cmd, ui := setupCommandFixtures(t, append([]string{"prune", "--yes"}, flags...)...)
 				sandboxmsb.WithMsbMock(t, mock)
 				docker.WithDefaultErrorDockerMock(t)
 
@@ -252,6 +254,62 @@ func TestPrune(t *testing.T) {
 	})
 }
 
+func TestPruneNonInteractiveRequiresYes(t *testing.T) {
+	vm := mkStaleVM(time.Now().Add(-15 * 24 * time.Hour))
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, vm)
+
+	cmd, ui := setupCommandFixtures(t, "prune")
+	sandboxmsb.WithMsbMock(t, m)
+	ui.ConfirmErr = termio.ErrConfirmationRequired
+
+	err := cmd.Execute()
+	if !errors.Is(err, termio.ErrConfirmationRequired) {
+		t.Fatalf("expected ErrConfirmationRequired, got: %v", err)
+	}
+	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+		t.Error("expected no removals")
+	}
+}
+
+func TestPruneYesSkipsPrompt(t *testing.T) {
+	vm := mkStaleVM(time.Now().Add(-15 * 24 * time.Hour))
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, vm)
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.ConfirmCalls) != 0 {
+		t.Errorf("expected no prompt, got: %v", ui.ConfirmCalls)
+	}
+	if !vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+		t.Error("expected the stale sandbox to be pruned")
+	}
+}
+
+func TestPruneDeclined(t *testing.T) {
+	vm := mkStaleVM(time.Now().Add(-15 * 24 * time.Hour))
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, vm)
+
+	cmd, ui := setupCommandFixtures(t, "prune")
+	sandboxmsb.WithMsbMock(t, m)
+	ui.IsInteractiveResult = true
+	ui.ConfirmResult = false
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "cancelled") {
+		t.Fatalf("expected cancelled error, got: %v", err)
+	}
+	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+		t.Error("expected no removals")
+	}
+}
+
 func TestPruneFormatJSON(t *testing.T) {
 	m := &sandboxmsb.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
@@ -260,7 +318,7 @@ func TestPruneFormatJSON(t *testing.T) {
 	m.Images = append(m.Images,
 		msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:v2"))
 
-	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json")
+	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
 	sandboxmsb.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -295,7 +353,7 @@ func TestPruneQuietSuppressesOutput(t *testing.T) {
 	m := &sandboxmsb.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 
-	cmd, ui := setupCommandFixtures(t, "prune", "--quiet")
+	cmd, ui := setupCommandFixtures(t, "prune", "--quiet", "--yes")
 	sandboxmsb.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -348,7 +406,7 @@ func runPruneTestWithFlags(t *testing.T, flags []string, setupMock func(m *sandb
 	t.Helper()
 	mock := &sandboxmsb.MockMsbClient{}
 	setupMock(mock)
-	cmd, ui := setupCommandFixtures(t, append([]string{"prune"}, flags...)...)
+	cmd, ui := setupCommandFixtures(t, append([]string{"prune", "--yes"}, flags...)...)
 	sandboxmsb.WithMsbMock(t, mock)
 
 	if err := cmd.Execute(); err != nil {
@@ -359,7 +417,7 @@ func runPruneTestWithFlags(t *testing.T, flags []string, setupMock func(m *sandb
 
 func runPruneTest(t *testing.T, flags []string, setupMocks func(), expected string) {
 	t.Helper()
-	cmd, ui := setupCommandFixtures(t, append([]string{"prune"}, flags...)...)
+	cmd, ui := setupCommandFixtures(t, append([]string{"prune", "--yes"}, flags...)...)
 	if setupMocks != nil {
 		setupMocks()
 	}
@@ -374,7 +432,7 @@ func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandboxmsb.
 	t.Helper()
 	mock := &sandboxmsb.MockMsbClient{}
 	setupMock(mock)
-	cmd, ui := setupCommandFixtures(t, "prune", "--age", age)
+	cmd, ui := setupCommandFixtures(t, "prune", "--yes", "--age", age)
 	sandboxmsb.WithMsbMock(t, mock)
 
 	if err := cmd.Execute(); err != nil {
@@ -385,7 +443,7 @@ func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandboxmsb.
 
 func runPruneTestError(t *testing.T, args []string, wantErrContains string) {
 	t.Helper()
-	cmd, _ := setupCommandFixtures(t, args...)
+	cmd, _ := setupCommandFixtures(t, append(args, "--yes")...)
 	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{})
 	err := cmd.Execute()
 	if err == nil {
@@ -412,7 +470,7 @@ func checkSummary(t *testing.T, outCalls []string, expected string) {
 // TestPruneCatalogError covers the live-state build failing during prune, which
 // surfaces the raw ListSandboxes error from the command.
 func TestPruneCatalogError(t *testing.T) {
-	cmd, _ := setupCommandFixtures(t, "prune", "--age", "7d")
+	cmd, _ := setupCommandFixtures(t, "prune", "--age", "7d", "--yes")
 	mock := &sandboxmsb.MockMsbClient{}
 	mock.ListSandboxesErr = errBoom
 	sandboxmsb.WithMsbMock(t, mock)

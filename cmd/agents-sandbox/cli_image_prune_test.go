@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -11,7 +12,28 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+func TestImagePruneNonInteractiveRequiresYes(t *testing.T) {
+	m := &sandboxmsb.MockMsbClient{}
+	m.Images = append(m.Images, sandboxmsb.MockImageHandle{
+		Reference_:  "agents-sandbox/runner-orphan-1mjusbm3wikhb0:v1",
+		LastUsedAt_: time.Now().Add(-30 * 24 * time.Hour),
+	})
+
+	cmd, ui := setupCommandFixtures(t, "image", "prune")
+	sandboxmsb.WithMsbMock(t, m)
+	ui.ConfirmErr = termio.ErrConfirmationRequired
+
+	err := cmd.Execute()
+	if !errors.Is(err, termio.ErrConfirmationRequired) {
+		t.Fatalf("expected ErrConfirmationRequired, got: %v", err)
+	}
+	if len(m.RemovedImages) != 0 {
+		t.Errorf("expected no removals, got: %v", m.RemovedImages)
+	}
+}
 
 func TestImagePrune(t *testing.T) {
 	t.Run("accepts and applies age flag", func(t *testing.T) {
@@ -31,7 +53,7 @@ func TestImagePrune(t *testing.T) {
 				},
 			},
 		}
-		cmd, ui := setupCommandFixtures(t, "image", "prune", "--age", "1d")
+		cmd, ui := setupCommandFixtures(t, "image", "prune", "--age", "1d", "--yes")
 		sandboxmsb.WithMsbMock(t, m)
 		docker.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
@@ -58,7 +80,7 @@ func TestImagePrune(t *testing.T) {
 				},
 			},
 		}
-		cmd, ui := setupCommandFixtures(t, "image", "prune")
+		cmd, ui := setupCommandFixtures(t, "image", "prune", "--yes")
 		sandboxmsb.WithMsbMock(t, m)
 		docker.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
@@ -86,7 +108,7 @@ func TestImagePruneFormatJSON(t *testing.T) {
 			},
 		},
 	}
-	cmd, ui := setupCommandFixtures(t, "image", "prune", "--format", "json")
+	cmd, ui := setupCommandFixtures(t, "image", "prune", "--format", "json", "--yes")
 	sandboxmsb.WithMsbMock(t, m)
 	docker.WithNoopDockerMock(t)
 	if err := cmd.Execute(); err != nil {
