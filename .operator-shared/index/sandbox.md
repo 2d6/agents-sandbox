@@ -30,7 +30,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `image/` — Runner image build, Dockerfile, fetch, inspect, tags
 
-- `build.go`, `dockerfile.go`, `fetch.go`, `format.go`, `image.go`, `inspect.go`, `list.go`, `tags.go`, `embed.go` — image pipeline
+- `build.go`, `dockerfile.go`, `fetch.go`, `format.go`, `image.go`, `inspect.go`, `inspect_detail.go`, `list.go`, `tags.go`, `embed.go` — image pipeline (`inspect_detail.go` is `InspectImage`: the image-inspect detail seam)
 - `references.go` — `InUseImageReferences`: the fail-closed in-use runner-image guard, unioning the project-state scan with kept sandbox image refs (Slice 1 of the runtime-management epic)
 - `render_integration_test.go` — `//go:build integration` docker-build tests for `RenderDockerfile` composition (no Dockerfile / managed base / custom Fedora base, each ± dind). Run via `make test-integration`; wired into CI as a selective job (main/release/manual). **Cannot run inside the agents-sandbox VM** — microsandbox's egress-inspection CA makes in-image downloads (apt/dnf/node) fail; must run on a host with a normal docker daemon.
 - Custom-base requirements (shadow-utils, POSIX shell bash→zsh→sh, curl+tar, dind prereqs) and unsupported bases (Alpine/distroless/scratch) are documented in `docs/runner-image.md`.
@@ -83,9 +83,9 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `vm/` — VM lifecycle and orchestration (largest)
 
-- `daemon.go`, `dockerd.go`, `exit.go`, `list.go`, `provenance.go`, `reconfig.go`, `run_envstate.go`, `run_orchestrate.go`, `upgrade.go`, `upgrade_state.go`, `vm_control.go`, `vm_env.go`, `vm_lifecycle.go`, `vm_name.go`, `vm_resources.go`, `worktree.go`
+- `daemon.go`, `dockerd.go`, `exit.go`, `inspect.go`, `list.go`, `provenance.go`, `reconfig.go`, `run_envstate.go`, `run_orchestrate.go`, `upgrade.go`, `upgrade_state.go`, `vm_control.go`, `vm_env.go`, `vm_lifecycle.go`, `vm_name.go`, `vm_resources.go`, `worktree.go` (`inspect.go` is `InspectSandbox`: the sandbox-inspect detail seam)
 - `create_project_vm_test.go`, `ensure_project_vm_test.go`, `prepare_sandbox_test.go`, `setupsandbox_test.go` — lifecycle setup tests
 
 ### `volume/` — Volume management
 
-- `list.go`, `operations.go`, `prompt.go`, `state.go`, `volume.go`
+- `list.go`, `inspect.go`, `operations.go`, `prompt.go`, `remove.go`, `state.go`, `volume.go` (`inspect.go` is `InspectVolume`: the volume-inspect detail seam)

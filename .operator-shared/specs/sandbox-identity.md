@@ -5,7 +5,7 @@ Date: 2026-10-15
 
 ## Name vs identity
 
-A sandbox's **name** is a mutable label: the launcher derives it from the project/agent key, and that name can be removed and recreated to point at a different sandbox. A sandbox's **identity** is the stable ID the microsandbox runtime assigns at creation (SDK v0.7.8 exposes `SandboxHandle.ID()` and `Sandbox.ID()`). Operations that act on a *specific* sandbox must key off identity; names are for discovery and creation only.
+A sandbox's **name** is a mutable label: the launcher derives it from the project/agent key, and that name can be removed and recreated to point at a different sandbox. A sandbox's **identity** is the stable ID the microsandbox runtime assigns at creation (SDK v0.7.8 exposes `SandboxHandle.ID()` and `Sandbox.ID()`). Operations that act on a *specific* sandbox must key off identity; names are for discovery and creation only. The launcher's `msb` seam does not need `ID()` for any removal/attach decision; it was added to `SandboxHandle` later only so `sandbox inspect` can display the stable identity (Slice 3 of the runtime-management epic).
 
 ## Fail-closed contract
 

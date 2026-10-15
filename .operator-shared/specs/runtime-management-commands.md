@@ -7,12 +7,11 @@ read_if: Adding or reviewing volume/image/sandbox inspection and removal command
 
 Date: 2026-10-15
 
-Status: **design; Slices 0–2 implemented** (Slice 0 merged in PR #174; Slice 1
-on branch `issue-169-runtime-management-slice-1`, PR pending; Slice 2 on branch
-`issue-170-runtime-management-slice-2`, PR pending). Tracked as issue #165;
-delivered as sub-issues #168 (Slice 0, implemented), #169 (Slice 1,
-implemented), #170 (Slice 2, implemented), #171 (Slice 3), #172 (Slice 4), and
-#155 (Slice 5). Slice 6 is dropped. Builds on
+Status: **design; Slices 0–3 implemented** (Slices 0–2 merged in PRs #174/#176/
+#177; Slice 3 on branch `issue-171-runtime-management-slice-3`, PR pending).
+Tracked as issue #165; delivered as sub-issues #168 (Slice 0, implemented),
+#169 (Slice 1, implemented), #170 (Slice 2, implemented), #171 (Slice 3,
+implemented), #172 (Slice 4), and #155 (Slice 5). Slice 6 is dropped. Builds on
 `specs/runtime-home-decoupling.md` (the private `$MSB_HOME` home) and the
 reference in `guides/microsandbox-release-notes.md`.
 
@@ -176,6 +175,17 @@ lands.
 
 Depends on: Slice 0.
 
+Implemented (issue #171): `volume.InspectVolume`, `image.InspectImage`, and
+`vm.InspectSandbox` produce package-local detail DTOs; the CLI commands
+(`buildVolumeInspectCmd`/`buildImageInspectCmd`/`buildSandboxInspectCmd` in
+`commands_inspect.go`) resolve the shared output mode and render through
+`printInspect` (identifier under `-q`, JSON under `--format json`, an aligned
+key/value block by default). `volume list`/`image list` were already wired onto
+the Slice 0 output by Slice 0 itself. Two seam additions made the inspection
+possible: `msb.ImageInspectDetail` (a local `msb.ImageDetail` mapping, keeping
+the existing `ImageInspect` config-only method untouched) and `SandboxHandle.ID`
+(the stable identity, first needed here).
+
 ### Slice 4 — Object removal
 
 - `image remove <ref>...` (`rm`) — by-reference deletion with `-f/--force` and
@@ -285,6 +295,16 @@ docker images, and msb images, but not runtime RAM.
 - **`sandbox copy` (Slice 6)**: dropped.
 - **Per-volume usage**: exposed in `volume inspect` only; `volume list` stays
   cheap (no per-object stat).
+- **Inspect `-q` (Slice 3)**: the shared output mode applies to a single object
+  too — `--quiet` prints the object's identifier (volume name, image reference,
+  or sandbox name) and nothing else, matching the list convention.
+- **Inspect JSON (Slice 3)**: identity/size fields are presentation-oriented
+  human strings (matching the list JSON), nullable fields render as `-`,
+  collections (env/cmd/entrypoint/layers/mounts) render as arrays.
+- **Inspect seams (Slice 3)**: `image inspect` reads through a new
+  `msb.ImageInspectDetail` (a local `msb.ImageDetail` DTO) rather than widening
+  the existing config-only `msb.ImageInspect`, which the build digest check
+  still uses; `sandbox inspect` needs `SandboxHandle.ID`, added to the seam.
 
 ## Left to the builder
 
