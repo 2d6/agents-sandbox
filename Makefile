@@ -82,7 +82,7 @@ test:
 # build tag. Requires a working docker daemon and network access (base image
 # pulls, agent installs, registry round-trips).
 test-integration:
-	CGO_ENABLED=1 go test -tags integration -count=1 ./...
+	CGO_ENABLED=1 go test -tags integration -timeout 60m -count=1 ./...
 
 # Compile every test binary including build-tagged files (`//go:build
 # integration`) so a regression that only breaks tagged code is caught without a
