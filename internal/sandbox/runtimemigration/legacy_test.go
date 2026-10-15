@@ -7,6 +7,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
 func TestLegacyVolumeNamesEmpty(t *testing.T) {
@@ -65,7 +66,7 @@ func TestLegacyVolumeNamesUnreadableVolumesDir(t *testing.T) {
 		t.Errorf("legacyVolumeNames() = %v, want empty", got)
 	}
 
-	necessary, err := necessaryVolumes(home, newHome(t))
+	necessary, err := necessaryVolumes(home, newHome(t), state.Migration{})
 	if err != nil {
 		t.Fatalf("necessaryVolumes() error = %v, want nil (permission denied is not an error)", err)
 	}
@@ -93,7 +94,7 @@ func TestNecessaryVolumesEmptyLegacy(t *testing.T) {
 	legacy := newHome(t)
 	private := newHome(t)
 
-	got, err := necessaryVolumes(legacy, private)
+	got, err := necessaryVolumes(legacy, private, state.Migration{})
 	if err != nil {
 		t.Fatalf("necessaryVolumes() error = %v", err)
 	}
@@ -108,7 +109,7 @@ func TestNecessaryVolumesLegacyOnlyIsNecessary(t *testing.T) {
 	name := naming.HomePrefix + "orphan"
 	addVolumeDir(t, legacy, name)
 
-	got, err := necessaryVolumes(legacy, private)
+	got, err := necessaryVolumes(legacy, private, state.Migration{})
 	if err != nil {
 		t.Fatalf("necessaryVolumes() error = %v", err)
 	}
@@ -120,9 +121,9 @@ func TestNecessaryVolumesPresentInBothIsNotNecessary(t *testing.T) {
 	private := newHome(t)
 	name := naming.HomePrefix + "shared"
 	addVolumeDir(t, legacy, name)
-	addCompletedVolumeDir(t, private, name)
+	addVolumeDir(t, private, name)
 
-	got, err := necessaryVolumes(legacy, private)
+	got, err := necessaryVolumes(legacy, private, state.Migration{})
 	if err != nil {
 		t.Fatalf("necessaryVolumes() error = %v", err)
 	}
@@ -135,7 +136,7 @@ func TestNecessaryVolumesMissingLegacyVolumesDirIsNotNecessary(t *testing.T) {
 	legacy := t.TempDir()
 	private := newHome(t)
 
-	got, err := necessaryVolumes(legacy, private)
+	got, err := necessaryVolumes(legacy, private, state.Migration{})
 	if err != nil {
 		t.Fatalf("necessaryVolumes() error = %v, want nil (missing dir is not an error)", err)
 	}
@@ -151,43 +152,53 @@ func TestNecessaryVolumesReportsOnlyMissingLegacyNames(t *testing.T) {
 	missing := naming.HomePrefix + "missing"
 	addVolumeDir(t, legacy, present)
 	addVolumeDir(t, legacy, missing)
-	addCompletedVolumeDir(t, private, present)
+	addVolumeDir(t, private, present)
 	addVolumeDir(t, private, naming.HomePrefix+"private-only")
 
-	got, err := necessaryVolumes(legacy, private)
+	got, err := necessaryVolumes(legacy, private, state.Migration{})
 	if err != nil {
 		t.Fatalf("necessaryVolumes() error = %v", err)
 	}
 	assertSameSet(t, got, []string{missing})
 }
 
-func TestPrivateVolumeNamesFiltersByPrefix(t *testing.T) {
-	private := newHome(t)
-	want := []string{naming.HomePrefix + "alpha"}
-	addCompletedVolumeDir(t, private, want[0])
-	addVolumeDir(t, private, "not-ours")
-
-	got, err := privateVolumeNames(private)
-	if err != nil {
-		t.Fatalf("privateVolumeNames() error = %v", err)
+func TestNecessaryVolumesTerminalStatusIsNeverNecessary(t *testing.T) {
+	for _, status := range []state.MigrationStatus{state.MigrationCompleted, state.MigrationDismissed} {
+		legacy := newHome(t)
+		addVolumeDir(t, legacy, naming.HomePrefix+"orphan")
+		got, err := necessaryVolumes(legacy, newHome(t), state.Migration{Status: status})
+		if err != nil || len(got) != 0 {
+			t.Fatalf("status %q: got %v, %v; want empty", status, got, err)
+		}
 	}
-	assertSameSet(t, got, want)
 }
 
-// TestNecessaryVolumesIncompletePrivateCopyIsNecessary pins that a private home
-// volume without the completion marker — a copy interrupted before it finished —
-// is treated as still-to-copy, so the offer is retried instead of using a
-// partial home.
-func TestNecessaryVolumesIncompletePrivateCopyIsNecessary(t *testing.T) {
+func TestNecessaryVolumesCopyingSubtractsCopiedAndExcluded(t *testing.T) {
 	legacy := newHome(t)
 	private := newHome(t)
-	name := naming.HomePrefix + "interrupted"
-	addVolumeDir(t, legacy, name)
-	addVolumeDir(t, private, name)
-
-	got, err := necessaryVolumes(legacy, private)
+	copied := naming.HomePrefix + "copied"
+	excluded := naming.HomePrefix + "excluded"
+	pending := naming.HomePrefix + "pending"
+	addVolumeDir(t, legacy, copied)
+	addVolumeDir(t, legacy, excluded)
+	addVolumeDir(t, legacy, pending)
+	m := state.Migration{Status: state.MigrationCopying, Copied: []string{copied}, Excluded: []string{excluded}}
+	got, err := necessaryVolumes(legacy, private, m)
 	if err != nil {
-		t.Fatalf("necessaryVolumes() error = %v", err)
+		t.Fatalf("necessaryVolumes: %v", err)
+	}
+	assertSameSet(t, got, []string{pending})
+}
+
+func TestNecessaryVolumesCopyingIgnoresPrivatePresence(t *testing.T) {
+	legacy := newHome(t)
+	private := newHome(t)
+	name := naming.HomePrefix + "partial"
+	addVolumeDir(t, legacy, name)
+	addVolumeDir(t, private, name) // present but NOT in Copied => partial, still necessary
+	got, err := necessaryVolumes(legacy, private, state.Migration{Status: state.MigrationCopying})
+	if err != nil {
+		t.Fatalf("necessaryVolumes: %v", err)
 	}
 	assertSameSet(t, got, []string{name})
 }
@@ -265,17 +276,6 @@ func addVolumeDir(t *testing.T, home, name string) {
 	}
 }
 
-// addCompletedVolumeDir creates a private home volume that carries the copy
-// completion marker, i.e. one necessity treats as fully copied.
-func addCompletedVolumeDir(t *testing.T, home, name string) {
-	t.Helper()
-	addVolumeDir(t, home, name)
-	marker := filepath.Join(home, "volumes", name, copyCompleteMarker)
-	if err := os.WriteFile(marker, nil, 0o600); err != nil {
-		t.Fatalf("write completion marker for %q: %v", name, err)
-	}
-}
-
 func addRegularFile(t *testing.T, dir, name string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
@@ -296,7 +296,7 @@ func loopedVolumeHome(t *testing.T) string {
 }
 
 func TestNecessaryVolumesLegacyReadError(t *testing.T) {
-	got, err := necessaryVolumes(loopedVolumeHome(t), newHome(t))
+	got, err := necessaryVolumes(loopedVolumeHome(t), newHome(t), state.Migration{})
 	if err == nil {
 		t.Fatal("necessaryVolumes() error = nil, want legacy listing error")
 	}
@@ -306,7 +306,7 @@ func TestNecessaryVolumesLegacyReadError(t *testing.T) {
 }
 
 func TestNecessaryVolumesPrivateReadError(t *testing.T) {
-	got, err := necessaryVolumes(newHome(t), loopedVolumeHome(t))
+	got, err := necessaryVolumes(newHome(t), loopedVolumeHome(t), state.Migration{})
 	if err == nil {
 		t.Fatal("necessaryVolumes() error = nil, want private listing error")
 	}
