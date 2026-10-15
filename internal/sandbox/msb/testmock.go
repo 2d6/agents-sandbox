@@ -36,7 +36,6 @@ type MockMsbClient struct {
 	GetSandboxFn      func(ctx context.Context, name string) (SandboxHandle, error)
 	CreateSandboxFn   func(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
 	ListSandboxesFn   func(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
-	RemoveSandboxFn   func(ctx context.Context, name string) error
 	GetVolumeFn       func(ctx context.Context, name string) (VolumeHandle, error)
 	CreateVolumeFn    func(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
 	ListVolumesFn     func(ctx context.Context) ([]VolumeHandle, error)
@@ -61,8 +60,6 @@ type MockMsbClient struct {
 	CreatedSandboxes []string
 	// CreatedSandboxCalls holds full details of CreateSandbox calls.
 	CreatedSandboxCalls []MockCreateSandboxCall
-	// RemovedSandboxes holds names passed to RemoveSandbox calls.
-	RemovedSandboxes []string
 	// RemovedVolumes holds names passed to RemoveVolume calls.
 	RemovedVolumes []string
 	// RemovedImages holds arguments passed to ImageRemove calls.
@@ -83,7 +80,6 @@ type MockMsbClient struct {
 	createVolumeErr    error
 	ListVolumesErr     error
 	ListImagesErr      error
-	removeSandboxErr   error
 	removeVolumeErr    error
 	removeImageErr     error
 	imageGetErr        error
@@ -166,20 +162,6 @@ func (m *MockMsbClient) ListSandboxes(ctx context.Context, labels map[string]str
 		return nil, m.ListSandboxesErr
 	}
 	return m.Sandboxes, nil
-}
-
-// RemoveSandbox implements Client.
-func (m *MockMsbClient) RemoveSandbox(ctx context.Context, name string) error {
-	m.mu.Lock()
-	m.RemovedSandboxes = append(m.RemovedSandboxes, name)
-	m.mu.Unlock()
-	if m.RemoveSandboxFn != nil {
-		return m.RemoveSandboxFn(ctx, name)
-	}
-	if m.removeSandboxErr != nil {
-		return m.removeSandboxErr
-	}
-	return nil
 }
 
 // GetVolume implements Client.
@@ -440,6 +422,8 @@ type MockSandbox struct {
 	AttachArgs []string
 	DetachErr  error
 	StopErr    error
+	DestroyErr error
+	Destroyed  bool
 	CloseErr   error
 
 	// StreamHandle_ is returned by ShellStream when ShellStreamFn is nil. When
@@ -517,7 +501,15 @@ func (m *MockSandbox) AttachWith(
 
 func (m *MockSandbox) Detach(_ context.Context) error                       { return m.DetachErr }
 func (m *MockSandbox) Stop(_ context.Context, _ ...msbSdk.StopOption) error { return m.StopErr }
-func (m *MockSandbox) Close() error                                         { return m.CloseErr }
+func (m *MockSandbox) Destroy(_ context.Context, _ ...msbSdk.DestroyOption) error {
+	if m.DestroyErr != nil {
+		return m.DestroyErr
+	}
+	m.Destroyed = true
+	return nil
+}
+func (m *MockSandbox) DidDestroy() bool { return m.Destroyed }
+func (m *MockSandbox) Close() error     { return m.CloseErr }
 
 func (m *MockSandbox) ShellStream(
 	_ context.Context,
@@ -557,6 +549,7 @@ type SandboxOpts struct {
 	AttachErr  error
 	DetachErr  error
 	StopErr    error
+	DestroyErr error
 	CloseErr   error
 	// StreamHandle_ is returned by ShellStream when ShellStreamFn is nil.
 	StreamHandle_ StreamHandle
@@ -579,6 +572,7 @@ func NewMockSandbox(opts SandboxOpts) Sandbox {
 		AttachErr:       opts.AttachErr,
 		DetachErr:       opts.DetachErr,
 		StopErr:         opts.StopErr,
+		DestroyErr:      opts.DestroyErr,
 		CloseErr:        opts.CloseErr,
 		StreamHandle_:   opts.StreamHandle_,
 		ShellStreamFn:   opts.ShellStreamFn,
@@ -794,11 +788,6 @@ func (f *failFastMsbClient) CreateSandbox(
 func (f *failFastMsbClient) ListSandboxes(_ context.Context, _ map[string]string) ([]SandboxHandle, error) {
 	f.mustMock()
 	return nil, nil
-}
-
-func (f *failFastMsbClient) RemoveSandbox(_ context.Context, _ string) error {
-	f.mustMock()
-	return nil
 }
 
 func (f *failFastMsbClient) GetVolume(_ context.Context, _ string) (VolumeHandle, error) {

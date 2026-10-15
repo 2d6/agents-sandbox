@@ -84,9 +84,6 @@ func TestPruneSandboxes(t *testing.T) {
 		if running.DidRemove() {
 			t.Errorf("running sandbox was removed")
 		}
-		if len(client.RemovedSandboxes) != 0 {
-			t.Errorf("removal used name-based client call: %v", client.RemovedSandboxes)
-		}
 	})
 
 	t.Run("dry run counts but does not delete", func(t *testing.T) {
@@ -178,10 +175,12 @@ func TestPruneSandboxes(t *testing.T) {
 		}
 	})
 
-	t.Run("skips a sandbox replaced since listing", func(t *testing.T) {
+	t.Run("skips replaced and already-gone sandboxes without warning", func(t *testing.T) {
 		replaced := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
-		replaced.RemoveErr = &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced}
-		ok := stoppedHandle("agents-sandbox-vm-proj2-1mjusbm3wikhb0")
+		replaced.RemoveErr = &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"}
+		gone := stoppedHandle("agents-sandbox-vm-proj2-1mjusbm3wikhb0")
+		gone.RemoveErr = &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
+		ok := stoppedHandle("agents-sandbox-vm-proj3-1mjusbm3wikhb0")
 
 		client := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, client)
@@ -189,7 +188,8 @@ func TestPruneSandboxes(t *testing.T) {
 		pruneState := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
 				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: replaced,
-				{Slug: "proj2-1mjusbm3wikhb0", Agent: ""}: ok,
+				{Slug: "proj2-1mjusbm3wikhb0", Agent: ""}: gone,
+				{Slug: "proj3-1mjusbm3wikhb0", Agent: ""}: ok,
 			},
 		}
 		r, err := PruneSandboxes(context.Background(), pruneState, false, ui)
@@ -197,13 +197,13 @@ func TestPruneSandboxes(t *testing.T) {
 			t.Fatalf("PruneSandboxes: %v", err)
 		}
 		if r.VMsPruned != 1 {
-			t.Errorf("VMsPruned = %d, want 1 (replaced one is skipped)", r.VMsPruned)
+			t.Errorf("VMsPruned = %d, want 1 (replaced and gone are skipped)", r.VMsPruned)
 		}
 		if !ok.DidRemove() {
 			t.Errorf("expected the non-replaced sandbox to be removed")
 		}
-		if len(ui.WarnCalls) != 1 {
-			t.Errorf("WarnCalls = %v, want 1 warn about the replaced sandbox", ui.WarnCalls)
+		if len(ui.WarnCalls) != 0 {
+			t.Errorf("WarnCalls = %v, want none for replaced/gone skips", ui.WarnCalls)
 		}
 	})
 }

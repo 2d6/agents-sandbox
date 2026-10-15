@@ -67,11 +67,13 @@ func (vm *Manager) PrefillVolume(
 		return fmt.Errorf("create prefill sandbox: %w", err)
 	}
 	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
+		destroyCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 		defer cancel()
-		_ = sb.Stop(stopCtx)
+		if destroyErr := sb.Destroy(destroyCtx); destroyErr != nil &&
+			!msb.IsReplaced(destroyErr) && !msb.IsNotFound(destroyErr) {
+			ui.Warnf("failed to destroy prefill sandbox %s: %v", prefillName, destroyErr)
+		}
 		_ = sb.Close()
-		_ = client.RemoveSandbox(context.Background(), prefillName)
 	}()
 
 	out, err := sb.Exec(ctx, "sh", []string{"-c", "cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home"})
@@ -185,11 +187,13 @@ func (vm *Manager) CopyVolume(
 		return fmt.Errorf("create copy sandbox: %w", err)
 	}
 	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
+		destroyCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 		defer cancel()
-		_ = copySb.Stop(stopCtx)
+		if destroyErr := copySb.Destroy(destroyCtx); destroyErr != nil &&
+			!msb.IsReplaced(destroyErr) && !msb.IsNotFound(destroyErr) {
+			ui.Warnf("failed to destroy copy sandbox %s: %v", copySbName, destroyErr)
+		}
 		_ = copySb.Close()
-		_ = client.RemoveSandbox(context.Background(), copySbName)
 	}()
 
 	spin := ui.Spinner("Copying files from existing home volume")

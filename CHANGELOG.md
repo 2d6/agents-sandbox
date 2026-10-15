@@ -24,6 +24,8 @@ command reports the bare version (e.g. `0.1.0`).
   job (main/release/manual).
 - Internal: add `make compile-all` — compiles every test binary including `integration`-tagged files without a docker
   daemon, and run it in the CI lint job so a tagged-only compile regression fails on PRs instead of only on main.
+- Internal: raise the `make test-integration` timeout to 60m. The docker-build suite legitimately runs ~10 minutes on a
+  cold CI runner and was tripping Go's default 10m per-package limit.
 - Internal: `devUserBlock` now sets the dev login shell to the first of `bash`, `zsh`, `sh` found (falling back to
   `/bin/sh`) instead of hardcoding bash, widening custom-base compatibility.
 - Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the
@@ -51,9 +53,12 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
-- Prune: stale sandboxes are now removed through their identity-bound handle instead of by name, and a sandbox replaced
-  since it was listed (`ErrSandboxReplaced`) is skipped rather than removed. Previously a concurrent `run` could recreate
-  the same name between listing and removal, and prune would delete the new VM.
+- Sandboxes: removal and cleanup are now fail-closed against a sandbox name that was removed and recreated (a same-name
+  replacement). Every destructive/attach path goes through the identity-aware handle or live sandbox it already holds
+  instead of a bare name — prune skips-and-reports a replaced or already-gone sandbox, throwaway volume sandboxes
+  (prefill/copy/edit) destroy through the sandbox they created, a reconfig replace recreates when the old identity is
+  already gone and fails closed when it was replaced, and the reaper stops waiting for a sandbox that no longer exists.
+  Defense-in-depth for the shared-VM-name collision (#144).
 - State: launcher-global `state.yaml` (the legacy-migration dismissal lives here) is now written through a uniquely named
   temp file, so two concurrent sessions choosing "Start fresh" no longer collide on one shared temp name and abort a
   session. All persistent state/config writers (`state.WriteState`, `state.WriteRootState`, `vm.saveUpgradeState`,

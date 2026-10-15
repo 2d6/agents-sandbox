@@ -37,15 +37,16 @@ func ValidateInstalled(_ context.Context) error {
 }
 
 // Client is the public abstraction over the microsandbox SDK used by the
-// sandbox package. It covers discovery, creation, and deletion of sandboxes,
-// volumes, and images, plus runtime setup. Production code uses realMsbClient;
-// tests construct MockMsbClient directly.
+// sandbox package. It covers discovery and creation of sandboxes and deletion
+// of volumes and images, plus runtime setup. Sandboxes are removed through the
+// identity-aware handle/live operations (SandboxHandle.Remove, Sandbox.Destroy)
+// rather than by bare name, so this interface has no RemoveSandbox. Production
+// code uses realMsbClient; tests construct MockMsbClient directly.
 type Client interface {
 	EnsureInstalled(ctx context.Context) error
 	GetSandbox(ctx context.Context, name string) (SandboxHandle, error)
 	CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
 	ListSandboxes(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
-	RemoveSandbox(ctx context.Context, name string) error
 	GetVolume(ctx context.Context, name string) (VolumeHandle, error)
 	CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
 	ListVolumes(ctx context.Context) ([]VolumeHandle, error)
@@ -86,6 +87,7 @@ type Sandbox interface {
 	Attach(ctx context.Context, command string, args ...string) (int, error)
 	Detach(ctx context.Context) error
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
+	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
 	Close() error
 }
 
@@ -278,10 +280,6 @@ func (realMsbClient) ListSandboxes(ctx context.Context, labels map[string]string
 		}
 	}
 	return result, nil
-}
-
-func (realMsbClient) RemoveSandbox(ctx context.Context, name string) error {
-	return msbSdk.RemoveSandbox(ctx, name)
 }
 
 func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, error) {
@@ -629,8 +627,20 @@ func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
 
 func (h *realStreamHandle) Close() error { return h.handle.Close() }
 
+// The realSandbox lifecycle/passthrough methods delegate to the SDK sandbox.
+// Each delegation target is a package-level seam (a method expression) so the
+// thin wrapper is unit-testable without a live VM.
+var (
+	realSandboxAttach     = (*msbSdk.Sandbox).Attach
+	realSandboxAttachWith = (*msbSdk.Sandbox).AttachWith
+	realSandboxDetach     = (*msbSdk.Sandbox).Detach
+	realSandboxStop       = (*msbSdk.Sandbox).Stop
+	realSandboxDestroy    = (*msbSdk.Sandbox).Destroy
+	realSandboxClose      = (*msbSdk.Sandbox).Close
+)
+
 func (s realSandbox) Attach(ctx context.Context, command string, args ...string) (int, error) {
-	return s.sandbox.Attach(ctx, command, args...)
+	return realSandboxAttach(s.sandbox, ctx, command, args...)
 }
 
 func (s realSandbox) AttachWith(
@@ -639,17 +649,21 @@ func (s realSandbox) AttachWith(
 	args []string,
 	opts ...msbSdk.AttachOption,
 ) (int, error) {
-	return s.sandbox.AttachWith(ctx, command, args, opts...)
+	return realSandboxAttachWith(s.sandbox, ctx, command, args, opts...)
 }
 
 func (s realSandbox) Detach(ctx context.Context) error {
-	return s.sandbox.Detach(ctx)
+	return realSandboxDetach(s.sandbox, ctx)
 }
 
 func (s realSandbox) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
-	return s.sandbox.Stop(ctx, opts...)
+	return realSandboxStop(s.sandbox, ctx, opts...)
+}
+
+func (s realSandbox) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
+	return realSandboxDestroy(s.sandbox, ctx, opts...)
 }
 
 func (s realSandbox) Close() error {
-	return s.sandbox.Close()
+	return realSandboxClose(s.sandbox)
 }
