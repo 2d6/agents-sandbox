@@ -24,19 +24,25 @@ Stages (deterministic reserved aliases; managed and custom differ only in the ba
 
 ```
 [earlier user stages]                          # custom only; preserved
-FROM <baseRoot> AS agents-sandbox-base         # managed: debian:trixie-slim + embedded apt tools
-FROM agents-sandbox-base AS agents-sandbox-node           # only when the agent requires node
-  ARG NODE_VERSION=<nodeVersion>               # node -> /opt/agents-sandbox, only if the base lacks node
-FROM <agents-sandbox-node | agents-sandbox-base> AS agents-sandbox-agent
-  ARG <AGENT>_VERSION=<resolvedVersion>        # <agent> -> /opt/agents-sandbox, only if the base lacks it
-FROM agents-sandbox-base AS agents-sandbox-docker      # only when docker is enabled
-  ARG DOCKER_VERSION=<dockerVersion>           # docker -> /opt/agents-sandbox/bin, only if the base lacks it
+FROM debian:trixie-slim AS agents-sandbox-toolbase     # tool-owned; + curl ca-certificates tar
+FROM agents-sandbox-toolbase AS agents-sandbox-node    # only when the agent requires node
+  ARG NODE_VERSION=<nodeVersion>               # node -> /opt/agents-sandbox
+FROM <agents-sandbox-node | agents-sandbox-toolbase> AS agents-sandbox-agent
+  ARG <AGENT>_VERSION=<resolvedVersion>        # <agent> -> /opt/agents-sandbox
+FROM agents-sandbox-toolbase AS agents-sandbox-docker  # only when docker is enabled
+  ARG DOCKER_VERSION=<dockerVersion>           # docker -> /opt/agents-sandbox/bin
+FROM <baseRoot> AS agents-sandbox-base         # managed: debian:trixie-slim + embedded apt tools; custom: user image
 FROM agents-sandbox-base AS runner
   [dev user] [ENV PATH+=/opt/agents-sandbox/bin] [user body]
   COPY --from=agents-sandbox-agent /opt/agents-sandbox ...
   COPY --from=agents-sandbox-docker /opt/agents-sandbox/bin ...  # at the marker when present, else after the body
   [adoption] [finalize]
 ```
+
+The tool stages build on the tool-owned `agents-sandbox-toolbase` (a pinned `debian:trixie-slim` plus `curl`,
+`ca-certificates`, and `tar`), not on the user's base, so a custom base needs neither `curl` nor `tar` inside the image
+and the tool layers cache across bases. The tool base is never part of the runner's lineage; the runner still builds on
+`agents-sandbox-base` (the managed block or the custom base).
 
 ### Pinned versions are rendered into the content
 
@@ -71,8 +77,10 @@ Resulting cache behaviour:
   claude-code copies its launcher with `cp -L` because the launcher is a symlink into a versions directory). The agent
   stage must `mkdir -p /opt/agents-sandbox/bin` itself so the `COPY` source always exists, independent of the node
   stage.
-- An agent is installed into `/opt` only when `command -v <binary>` finds nothing in the base; npm agents install into
-  `/opt` using whichever `npm` is on `PATH` (base or tool), so a base-provided node needs no redundant download.
+- Every tool is installed into `/opt` unconditionally: the tool stages build on the tool base, which carries no tool, so
+  there is nothing to probe at install time. Whether the base already provides a tool is decided after the user body by the
+  adoption step's provenance files, and the runner's `PATH` (base entries first) keeps a base-provided tool winning. npm
+  agents install into `/opt` using the node the node stage provides.
 
 ## Node dependency
 
@@ -89,10 +97,13 @@ Resulting cache behaviour:
 
 ## User-provided detection and provenance
 
-Detection ("leave alone if the base already provides node/agent/dockerd") and the `agent-source`/`docker-source`
-provenance files are resolved in the **adoption step after the user body**, not at install time. Because the runner's
-`PATH` prefers base binaries, `command -v` still sees a body-installed tool; the tool just avoids the download when the
-basis already had it. `user-provided` provenance semantics are unchanged.
+Detection ("leave alone if the base already provides node/agent/dockerd") and the
+`agent-source`/`docker-source` provenance files are resolved in the **adoption step after the user body**. The install
+stages do not probe the base: they build on the tool base, which cannot see it, so they always install into `/opt`. Because
+the runner's `PATH` prefers base binaries, `command -v` in the adoption step still sees a base-provided tool, and the
+tool's copy is left unused. `user-provided` provenance semantics are unchanged. This relies on `PATH` order, so a
+base-provided tool must live **outside** `/opt/agents-sandbox` (the tool-owned prefix): the runner's tool `COPY` merges
+into that tree and overwrites any same-named file a base placed inside it, which `PATH` precedence cannot protect.
 
 ## Docker marker
 
@@ -102,10 +113,9 @@ without a marker that copy+adopt is appended after the body, matching the previo
 `# agents-sandbox:dind` marker is still recognized. The marker retains its documented purpose (place post-engine steps
 correctly) while the download itself stays cacheable.
 
-The docker **runtime** prerequisite check (`iptables git ps xz curl tar`, the Docker binary-install requirements) lives in
-the adoption block in the final stage, not in the install stage. The install stage starts from the raw base before the
-user body, so a base/project body that installs the runtime prerequisites (or an earlier project stage) must still build;
-only `curl` and `tar`, needed by the download itself, remain base-image requirements for the tool stages.
+The docker **runtime** prerequisite check (`iptables git ps xz`) lives in the adoption block in the final stage, not in
+the install stage. The install stage runs on the tool base, which carries `curl` and `tar`, so the download imposes no
+requirement on the user's base; the runtime prerequisites may be installed in the body or an earlier project stage.
 
 ## Naming: `docker` (renamed from `dind`)
 
@@ -128,11 +138,11 @@ intact. The old finalize-time `daemon.json` overwrite is removed.
 
 ## Invariants
 
-- Stage aliases are deterministic and reserved (`agents-sandbox-base|node|agent|docker`); a user Dockerfile declaring one
-  is a hard error. They must not contain a random uuid/hash — the `dockerfile-id` is a content hash of the rendered
-  Dockerfile, and nondeterminism would defeat the skip-build check in `specs/runner-image-build.md`.
+- Stage aliases are deterministic and reserved (`agents-sandbox-base|toolbase|node|agent|docker`); a user Dockerfile
+  declaring one is a hard error. They must not contain a random uuid/hash — the `dockerfile-id` is a content hash of the
+  rendered Dockerfile, and nondeterminism would defeat the skip-build check in `specs/runner-image-build.md`.
 - `baseImageRef`/`resolveBaseDigest` resolve the `agents-sandbox-base` stage's underlying image (the embedded
-  `debian:trixie-slim` for managed, the user's image for custom), never the `runner` stage alias.
+  `debian:trixie-slim` for managed, the user's image for custom), never the `runner` stage alias or the tool base.
 - `BuildOptions.Force`, `NoCache`, and the `dockerfile-id` skip-build contract are unchanged.
 - The body still runs without node/agent/docker available (they are `COPY`ed after it), preserving prior ordering.
 

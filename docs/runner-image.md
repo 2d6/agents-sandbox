@@ -35,21 +35,23 @@ stages with fixed parents, merged into the final stage with `COPY` **after** the
   (`FROM` image) for a custom base. For a managed base (`FROM .../runner-base...`), the final stage's `FROM` is replaced
   **in place** with the embedded tools block; for a custom base, any earlier build stages in your project Dockerfile are
   preserved above it — so multi-stage project Dockerfiles are supported.
-- **`agents-sandbox-node`** *(only for agents that need node)* — installs Node.js into `/opt/agents-sandbox`, only when
-  the base lacks `node`. It is emitted only when the selected agent requires node (today only `pi`, an npm-installed
-  node bundle); `opencode`, `opencode2`, and `claude-code` install native binaries and their images contain no node/npm.
-- **`agents-sandbox-agent`** *(conditional)* — installs the selected agent into `/opt/agents-sandbox`, only when the base
-  lacks its binary. It starts from the node stage when one was emitted, otherwise from the base stage, and creates
-  `/opt/agents-sandbox/bin` itself. npm agents (`pi`) install with
-  `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`; the rest copy the binary produced by their upstream
-  installer into `/opt/agents-sandbox/bin`.
-- **`agents-sandbox-docker`** *(optional)* — installs the Docker static binaries into `/opt/agents-sandbox/bin`, only
-  when the base lacks `dockerd`.
+- **`agents-sandbox-toolbase`** — the internal stage the node, agent, and docker stages build on: a pinned
+  `debian:trixie-slim` plus `curl`, `ca-certificates`, and `tar`. It is **not** part of the runner's lineage, so your base
+  needs none of those binaries and the tool layers cache across bases.
+- **`agents-sandbox-node`** *(only for agents that need node)* — installs Node.js into `/opt/agents-sandbox`. It is emitted
+  only when the selected agent requires node (today only `pi`, an npm-installed node bundle); `opencode`, `opencode2`, and
+  `claude-code` install native binaries and their images contain no node/npm.
+- **`agents-sandbox-agent`** *(conditional)* — installs the selected agent into `/opt/agents-sandbox`. It starts from the
+  node stage when one was emitted, otherwise from the tool base, and creates `/opt/agents-sandbox/bin` itself. npm agents
+  (`pi`) install with `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`; the rest copy the binary produced by
+  their upstream installer into `/opt/agents-sandbox/bin`.
+- **`agents-sandbox-docker`** *(optional)* — installs the Docker static binaries into `/opt/agents-sandbox/bin`.
 - **`agents-sandbox-runner`** — `FROM agents-sandbox-base`, creates the `dev` user, runs your Dockerfile body **without**
   the tool trees available, then `COPY`s the tool trees in.
 
 Each tool layer caches independently of the user body, the base, and each other. Editing the user body no longer re-runs
-the Node/Docker/agent installs, and the same tool layers are reused across projects on one machine.
+the Node/Docker/agent installs, the same tool layers are reused across projects on one machine, and a base that already
+provides a tool is left to that base (the runner's `PATH` prefers base binaries).
 
 Every tool lands under `/opt/agents-sandbox`; its binaries are exposed from `/opt/agents-sandbox/bin`, which the runner
 **appends** to `PATH` (append, so a base-provided binary keeps precedence). The agent attach and the interactive shell run
@@ -67,9 +69,10 @@ By default the base tools block starts from `debian:trixie-slim` and installs th
 `ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`, `moreutils`, `net-tools`, `parallel`,
 `recode`, `uuid`, and `iptables`.
 
-A project Dockerfile whose `FROM` is any other image is treated as a **custom base**, and the node, agent (and optional
-docker) stages are layered on top of it. For a custom base, the earlier build stages in your project Dockerfile are kept
-above the base stage. The custom base must meet these requirements:
+A project Dockerfile whose `FROM` is any other image is treated as a **custom base**: your final `FROM` becomes the base
+stage the runner builds on, while the node, agent, and optional docker stages build on the tool base, independent of your
+image. For a custom base, the earlier build stages in your project Dockerfile are kept above the base stage. The custom
+base must meet these requirements:
 
 - **shadow-utils** providing `groupadd`, `useradd`, and `usermod` (used to create the `dev` user and docker group).
 - **A POSIX shell** — the `dev` user's login shell is set to the first of `bash`, `zsh`, `sh` found, falling back to
@@ -77,11 +80,9 @@ above the base stage. The custom base must meet these requirements:
 - **A login profile that sources `/etc/profile.d/*.sh`** — the runner installs `/etc/profile.d/agents-sandbox-path.sh`
   to restore the composed `PATH` in login shells, so a base whose profile does not source `/etc/profile.d` will not get
   the merged `PATH`.
-- **`curl` and `tar` in the base image itself** — the node (when required) and docker install stages start from the raw
-  base and use them to fetch and extract their tarballs, so installing them later in the body is too late.
-- **For Docker only**: the runtime prerequisites `iptables`, `git`, `ps`, `xz`, `curl`, and `tar`. These are checked after
-  your Dockerfile body runs, so `iptables`, `git`, `ps`, and `xz` may be installed in the body or an earlier stage; `curl`
-  and `tar` must already be in the base for the download. If one is missing, the build fails and names the missing package.
+- **For Docker only**: the runtime prerequisites `iptables`, `git`, `ps`, and `xz`. These are checked after your
+  Dockerfile body runs, so they may be installed in the body or an earlier stage. If one is missing, the build fails and
+  names the missing package. The engine download itself runs on the tool base, so your image needs no `curl` or `tar`.
 - The recommended CLI tools above are documented for your convenience — as a custom base you install your own.
 - A base that already provides docker, node, or the agent is left alone (idempotency), and a pre-created `dev` user is
   tolerated.
@@ -91,7 +92,9 @@ them — for example **Alpine** (busybox `adduser`/`addgroup`, no shadow-utils o
 (no shell or package manager).
 
 When a base image already contains the selected agent, the image records the agent as **user-provided** and
-agents-sandbox does not manage its upgrades. If that provenance has no recorded version and a later rebuild no longer
+agents-sandbox does not manage its upgrades. This works by `PATH` precedence, so a base-provided tool must live
+**outside `/opt/agents-sandbox`**: that prefix is the tool-owned one, and the runner's tool `COPY` overwrites any
+same-named file a base placed inside it. If that provenance has no recorded version and a later rebuild no longer
 contains the agent, the image builder resolves a real release version before installing it; `user-provided` is
 provenance
 metadata, not an agent release version. A matching user-provided image is reused without resolving a release first.
@@ -138,15 +141,11 @@ immediately after the engine is installed, place a `# agents-sandbox:docker` com
 block should be injected (the legacy `# agents-sandbox:dind` marker is still recognized):
 
 ```dockerfile
-# The tool stages start from the raw base and use curl and tar to download their
-# tarballs, so put them in the base stage itself.
-FROM ubuntu:24.04 AS base
-RUN apt-get update && apt-get install -y curl tar && rm -rf /var/lib/apt/lists/*
-
-FROM base
+FROM ubuntu:24.04
 
 # The Docker runtime prerequisites are checked after this body runs, so install
-# them here (curl and tar are already in the base stage above).
+# them here. The engine download runs on the tool base, so curl/tar are not
+# needed in your image.
 RUN apt-get update && apt-get install -y iptables git procps xz-utils && rm -rf /var/lib/apt/lists/*
 
 # agents-sandbox:docker
@@ -157,12 +156,12 @@ RUN install -Dm755 /usr/local/bin/docker-buildx /usr/libexec/docker/cli-plugins/
 
 ## Node and the agent
 
-The `agents-sandbox-node` stage installs Node.js (`v24.21.0`, official tarball) into `/opt/agents-sandbox` only if the
-base lacks `node`, and it is emitted only when the selected agent requires node — today only `pi`. The
-`agents-sandbox-agent` stage installs the selected agent into `/opt/agents-sandbox` only if its binary is absent — so an
-existing install is left alone (idempotency). Whether the base already provides node, the agent, or `dockerd`, and the
-`/etc/agents-sandbox/agent-source` and `/etc/agents-sandbox/docker-source` provenance files (`tool` | `user`), are
-resolved after the user body; a base-provided binary wins over the tool's copy. The pinned node stays on the v24 line:
+The `agents-sandbox-node` stage installs Node.js (`v24.21.0`, official tarball) into `/opt/agents-sandbox`, and it is
+emitted only when the selected agent requires node — today only `pi`. The `agents-sandbox-agent` stage installs the
+selected agent into `/opt/agents-sandbox`. Both build on the tool base, so they do not depend on your base; whether the
+base already provides node, the agent, or `dockerd` is resolved after the user body by the `/etc/agents-sandbox/agent-source`
+and `/etc/agents-sandbox/docker-source` provenance files (`tool` | `user`), and a base-provided binary wins over the tool's
+copy (the runner's `PATH` prefers base binaries). The pinned node stays on the v24 line:
 the v26 tarballs gained a hard `libatomic.so.1` runtime dependency the managed base does not provide, while v24 has no
 such dependency on either target architecture, so a custom base needs no extra library to run the tool-installed node.
 

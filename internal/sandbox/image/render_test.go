@@ -57,7 +57,8 @@ func TestRenderDockerfileManagedComposition(t *testing.T) {
 	s := mustRender(t, a, nil, false)
 	for _, want := range []string{
 		"FROM debian:trixie-slim AS agents-sandbox-base",
-		"FROM agents-sandbox-base AS agents-sandbox-agent",
+		"FROM debian:trixie-slim AS agents-sandbox-toolbase",
+		"FROM agents-sandbox-toolbase AS agents-sandbox-agent",
 		"FROM agents-sandbox-base AS agents-sandbox-runner",
 		"ARG OPENCODE_VERSION",
 		"ARG DOCKERFILE_ID",
@@ -94,8 +95,8 @@ func TestRenderDockerfileOmitsNodeStageForNodeFreeAgent(t *testing.T) {
 	if strings.Contains(s, "AS "+nodeStageAlias) || strings.Contains(s, "nodejs.org/dist") {
 		t.Errorf("a node-free agent must not emit the node stage; got:\n%s", s)
 	}
-	if !strings.Contains(s, "FROM agents-sandbox-base AS "+agentStageAlias) {
-		t.Errorf("agent stage must start from the base stage without node; got:\n%s", s)
+	if !strings.Contains(s, "FROM agents-sandbox-toolbase AS "+agentStageAlias) {
+		t.Errorf("agent stage must start from the tool base without node; got:\n%s", s)
 	}
 	if !strings.Contains(s, "mkdir -p "+toolBin) {
 		t.Errorf("agent stage must create %s so the tool COPY source exists; got:\n%s", toolBin, s)
@@ -112,7 +113,7 @@ func TestRenderDockerfileEmitsNodeStageForPi(t *testing.T) {
 	}
 	s := mustRender(t, a, nil, false)
 	for _, want := range []string{
-		"FROM agents-sandbox-base AS " + nodeStageAlias,
+		"FROM agents-sandbox-toolbase AS " + nodeStageAlias,
 		"FROM " + nodeStageAlias + " AS " + agentStageAlias,
 		"ARG NODE_VERSION=" + nodeVersion,
 	} {
@@ -232,9 +233,10 @@ func TestRenderDockerfileStageOrder(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	s := mustRender(t, a, nil, true)
 	order := []string{
+		"FROM debian:trixie-slim AS agents-sandbox-toolbase",
+		"FROM agents-sandbox-toolbase AS agents-sandbox-agent",
+		"FROM agents-sandbox-toolbase AS agents-sandbox-docker",
 		"FROM debian:trixie-slim AS agents-sandbox-base",
-		"FROM agents-sandbox-base AS agents-sandbox-agent",
-		"FROM agents-sandbox-base AS agents-sandbox-docker",
 		"FROM agents-sandbox-base AS agents-sandbox-runner",
 	}
 	prev := -1
@@ -254,7 +256,7 @@ func TestRenderDockerfileDockerStage(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	s := mustRender(t, a, nil, true)
 	for _, want := range []string{
-		"FROM agents-sandbox-base AS agents-sandbox-docker",
+		"FROM agents-sandbox-toolbase AS agents-sandbox-docker",
 		"ARG DOCKER_VERSION=29.7.2",
 		"download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz",
 		"COPY --from=agents-sandbox-docker /opt/agents-sandbox /opt/agents-sandbox",
@@ -284,11 +286,11 @@ func TestRenderDockerfileDockerAdoptionAddsDevToGroup(t *testing.T) {
 }
 
 // TestRenderDockerfileDockerPrereqsCheckedInFinalStage guards the custom-base
-// regression where the runtime prerequisite check (iptables, git, ps, xz, curl,
-// tar) lived in the download stage, which starts from the raw base image and so
-// cannot see prerequisites a project body installs later. The check must run in
-// the final stage, after the user body; the download stage must not reject a
-// base that only gains the runtime prerequisites in the body.
+// regression where the runtime prerequisite check (iptables, git, ps, xz) lived
+// in the download stage, which starts from the raw base image and so cannot see
+// prerequisites a project body installs later. The check must run in the final
+// stage, after the user body; the download stage must not reject a base that
+// only gains the runtime prerequisites in the body.
 func TestRenderDockerfileDockerPrereqsCheckedInFinalStage(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	project := []byte("FROM fedora:latest\nRUN dnf install -y iptables git procps-ng xz curl tar\n")
@@ -313,6 +315,20 @@ func TestRenderDockerfileDockerPrereqsCheckedInFinalStage(t *testing.T) {
 	guardIdx := strings.Index(final, `"$(cat /etc/agents-sandbox/docker-source)" = tool`)
 	if guardIdx < 0 || guardIdx > checkIdx {
 		t.Errorf("the prerequisite check must be guarded by the docker-source=tool provenance; got:\n%s", final)
+	}
+}
+
+// TestRenderDockerfileDockerPrereqsExcludeDownloadTools guards #143: the docker
+// runtime prerequisite check must not require curl or tar, which are needed only
+// by the download (now in the tool base), not at runtime.
+func TestRenderDockerfileDockerPrereqsExcludeDownloadTools(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	final := finalStage(t, mustRender(t, a, nil, true))
+	if !strings.Contains(final, "iptables git ps xz") {
+		t.Errorf("the docker prerequisite check must keep the runtime prerequisites; got:\n%s", final)
+	}
+	if strings.Contains(final, "iptables git ps xz curl tar") {
+		t.Errorf("the docker prerequisite check must not require curl/tar; got:\n%s", final)
 	}
 }
 
@@ -421,6 +437,51 @@ func TestRenderDockerfileOpencodeInstallTargetsOpt(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileToolStagesBuildOnToolbase is the red test for #143: the
+// node/agent/docker stages must build on the tool-owned agents-sandbox-toolbase,
+// never on the user's custom base, so a custom base needs neither curl nor tar.
+func TestRenderDockerfileToolStagesBuildOnToolbase(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("FROM ubuntu:24.04\n")
+	s := mustRender(t, a, project, true)
+
+	if !strings.Contains(s, "FROM debian:trixie-slim AS agents-sandbox-toolbase") {
+		t.Errorf("render must emit the tool-owned tool base; got:\n%s", s)
+	}
+	if !strings.Contains(s, "apt-get install -y --no-install-recommends ca-certificates curl tar") {
+		t.Errorf("the tool base must carry exactly the download tools; got:\n%s", s)
+	}
+	for _, want := range []string{
+		"FROM agents-sandbox-toolbase AS agents-sandbox-agent",
+		"FROM agents-sandbox-toolbase AS agents-sandbox-docker",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("tool stage must build on the tool base (%q); got:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "FROM agents-sandbox-base AS agents-sandbox-agent") ||
+		strings.Contains(s, "FROM agents-sandbox-base AS agents-sandbox-docker") {
+		t.Errorf("tool stages must not build on the user's base; got:\n%s", s)
+	}
+}
+
+// TestRenderDockerfileToolStagesInstallUnconditionally guards that the tool
+// stages no longer probe the base for the tool: they build on the fixed tool
+// base, which never carries it, so the install runs unconditionally.
+func TestRenderDockerfileToolStagesInstallUnconditionally(t *testing.T) {
+	a, ok := agent.Lookup("pi")
+	if !ok {
+		t.Fatal("pi agent not registered")
+	}
+	s := mustRender(t, a, nil, true)
+	for _, stage := range []string{nodeStageAlias, agentStageAlias, dockerStageAlias} {
+		block := stageBlock(t, s, stage)
+		if strings.Contains(block, "command -v") {
+			t.Errorf("tool stage %q must not probe the base for the tool; got:\n%s", stage, block)
+		}
+	}
+}
+
 func TestRenderDockerfileCustomBase(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	project := []byte("FROM ubuntu:24.04\nRUN apt-get update && apt-get install -y curl bash\n")
@@ -458,7 +519,7 @@ func TestRenderDockerfileCustomBaseReusesAlias(t *testing.T) {
 	for _, want := range []string{
 		"FROM golang:1.24 AS build",
 		"FROM debian:trixie-slim AS final",
-		"FROM final AS agents-sandbox-agent",
+		"FROM agents-sandbox-toolbase AS agents-sandbox-agent",
 		"FROM final AS agents-sandbox-runner",
 		"COPY --from=build /app /app",
 	} {
@@ -558,7 +619,7 @@ func TestRenderDockerfileDockerMarkerAbsent(t *testing.T) {
 func TestRenderDockerfileReservedAliasCollision(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	for _, alias := range []string{
-		baseStageAlias, nodeStageAlias, agentStageAlias, dockerStageAlias, runnerStageAlias,
+		baseStageAlias, toolbaseStageAlias, nodeStageAlias, agentStageAlias, dockerStageAlias, runnerStageAlias,
 	} {
 		project := []byte("FROM ubuntu:24.04 AS " + alias + "\nRUN echo hi\n")
 		if _, err := RenderDockerfile(a, testAgentVersion, project, false); err == nil {
