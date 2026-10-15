@@ -147,10 +147,9 @@ Prefer microsandbox's own storage observation (`StorageUsage`) for the objects i
 owns — images, snapshots, sandboxes, volumes, and branch/snapshot memory — which
 reports per-category and per-object usage and whose optional counters mean
 *unknown* when nil (never zero). Walk the private home only for what microsandbox
-does not report: the buildkit cache, docker images (when the docker backend is in
-use), and runtime/FFI artifacts. `ErrUnsupportedOperation` from the observation
-(cloud or older native libraries) degrades gracefully: the categories it covers
-are marked unknown rather than reported as zero.
+does not report: the runtime/FFI artifacts. `ErrUnsupportedOperation` from the
+observation (cloud or older native libraries) degrades gracefully: the categories
+it covers are marked unknown rather than reported as zero.
 
 Depends on: nothing (parallel with Slices 0–1). Needed by Slice 5.
 
@@ -280,8 +279,9 @@ docker images, and msb images, but not runtime RAM.
   ownership; the scan is the union of the `HomeVolumeReferences` analogue and the
   live kept-sandbox image refs. Fail-closed on unreadable or corrupt state.
 - **`df` category discovery (Slice 2)**: microsandbox's `StorageUsage` supplies
-  the categories it owns; the private-home walk supplies the buildkit cache,
-  docker images (docker backend only), and runtime/FFI artifacts. Nil = unknown.
+  the categories it owns; the private-home walk supplies the runtime/FFI
+  artifacts (its `bin`/`lib`). Nil = unknown. The buildkit cache and docker
+  images were deferred (see Slice 2).
 - **`sandbox copy` (Slice 6)**: dropped.
 - **Per-volume usage**: exposed in `volume inspect` only; `volume list` stays
   cheap (no per-object stat).

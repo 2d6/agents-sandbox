@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -12,6 +13,14 @@ import (
 )
 
 func uint64Ptr(v uint64) *uint64 { return new(v) }
+
+// stubPrivateHome points the package's home seam at dir for the test's duration.
+func stubPrivateHome(t *testing.T, dir string) {
+	t.Helper()
+	original := privateHome
+	privateHome = func() string { return dir }
+	t.Cleanup(func() { privateHome = original })
+}
 
 func reportWithAllCategories() *msbSdk.StorageUsageReport {
 	return &msbSdk.StorageUsageReport{
@@ -32,7 +41,7 @@ func TestObserveMapsMSBCategoriesInOrder(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
 		return reportWithAllCategories(), nil
 	}})
-	privateHome = func() string { return t.TempDir() }
+	stubPrivateHome(t, t.TempDir())
 
 	report, err := Observe(context.Background(), Options{})
 	if err != nil {
@@ -41,7 +50,7 @@ func TestObserveMapsMSBCategoriesInOrder(t *testing.T) {
 	if got, want := categoryNames(report), []string{
 		CategoryImages, CategorySnapshots, CategorySandboxes, CategoryVolumes,
 		CategoryBranchMemory, CategorySnapshotMemory, CategoryRuntime,
-	}; !equalStrings(got, want) {
+	}; !slices.Equal(got, want) {
 		t.Fatalf("category names = %v, want %v", got, want)
 	}
 
@@ -64,7 +73,7 @@ func TestObserveKeepsNilCountersUnknown(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
 		return &msbSdk.StorageUsageReport{}, nil
 	}})
-	privateHome = func() string { return t.TempDir() }
+	stubPrivateHome(t, t.TempDir())
 
 	report, err := Observe(context.Background(), Options{})
 	if err != nil {
@@ -82,7 +91,7 @@ func TestObserveUnsupportedDegradesToUnknown(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrUnsupportedOperation, Message: "remote backend"}
 	}})
-	privateHome = func() string { return t.TempDir() }
+	stubPrivateHome(t, t.TempDir())
 
 	report, err := Observe(context.Background(), Options{})
 	if err != nil {
@@ -108,7 +117,7 @@ func TestObserveMSBErrorPropagates(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
 		return nil, errors.New("disk exploded")
 	}})
-	privateHome = func() string { return t.TempDir() }
+	stubPrivateHome(t, t.TempDir())
 
 	if _, err := Observe(context.Background(), Options{}); err == nil {
 		t.Fatal("Observe() error = nil, want propagation of non-unsupported error")
@@ -135,7 +144,7 @@ func TestObserveIncludeObjects(t *testing.T) {
 	}})
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, "bin", "msb"), 64)
-	privateHome = func() string { return home }
+	stubPrivateHome(t, home)
 
 	report, err := Observe(context.Background(), Options{IncludeObjects: true})
 	if err != nil {
@@ -168,7 +177,7 @@ func TestObserveOmitsObjectsByDefault(t *testing.T) {
 			Items: []msbSdk.StorageItemUsage{{Name: "x"}},
 		}}, nil
 	}})
-	privateHome = func() string { return t.TempDir() }
+	stubPrivateHome(t, t.TempDir())
 
 	report, err := Observe(context.Background(), Options{})
 	if err != nil {
@@ -187,16 +196,4 @@ func categoryNames(r *Report) []string {
 		names[i] = c.Name
 	}
 	return names
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

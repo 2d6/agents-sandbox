@@ -105,17 +105,46 @@ func Observe(ctx context.Context, opts Options) (*Report, error) {
 	return &Report{Categories: categories}, nil
 }
 
+// msbCategorySources pairs each microsandbox-owned category name with the
+// selector for its usage in a report, so the report order and the usage mapping
+// share one source of truth.
+var msbCategorySources = []msbCategorySource{
+	{name: CategoryImages, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+		return r.Images
+	}},
+	{name: CategorySnapshots, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+		return r.Snapshots
+	}},
+	{name: CategorySandboxes, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+		return r.Sandboxes
+	}},
+	{name: CategoryVolumes, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+		return r.Volumes
+	}},
+	{name: CategoryBranchMemory, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+		return r.BranchMemory
+	}},
+	{name: CategorySnapshotMemory, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+		return r.SnapshotMemory
+	}},
+}
+
+// msbCategorySource names a microsandbox category and selects its usage.
+//
+//exhaustruct:ignore
+type msbCategorySource struct {
+	name    string
+	usageOf func(*msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage
+}
+
 // msbCategories returns the six microsandbox-owned categories in report order,
 // with unknown (nil) totals until usage is applied.
 func msbCategories() []Category {
-	return []Category{
-		{Name: CategoryImages},
-		{Name: CategorySnapshots},
-		{Name: CategorySandboxes},
-		{Name: CategoryVolumes},
-		{Name: CategoryBranchMemory},
-		{Name: CategorySnapshotMemory},
+	categories := make([]Category, len(msbCategorySources))
+	for i, source := range msbCategorySources {
+		categories[i] = Category{Name: source.name}
 	}
+	return categories
 }
 
 // markAllUnknown notes on each category that the backend cannot observe storage,
@@ -129,19 +158,12 @@ func markAllUnknown(categories []Category) {
 // applyMSBUsage fills each category from the microsandbox report, preserving nil
 // counters as unknown and adding per-object rows when requested.
 func applyMSBUsage(categories []Category, report *msbSdk.StorageUsageReport, opts Options) {
-	usages := []msbSdk.StorageCategoryUsage{
-		report.Images,
-		report.Snapshots,
-		report.Sandboxes,
-		report.Volumes,
-		report.BranchMemory,
-		report.SnapshotMemory,
-	}
-	for i := range categories {
-		categories[i].Totals = totalsFrom(usages[i])
-		categories[i].Notes = append(categories[i].Notes, usages[i].Notes...)
+	for i, source := range msbCategorySources {
+		usage := source.usageOf(report)
+		categories[i].Totals = totalsFrom(usage)
+		categories[i].Notes = append(categories[i].Notes, usage.Notes...)
 		if opts.IncludeObjects {
-			categories[i].Objects = objectsFrom(usages[i].Items)
+			categories[i].Objects = objectsFrom(usage.Items)
 		}
 	}
 }

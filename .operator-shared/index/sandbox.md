@@ -41,7 +41,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `msb/` — Microsandbox SDK client
 
-- `msb.go`, `stream.go` — msb client and stream handling
+- `msb.go`, `stream.go` — msb client and stream handling; also storage observation (`StorageUsage`) and the `IsUnsupportedOperation` classifier
 
 ### `naming/` — Naming, labels, artifacts
 
@@ -75,6 +75,11 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 - `claim.go`, `clientlock.go`, `flock.go`, `state.go`, `root.go`, `fingerprint.go`
 - `references.go` — fail-closed project-state reference scan: `HomeVolumeReferences` and `ImageReferences` (the image analogue), both built on the shared `projectStateReferences` walk
+
+### `storage/` — Private-home storage accounting seam (Slice 2, groundwork)
+
+- `storage.go` — `Observe`: the six microsandbox storage categories plus the runtime host category; nil counters stay unknown, `ErrUnsupportedOperation` degrades to unknown.
+- `host.go` — walks the private home's `bin`/`lib` runtime/FFI artifacts, summing regular files.
 
 ### `vm/` — VM lifecycle and orchestration (largest)
 

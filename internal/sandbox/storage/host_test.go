@@ -85,7 +85,7 @@ func TestObservePropagatesRuntimeWalkError(t *testing.T) {
 		return &msbSdk.StorageUsageReport{}, nil
 	}})
 	home := lockedRuntimeHome(t)
-	privateHome = func() string { return home }
+	stubPrivateHome(t, home)
 
 	if _, err := Observe(context.Background(), Options{}); err == nil {
 		t.Fatal("Observe() error = nil, want propagation of runtime walk error")
