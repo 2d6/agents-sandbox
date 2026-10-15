@@ -30,3 +30,6 @@ Common CLI tools are preinstalled: git, node, npm, jq, yq etc. Don't install add
 No SSH keys in the VM, git cmds against remotes won't work.
 ```
 
+When you launch from inside a git worktree or a repository subdirectory, `/workspace` is bound to the enclosing
+checkout root rather than your current directory.
+

@@ -21,7 +21,8 @@ nav_order: 105
    `--` to the AI agent.
 6. **Cleanup** — On exit, the client detaches and the VM remains available for reuse or is stopped by its idle policy. In a
    normal session `/workspace` is the host repository and remains intentionally shared; only `--worktree` sessions use a
-   VM-internal worktree that leaves the host checkout untouched.
+   VM-internal worktree that leaves the host checkout untouched. When launched from inside a git worktree or a repository
+   subdirectory, `/workspace` is bound to the enclosing checkout root rather than the current directory.
 
 See the [Commands]({% link commands.md %}) reference for the full API and [Configuration]({% link configuration/index.md %}) for tuning
 behavior.
