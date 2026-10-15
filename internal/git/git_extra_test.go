@@ -39,6 +39,25 @@ func TestResolveGitDir(t *testing.T) {
 		}
 	})
 
+	t.Run("relative worktree gitdir resolves against root", func(t *testing.T) {
+		repo := t.TempDir()
+		wtDir := filepath.Join(t.TempDir(), "wt")
+		if err := os.MkdirAll(wtDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		relative, err := filepath.Rel(wtDir, filepath.Join(repo, ".git", "worktrees", "wt"))
+		if err != nil {
+			t.Fatalf("Rel: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(wtDir, ".git"), []byte("gitdir: "+relative+"\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		want := filepath.Join(repo, ".git")
+		if got := resolveGitDir(wtDir); got != want {
+			t.Errorf("resolveGitDir(%q) = %q, want %q", wtDir, got, want)
+		}
+	})
+
 	t.Run("dotgit file without worktrees segment", func(t *testing.T) {
 		dir := t.TempDir()
 		want := "/shared/.git"
