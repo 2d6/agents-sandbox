@@ -198,3 +198,66 @@ func TestRealVolumeHandlePathNilVal(t *testing.T) {
 		t.Errorf("Path() with nil val = %q, want empty", got)
 	}
 }
+
+// TestRealMsbClientImageInspectDetailInjected covers the success path of the
+// ImageInspectDetail adapter through the inspect seam, mapping the SDK detail
+// onto the local ImageDetail (including a nil config).
+func TestRealMsbClientImageInspectDetailInjected(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{
+			Config: &msbSdk.ImageConfig{Digest: "sha256:abc"},
+			Layers: []msbSdk.ImageLayer{{Position: 0, DiffID: "sha256:layer0"}},
+		}, nil
+	}
+	detail, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil {
+		t.Fatalf("ImageInspectDetail() error = %v", err)
+	}
+	if detail.Config.Digest != "sha256:abc" || len(detail.Layers) != 1 ||
+		detail.Layers[0].DiffID != "sha256:layer0" {
+		t.Fatalf("ImageInspectDetail() = %+v, want digest sha256:abc and layer sha256:layer0", detail)
+	}
+}
+
+// TestRealMsbClientImageInspectDetailNilConfig covers the nil-config branch of
+// the adapter, which leaves the zero-value config in place.
+func TestRealMsbClientImageInspectDetailNilConfig(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{}, nil
+	}
+	detail, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil || detail == nil {
+		t.Fatalf("ImageInspectDetail() = %v, %v", detail, err)
+	}
+	if detail.Config.Digest != "" {
+		t.Errorf("ImageInspectDetail() config = %+v, want zero value", detail.Config)
+	}
+}
+
+// TestMockImageInspectDetail covers the mock's callback and default branches.
+func TestMockImageInspectDetail(t *testing.T) {
+	m := &MockMsbClient{ImageInspectDetailFn: func(_ context.Context, _ string) (*ImageDetail, error) {
+		return &ImageDetail{Reference: "agents-sandbox/runner-x", ManifestDigest: "sha256:x"}, nil
+	}}
+	detail, err := m.ImageInspectDetail(context.Background(), "ref")
+	if err != nil || detail.Reference != "agents-sandbox/runner-x" {
+		t.Fatalf("ImageInspectDetail via fn = %+v, %v", detail, err)
+	}
+
+	got, err := (&MockMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil || got.Reference != "ref" {
+		t.Fatalf("ImageInspectDetail default = %+v, %v", got, err)
+	}
+}
+
+// TestMockSandboxHandleID covers the mock handle's stable-identity accessor.
+func TestMockSandboxHandleID(t *testing.T) {
+	h := &MockSandboxHandle{ID_: "sbx-123"}
+	if got := h.ID(); got != "sbx-123" {
+		t.Errorf("ID() = %q, want %q", got, "sbx-123")
+	}
+}
