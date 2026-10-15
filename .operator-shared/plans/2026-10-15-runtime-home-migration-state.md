@@ -659,7 +659,9 @@ git commit -m "feat(migration): copy legacy volumes under a host-only lock with 
 - Consumes: Task 1 (`state.Migration*`, `state.UpdateRootState`), Task 2 (`MigrationName`, `necessaryVolumesFor`), Task 3 (`CopyVolumes`, `saveMigration`).
 - Produces: `Offer(ctx, client, ui)` unchanged signature.
 
-Flow: read root state (best-effort warn+skip); terminal status → nil; derive necessary for the status; if none and status is `copying`, persist `completed`; if none otherwise → nil; non-interactive → `ErrMigrationPending`; on `choiceCopy` call `CopyVolumes`; on `choiceFresh` persist `MigrationDismissed`; on quit/failure → `ErrMigrationPending`.
+Flow: read root state (best-effort warn+skip); terminal status → nil; derive necessary for the status; if none and status is `copying`, persist `completed` **under the migration lock** (re-read state inside the lock first); if none otherwise → nil; non-interactive → `ErrMigrationPending`; on `choiceCopy` call `CopyVolumes` (which takes the lock itself); on `choiceFresh` persist `MigrationDismissed` **under the migration lock** (re-read state inside the lock first; if another session already reached a terminal status, do nothing); on quit/failure → `ErrMigrationPending`.
+
+Ruling (carried from Task 3's review): the terminal writes (`dismissed`, and the `completed` finalize) must be serialized with an in-flight campaign's flock, or a concurrent session's campaign write can flip the recorded terminal reason. `CopyVolumes` already holds the lock for the campaign, so do NOT call `saveMigration` from inside `CopyVolumes` via a lock-wrapping helper (flock is not reentrant). Add a small helper in `offer.go` that acquires the lock, runs a closure, and releases it, and use it only for the two terminal writes outside `CopyVolumes`.
 
 - [ ] **Step 1: Write/update the failing tests**
 
@@ -715,7 +717,39 @@ Expected: compile error / assertion failures against the old `RuntimeHomeMigrati
 
 - [ ] **Step 3: Implement `offer.go`**
 
-Rewrite the body per the flow above. `choiceFresh` uses `saveMigration(state.Migration{Status: state.MigrationDismissed})`. On `choiceCopy`, call `CopyVolumes(ctx, client, ui)` (no names). Keep the existing warning texts and `ErrMigrationPending` guidance.
+Rewrite the body per the flow above. On `choiceCopy`, call `CopyVolumes(ctx, client, ui)` (no names). Keep the existing warning texts and `ErrMigrationPending` guidance.
+
+Add a helper:
+
+```go
+func withMigrationLock(fn func() error) error {
+	release, err := acquireMigrationLock()
+	if err != nil {
+		return err
+	}
+	defer release()
+	return fn()
+}
+```
+
+`choiceFresh` writes under the lock, re-reading first so a concurrent terminal write is not clobbered:
+
+```go
+return withMigrationLock(func() error {
+	root, err := state.ReadRootState()
+	if err != nil {
+		return err
+	}
+	if m, _ := root.Migration(MigrationName); m.Status == state.MigrationCompleted || m.Status == state.MigrationDismissed {
+		return nil
+	}
+	return saveMigration(state.Migration{Status: state.MigrationDismissed})
+})
+```
+
+The `len(names) == 0 && status == copying` finalize also runs under the lock, re-reading and only writing `completed` if the entry is still `copying`.
+
+Add a test `TestOfferStartFreshIsNotLostToACompletedCampaign` (or equivalent): seed `completed`, choose fresh, assert the status stays `completed` (the dismissal does not overwrite a finished campaign).
 
 - [ ] **Step 4: Run the full package tests**
 
