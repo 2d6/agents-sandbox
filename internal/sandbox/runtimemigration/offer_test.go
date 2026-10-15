@@ -34,7 +34,7 @@ func interactiveUI(key string, prompt *bool) *termio.Mock {
 func writeCorruptRootState(t *testing.T) {
 	t.Helper()
 	path := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
-	if err := os.WriteFile(path, []byte("runtime_home_migration: [unterminated"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("migrations: [unterminated"), 0o600); err != nil {
 		t.Fatalf("write corrupt root state: %v", err)
 	}
 }
@@ -114,6 +114,100 @@ func TestOfferDismissedDoesNotPrompt(t *testing.T) {
 	}
 	if len(client.CreatedSandboxes) != 0 {
 		t.Error("Offer() copied volumes although the migration was dismissed")
+	}
+}
+
+// TestOfferTerminalMigrationDoesNotPrompt pins that a terminal (completed)
+// migration is never re-armed: even with a legacy volume present, the offer
+// returns without prompting.
+func TestOfferTerminalMigrationDoesNotPrompt(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
+	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+		MigrationName: {Status: state.MigrationCompleted},
+	}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	var prompted bool
+	ui := interactiveUI(choiceCopy, &prompted)
+	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+		t.Fatalf("Offer: %v", err)
+	}
+	if prompted {
+		t.Error("prompted after a terminal migration")
+	}
+}
+
+// TestOfferFinalizesOpenCampaignWithNothingLeft pins the crash-recovery finalize:
+// a campaign that copied everything but crashed before recording completion is
+// closed out as completed on the next offer, without prompting.
+func TestOfferFinalizesOpenCampaignWithNothingLeft(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	name := naming.HomePrefix + "done"
+	addVolumeDir(t, legacy, name)
+	// Campaign copied everything, then crashed before writing completed.
+	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+		MigrationName: {Status: state.MigrationCopying, Copied: []string{name}},
+	}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	ui := &termio.Mock{IsInteractiveResult: true}
+	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+		t.Fatalf("Offer: %v", err)
+	}
+	root, _ := state.ReadRootState()
+	m, _ := root.Migration(MigrationName)
+	if m.Status != state.MigrationCompleted {
+		t.Fatalf("status = %q, want completed", m.Status)
+	}
+}
+
+// TestOfferStartFreshIsNotLostToACompletedCampaign pins the lock-serialization
+// ruling: a "start fresh" dismissal must not clobber a terminal status another
+// session already recorded. The migration is pending when the prompt is shown,
+// but a concurrent session completes it before the dismissal write; choosing
+// fresh must re-read under the lock and leave the terminal completed status
+// intact.
+func TestOfferStartFreshIsNotLostToACompletedCampaign(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
+
+	// A concurrent session wins the race by completing the campaign after the
+	// prompt is shown but before the dismissal write.
+	var prompted bool
+	ui := interactiveUI(choiceFresh, &prompted)
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
+		prompted = true
+		root, err := state.ReadRootState()
+		if err != nil {
+			t.Fatalf("ReadRootState: %v", err)
+		}
+		if m, _ := root.Migration(MigrationName); m.Status != "" {
+			t.Fatalf("precondition: status = %q, want pending", m.Status)
+		}
+		if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+			MigrationName: {Status: state.MigrationCompleted},
+		}}); err != nil {
+			t.Fatalf("concurrent completion: %v", err)
+		}
+		return choiceFresh, nil
+	}
+
+	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+		t.Fatalf("Offer: %v", err)
+	}
+	if !prompted {
+		t.Fatal("Offer did not prompt")
+	}
+	root, err := state.ReadRootState()
+	if err != nil {
+		t.Fatalf("ReadRootState: %v", err)
+	}
+	if m, _ := root.Migration(MigrationName); m.Status != state.MigrationCompleted {
+		t.Fatalf("status = %q, want completed (start-fresh must not overwrite a finished campaign)", m.Status)
 	}
 }
 

@@ -55,11 +55,12 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
 		return nil
 	}
-	if migration, ok := rootState.Migration(MigrationName); ok && migration.Status == state.MigrationDismissed {
+	migration, _ := rootState.Migration(MigrationName)
+	if migration.Status == state.MigrationCompleted || migration.Status == state.MigrationDismissed {
 		return nil
 	}
 
-	names, err := NecessaryVolumes()
+	names, err := necessaryVolumesFor(migration)
 	if err != nil {
 		// Likewise, a failure deriving necessity warns and skips rather than
 		// blocking the session.
@@ -67,6 +68,9 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 		return nil
 	}
 	if len(names) == 0 {
+		if migration.Status == state.MigrationCopying {
+			return finalizeCompletedCampaign()
+		}
 		return nil
 	}
 
@@ -90,12 +94,64 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 		}
 		return nil
 	case choiceFresh:
-		return state.UpdateRootState(func(root *state.RootState) {
-			root.SetMigration(MigrationName, state.Migration{Status: state.MigrationDismissed})
-		})
+		return dismissMigration()
 	default:
 		return ErrMigrationPending
 	}
+}
+
+// migrationStatus returns the recorded status of the runtime-home migration, or
+// the empty (pending) status when no entry exists.
+func migrationStatus(root *state.RootState) state.MigrationStatus {
+	m, _ := root.Migration(MigrationName)
+	return m.Status
+}
+
+// withMigrationLock runs fn while holding the host-only migration lock, so a
+// terminal write cannot race an in-flight copy campaign's own writes. It must
+// only wrap state writes made outside CopyVolumes: CopyVolumes already holds the
+// lock, and flock is not reentrant.
+func withMigrationLock(fn func() error) error {
+	release, err := acquireMigrationLock()
+	if err != nil {
+		return err
+	}
+	defer release()
+	return fn()
+}
+
+// finalizeCompletedCampaign closes out an open campaign that has nothing left to
+// copy (it crashed after copying everything but before recording completion). It
+// re-reads state under the lock and only writes completed while the entry is
+// still copying, so it never clobbers a concurrent terminal write.
+func finalizeCompletedCampaign() error {
+	return withMigrationLock(func() error {
+		root, err := state.ReadRootState()
+		if err != nil {
+			return err
+		}
+		if migrationStatus(root) != state.MigrationCopying {
+			return nil
+		}
+		return saveMigration(state.Migration{Status: state.MigrationCompleted})
+	})
+}
+
+// dismissMigration records the permanent start-fresh opt-out under the lock,
+// re-reading first so a concurrent campaign's terminal write (completed or
+// dismissed) is not overwritten.
+func dismissMigration() error {
+	return withMigrationLock(func() error {
+		root, err := state.ReadRootState()
+		if err != nil {
+			return err
+		}
+		status := migrationStatus(root)
+		if status == state.MigrationCompleted || status == state.MigrationDismissed {
+			return nil
+		}
+		return saveMigration(state.Migration{Status: state.MigrationDismissed})
+	})
 }
 
 func offerPrompt(count int) string {
