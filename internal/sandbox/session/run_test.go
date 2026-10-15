@@ -120,13 +120,16 @@ func TestRunAttachUsesAttachWithForRoot(t *testing.T) {
 	}
 	release()
 
-	err = runAttach(context.Background(), sb, "roottest", ui,
+	err = runAttach(context.Background(), sb, "roottest", "/workspace/sub", ui,
 		options.RunOptions{Root: true, ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
 	if err != nil {
 		t.Fatalf("runAttach failed: %v", err)
 	}
 	if sb.AttachUser != "root" {
 		t.Errorf("AttachUser = %q, want %q", sb.AttachUser, "root")
+	}
+	if sb.AttachCwd != "/workspace/sub" {
+		t.Errorf("AttachCwd = %q, want %q", sb.AttachCwd, "/workspace/sub")
 	}
 }
 
@@ -142,7 +145,7 @@ func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
 	}
 	release()
 
-	err = runAttach(context.Background(), sb, "defaulttest", ui,
+	err = runAttach(context.Background(), sb, "defaulttest", "/workspace/sub", ui,
 		options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
 	if err != nil {
 		t.Fatalf("runAttach failed: %v", err)
@@ -150,18 +153,23 @@ func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
 	if sb.AttachUser != "" {
 		t.Errorf("AttachUser = %q, want empty for default (non-root) attach", sb.AttachUser)
 	}
+	if sb.AttachCwd != "/workspace/sub" {
+		t.Errorf("AttachCwd = %q, want %q", sb.AttachCwd, "/workspace/sub")
+	}
 }
 
 type fakePrepared struct {
 	sb            msb.Sandbox
 	target        string
 	serveHostPort int
+	guestCWD      string
 }
 
 func (f *fakePrepared) Cleanup()             {}
 func (f *fakePrepared) Sandbox() msb.Sandbox { return f.sb }
 func (f *fakePrepared) Target() string       { return f.target }
 func (f *fakePrepared) ServeHostPort() int   { return f.serveHostPort }
+func (f *fakePrepared) GuestCWD() string     { return f.guestCWD }
 
 // --- Run: dry-run ---
 
@@ -440,6 +448,33 @@ func TestShellNormalCallsRunAttach(t *testing.T) {
 	}
 }
 
+func TestShellUsesGuestCWD(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+		),
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace", guestCWD: "/workspace/sub"}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Shell(context.Background(), options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, ui)
+	if err != nil {
+		t.Fatalf("Shell: %v", err)
+	}
+	if sb.AttachCwd != "/workspace/sub" {
+		t.Errorf("AttachCwd = %q, want %q", sb.AttachCwd, "/workspace/sub")
+	}
+}
+
 // --- runAttach error paths ---
 
 func TestRunAttachPropagatesAttachError(t *testing.T) {
@@ -447,7 +482,7 @@ func TestRunAttachPropagatesAttachError(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{AttachErr: errors.New("attach boom")}
 
-	err := runAttach(context.Background(), sb, "errproj", ui,
+	err := runAttach(context.Background(), sb, "errproj", "/workspace", ui,
 		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
 	if err == nil {
 		t.Fatal("expected error when attach fails")
@@ -462,7 +497,7 @@ func TestRunAttachReturnsExitErrorForNonZeroCode(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{AttachCode: 3}
 
-	err := runAttach(context.Background(), sb, "exitproj", ui,
+	err := runAttach(context.Background(), sb, "exitproj", "/workspace", ui,
 		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
 	var exitErr *sandbox.ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
@@ -481,7 +516,7 @@ func TestRunAttachWarnsOnReapFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := runAttach(ctx, sb, "reaperrproj", ui,
+	err := runAttach(ctx, sb, "reaperrproj", "/workspace", ui,
 		options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
 	if err != nil {
 		t.Fatalf("runAttach should not fail on reap error: %v", err)

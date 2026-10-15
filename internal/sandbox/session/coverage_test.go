@@ -222,7 +222,7 @@ func TestRunAttachClientLeaseFailureWarns(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{AttachCode: 0}
 
-	err := runAttach(context.Background(), sb, slug, ui,
+	err := runAttach(context.Background(), sb, slug, "/workspace", ui,
 		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
 	if err != nil {
 		t.Fatalf("runAttach: expected success despite lease failure, got %v", err)
