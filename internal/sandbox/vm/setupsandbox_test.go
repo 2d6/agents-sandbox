@@ -267,7 +267,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	// setUpSandbox's signature is
-	//   (ctx, sb, opts, cfs, ui, restart).
+	//   (ctx, sb, opts, cfs, ui, restart, boot, guestCWD).
 	// Pass restart=true to force the daemon-restart path on a reused VM.
 	commands = commands[:0]
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
