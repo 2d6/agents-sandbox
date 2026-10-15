@@ -7,14 +7,15 @@ read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOM
 
 Date: 2026-10-13
 
-Status: **implemented**, with one review-driven revision pending. The original
-copy state model tracked completion with an in-volume sentinel and no
-cross-process locking; review found it unsafe (guest-controlled completion,
-symlink-followable marker write, concurrent sessions deleting each other's
-copy). The copy state model is therefore superseded by the host-owned
-`migrations` registry in "Persisted state"; everything else in "Decisions" is in
-place. The ownership-mapping verification under "Open verification" also
-remains. The original implementation plan is
+Status: **implemented** on `opencode/runtime-home-decoupling` (PR #142); pending
+merge. The copy state model is the host-owned `migrations` registry in
+"Persisted state". An earlier design tracked completion with an in-volume
+sentinel and no cross-process locking; review found it unsafe (guest-controlled
+completion, symlink-followable marker write, concurrent sessions deleting each
+other's copy), and it was superseded by the registry (plan
+[2026-10-15-runtime-home-migration-state](../plans/2026-10-15-runtime-home-migration-state.md)).
+The ownership-mapping verification under "Open verification" still remains. The
+original implementation plan is
 [2026-10-13-runtime-home-decoupling](../plans/2026-10-13-runtime-home-decoupling.md).
 
 ## Intent
@@ -216,6 +217,15 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   the copy the host performs **no** further write into the copied tree (the
   completion record is host-side), so a symlink planted in a legacy volume
   cannot redirect a host write onto a host file outside the volume.
+- Listing failure while a campaign is open: during a `copying` campaign a legacy
+  `volumes/` directory that is *missing* counts as empty, so the campaign may
+  finalize `completed`. A `volumes/` directory that exists but cannot be listed
+  (permission denied, not-a-directory, or an I/O error) is a **campaign-scoped**
+  failure: the campaign must not finalize, leaves `status: copying`, and retries
+  next session. This keeps a transient permission problem from permanently
+  marking an under-migrated campaign complete. (Outside a campaign, in the
+  `pending` state, a missing or unreadable legacy home still counts as "nothing
+  usable to copy".)
 
 ### Persisted state
 
