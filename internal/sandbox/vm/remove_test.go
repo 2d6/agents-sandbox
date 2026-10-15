@@ -49,8 +49,8 @@ func TestRemoveSandboxRefusesRunningWithoutForce(t *testing.T) {
 
 	ui := assumeYesUI()
 	err := RemoveSandbox(context.Background(), handle.Name_, false, ui)
-	if err == nil || !strings.Contains(err.Error(), "running") {
-		t.Fatalf("RemoveSandbox(running, no force) = %v, want a running refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "not stopped") {
+		t.Fatalf("RemoveSandbox(running, no force) = %v, want a refusal to remove a VM that is not stopped", err)
 	}
 	if handle.DidRmv || handle.DidStop {
 		t.Error("a running sandbox without --force must be neither stopped nor removed")
@@ -75,6 +75,26 @@ func TestRemoveSandboxForceStopsThenRemoves(t *testing.T) {
 	}
 	if !handle.DidRmv {
 		t.Error("a forced running removal must remove the sandbox")
+	}
+}
+
+func TestRemoveSandboxForceDeclinedConfirmationDoesNotStop(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	handle := &msb.MockSandboxHandle{Name_: naming.VMPrefix + "proj-aBc1234D", Status_: msbSdk.SandboxStatusRunning}
+	client := &msb.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	msb.WithMsbMock(t, client)
+
+	ui := &termio.Mock{IsInteractiveResult: true, ConfirmResult: false}
+	err := RemoveSandbox(context.Background(), handle.Name_, true, ui)
+	if err == nil || err.Error() != "cancelled" {
+		t.Fatalf("RemoveSandbox(forced, declined) = %v, want cancelled", err)
+	}
+	if handle.DidStop {
+		t.Error("a declined confirmation must not stop the sandbox")
+	}
+	if handle.DidRmv {
+		t.Error("a declined confirmation must not remove the sandbox")
 	}
 }
 

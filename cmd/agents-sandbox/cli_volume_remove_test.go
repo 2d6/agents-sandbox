@@ -97,6 +97,7 @@ func TestVolumeRemove(t *testing.T) {
 		); err != nil {
 			t.Fatalf("seed state: %v", err)
 		}
+		ui.IsInteractiveResult = true
 		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "refusing") {
 			t.Fatalf("expected refusal, got %v", err)
 		}

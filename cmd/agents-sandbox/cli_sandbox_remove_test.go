@@ -49,8 +49,8 @@ func TestSandboxRemove(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--yes", handle.Name_)
 		msb.WithMsbMock(t, m)
 		err := cmd.Execute()
-		if err == nil || !strings.Contains(err.Error(), "running") {
-			t.Fatalf("expected a running refusal, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "not stopped") {
+			t.Fatalf("expected a not-stopped refusal, got %v", err)
 		}
 		if handle.DidRmv {
 			t.Error("running sandbox must not be removed without --force")
@@ -71,6 +71,26 @@ func TestSandboxRemove(t *testing.T) {
 		}
 		if !handle.DidRmv {
 			t.Error("force on a running VM must remove it")
+		}
+	})
+
+	t.Run("force with a declined confirmation does not stop", func(t *testing.T) {
+		handle := &msb.MockSandboxHandle{Name_: naming.VMPrefix + "proj-aBc1234D", Status_: msbSdk.SandboxStatusRunning}
+		m := &msb.MockMsbClient{}
+		m.SetGotSandbox(handle)
+		cmd, ui := setupCommandFixtures(t, "sandbox", "remove", "--force", handle.Name_)
+		msb.WithMsbMock(t, m)
+		ui.IsInteractiveResult = true
+		ui.ConfirmResult = false
+		err := cmd.Execute()
+		if err == nil || err.Error() != "cancelled" {
+			t.Fatalf("expected a cancelled error, got %v", err)
+		}
+		if handle.DidStop {
+			t.Error("a declined confirmation must not stop the sandbox")
+		}
+		if handle.DidRmv {
+			t.Error("a declined confirmation must not remove the sandbox")
 		}
 	})
 
@@ -129,8 +149,9 @@ func TestSandboxRemove(t *testing.T) {
 		m.SetGotSandbox(handle)
 		cmd, ui := setupCommandFixtures(t, "sandbox", "remove", handle.Name_)
 		msb.WithMsbMock(t, m)
-		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "running") {
-			t.Fatalf("expected a running refusal, got %v", err)
+		ui.IsInteractiveResult = true
+		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not stopped") {
+			t.Fatalf("expected a not-stopped refusal, got %v", err)
 		}
 		if len(ui.ConfirmCalls) != 0 {
 			t.Errorf("guard must run before the prompt, got %v", ui.ConfirmCalls)
