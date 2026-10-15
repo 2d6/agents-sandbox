@@ -725,3 +725,66 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 		t.Error("expected warning about volume not found")
 	}
 }
+
+// TestResolveHomeVolume_MissingRecordedVolumeStartsFresh pins the clean-break
+// stale-state contract: after the private-home change, a project's recorded home
+// volume no longer resolves. ResolveHomeVolume must detect the missing volume,
+// create a fresh one, rewrite state to the new name, and return no error —
+// rather than failing the session.
+func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
+
+	key := state.Key{Slug: "stalehome", Agent: "opencode"}
+	const recordedVolume = "agents-sandbox-home-stalehome-legacy"
+	state.WriteState(key, state.HomeState{
+		HomeVolume:  recordedVolume,
+		ImageDigest: "sha256:legacy",
+	})
+
+	var createdName string
+	mock := &msb.MockMsbClient{}
+	mock.GetVolumeFn = func(_ context.Context, _ string) (msb.VolumeHandle, error) {
+		var vh msb.VolumeHandle
+		return vh, errors.New("volume not found in private home")
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		createdName = name
+		return msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+	volName, st, err := vm.ResolveHomeVolume(
+		context.Background(),
+		mock,
+		key,
+		"sha256:def",
+		"latest",
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if createdName == "" {
+		t.Fatal("expected a fresh volume to be created")
+	}
+	if volName != createdName {
+		t.Errorf("returned volume = %q, want created volume %q", volName, createdName)
+	}
+	if volName == recordedVolume {
+		t.Errorf("returned volume = %q, must not reuse the stale recorded name", recordedVolume)
+	}
+
+	persisted, err := state.ReadState(key)
+	if err != nil {
+		t.Fatalf("state not rewritten: %v", err)
+	}
+	if persisted.HomeVolume != volName {
+		t.Errorf("persisted home volume = %q, want %q", persisted.HomeVolume, volName)
+	}
+	if st.ImageDigest != "sha256:def" {
+		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
+	}
+}

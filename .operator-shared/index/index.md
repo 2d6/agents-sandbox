@@ -37,6 +37,7 @@ read_if: Navigating the codebase.
 ### `internal/` — Core packages (non-sandbox)
 
 - `agent/` — Agent (opencode/opencode2/pi/claudecode) version resolution, manifests, image selection.
+- `atomicwrite/` — Atomic file writes (unique temp file + rename, 0600/0700); shared by the persistent state/config writers (`state.WriteState`, `state.WriteRootState`, `vm.saveUpgradeState`, `upgrade.saveState`).
 - `configfile/` — Comment/order-preserving launcher-config editor (`Config`, `Parse`, `LoadDir`, `WriteAtomic`); shared by `configmigration` and the setup wizard.
 - `configmerge/` — Merge config with precedence.
 - `configmigration/` — **See [configmigration subindex](configmigration.md)** (native agent config migration, guided onboarding, network plan).

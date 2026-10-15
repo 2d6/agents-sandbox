@@ -1,12 +1,14 @@
 package vm
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 
 	"gopkg.in/yaml.v3"
@@ -125,22 +127,12 @@ func migrateLegacy(s *upgradeState) {
 
 // saveUpgradeState atomically writes the updater state file.
 func saveUpgradeState(s upgradeState) error {
-	path := upgradeStatePath()
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp := filepath.Join(dir, "."+upgradeStateFile+".tmp")
 	data, err := yaml.Marshal(s)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
+	if err := atomicwrite.WriteFile(upgradeStatePath(), data); err != nil {
+		return fmt.Errorf("write updater state: %w", err)
 	}
 	return nil
 }

@@ -2,7 +2,9 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -21,6 +23,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/runtimemigration"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -392,6 +395,255 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 
 	if connectSb.AttachUser != "root" {
 		t.Errorf("startup hook AttachWith user = %q, want %q", connectSb.AttachUser, "root")
+	}
+}
+
+// TestPrepareSandboxInvokesRuntimeHomeMigrationOffer verifies the session-start
+// wiring: the opt-in legacy home-volume offer runs once, with the msb client,
+// as part of PrepareSandbox.
+func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
+		return req, nil
+	})
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+				},
+			}, nil
+		},
+	})
+
+	slug := git.ProjectSlug()
+	vmFS := msb.NewTestFS(nil, nil)
+	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	}}
+	sh := &msb.MockSandboxHandle{
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: connectSb,
+	}
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+			}, nil
+		},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	mock.SetGotSandbox(sh)
+	msb.WithMsbMock(t, mock)
+
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
+
+	var offeredWith msb.Client
+	origOffer := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = func(_ context.Context, c msb.Client, _ termio.UI) error {
+		offeredWith = c
+		return nil
+	}
+	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
+
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
+
+	ui := termio.NewTestMock(t)
+	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
+	if err != nil {
+		t.Fatalf("PrepareSandbox: %v", err)
+	}
+	defer sess.Cleanup()
+
+	if offeredWith != mock {
+		t.Errorf("offer client = %v, want the msb client from msb.Get()", offeredWith)
+	}
+}
+
+// TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration pins option D: when the
+// offer reports the migration is still pending (a non-interactive session, a
+// quit, or a failed copy), PrepareSandbox aborts before resolving the home
+// volume, so no fresh home is created and the project's recorded reference is
+// left intact for a later copy.
+func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
+		return req, nil
+	})
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+				},
+			}, nil
+		},
+	})
+
+	var createdVolumes int
+	mock := &msb.MockMsbClient{
+		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			createdVolumes++
+			return &msb.MockVolumeHandle{Name_: name}, nil
+		},
+	}
+	msb.WithMsbMock(t, mock)
+
+	origOffer := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error {
+		return runtimemigration.ErrMigrationPending
+	}
+	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
+
+	ui := termio.NewTestMock(t)
+	if _, err := PrepareSandbox(
+		context.Background(),
+		options.RunOptions{},
+		&ui,
+	); !errors.Is(
+		err,
+		runtimemigration.ErrMigrationPending,
+	) {
+		t.Fatalf("PrepareSandbox() error = %v, want ErrMigrationPending", err)
+	}
+	if createdVolumes != 0 {
+		t.Errorf("CreateVolume called %d times, want 0 (no fresh home created)", createdVolumes)
+	}
+}
+
+// TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal verifies the spec's
+// anti-goal: a corrupt or unreadable launcher-global state file must not block
+// the session. The offer is best-effort, so PrepareSandbox warns and continues
+// rather than failing, and it never prompts.
+func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
+		return req, nil
+	})
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+				},
+			}, nil
+		},
+	})
+
+	slug := git.ProjectSlug()
+	vmFS := msb.NewTestFS(nil, nil)
+	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	}}
+	sh := &msb.MockSandboxHandle{
+		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Status_:   msbSdk.SandboxStatusRunning,
+		ConnectSb: connectSb,
+	}
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+			}, nil
+		},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	mock.SetGotSandbox(sh)
+	msb.WithMsbMock(t, mock)
+
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
+
+	rootStatePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
+	if err := os.WriteFile(rootStatePath, []byte("runtime_home_migration: [unterminated"), 0o600); err != nil {
+		t.Fatalf("write corrupt root state: %v", err)
+	}
+
+	origOffer := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = runtimemigration.Offer
+	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
+
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
+
+	selectCalls := 0
+	ui := termio.NewTestMock(t)
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
+		selectCalls++
+		return "", nil
+	}
+
+	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui)
+	if err != nil {
+		t.Fatalf("PrepareSandbox() error = %v, want success despite a corrupt root state", err)
+	}
+	defer sess.Cleanup()
+
+	if selectCalls != 0 {
+		t.Errorf("Select called %d times, want 0", selectCalls)
+	}
+	if len(ui.WarnCalls) == 0 {
+		t.Error("expected a warning about the unreadable root state, got none")
 	}
 }
 

@@ -31,9 +31,39 @@ command reports the bare version (e.g. `0.1.0`).
   `# agents-sandbox:dind` marker is still recognized). Without the marker the block is still appended after the
   Dockerfile body.
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
+- Runtime: on the first interactive `run`/`shell`, agents-sandbox offers once to copy legacy
+  `~/.microsandbox/volumes/agents-sandbox-home-*` volumes into its private runtime home. The choice is now mandatory:
+  copy, start fresh/dismiss, or quit. The decision and any in-flight progress are tracked in a `migrations.runtime_home`
+  entry in `~/.local/state/agents-sandbox/state.yaml` — a `status` of `copying` (with transient
+  `copied`/`kept`/`excluded` volume lists), `completed`, or `dismissed`; an absent entry means the migration is still
+  pending. While legacy volumes remain, `--yes` and non-interactive runs never copy and stop with a message to run an
+  interactive session once, so the project's recorded home-volume reference is never overwritten before the copy can
+  happen. When a private volume already exists under a legacy name (a prior copy of unclear status), the offer says so
+  and lets you copy only the missing volumes (leaving the existing ones untouched) or dismiss; the prompt points at
+  `volume remove` for manual cleanup.
+- `volume remove <name>...` (alias `rm`) removes home volumes by name. It never prompts and refuses when a project's
+  state still references a volume, unless `--force` is given.
 
 ### Fixed
 
+- State: launcher-global `state.yaml` (the legacy-migration dismissal lives here) is now written through a uniquely named
+  temp file, so two concurrent sessions choosing "Start fresh" no longer collide on one shared temp name and abort a
+  session. All persistent state/config writers (`state.WriteState`, `state.WriteRootState`, `vm.saveUpgradeState`,
+  `upgrade.saveState`) now share one atomic-write helper (`internal/atomicwrite`).
+- Runtime: the legacy home-volume copy is now crash-safe and concurrency-safe. Completion is recorded host-side in the
+  `migrations.runtime_home` state (never a file inside the guest-writable volume), and the copy campaign holds a
+  host-only lock, so a second session cannot discard a copy that is still in flight. A copy interrupted by a crash
+  resumes exactly — volumes already recorded as copied are left alone, while any present private volume not recorded as
+  copied is treated as a partial and re-copied instead of being used as a truncated home. A volume that cannot be copied
+  is excluded from the campaign and recorded, so the remaining volumes still migrate and the campaign can still complete.
+- Runtime: a legacy `~/.microsandbox/volumes` directory that exists but is transiently unlistable during a copy campaign
+  no longer silently finalizes the migration as complete; the campaign stays `copying`, explains the situation, and
+  retries next session.
+- Runtime: the legacy home-volume copy no longer overwrites or silently adopts a present private volume of unclear
+  status. Such a volume is recorded as `kept` (left untouched) when you choose to copy only the missing volumes, and is
+  removed when you dismiss. A campaign fully discards a failed volume's partial before excluding it, and never reaches
+  `completed` while a usable partial destination remains, so the home resolver can never adopt a half-copied home.
+  Finalization warns about any legacy volumes that could not be copied.
 - Runner image: each tool stage now pins its version as an `ARG` default in the rendered Dockerfile (Node, agent, Docker),
   so a version bump changes the build content and reliably invalidates that stage's install layer. Previously only the
   agent version build arg carried the version, which could leave the agent layer cached (and the image on the old release)
@@ -42,6 +72,12 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Runtime: agents-sandbox now provisions and uses its own private microsandbox runtime home at
+  `$XDG_DATA_HOME/agents-sandbox/msb` (default `~/.local/share/agents-sandbox/msb`), selected via `MSB_HOME` at startup and
+  fully decoupled from any user-installed microsandbox. The user's `~/.microsandbox` is never read or written by normal
+  operation; no user-facing `msb` is installed or advertised; and the runtime version-mismatch recovery menu is retired
+  (a mismatch is now a plain error). A project whose recorded home volume is absent from the private home starts a fresh
+  home volume automatically, so existing users keep working without migrating.
 - Runner image: `opencode`, `opencode2`, and `claude-code` images are now node-free. The `agents-sandbox-node` stage is
   emitted only for agents that need node (today only `pi`, an npm-installed node bundle), and opencode2 and claude-code
   install from their upstream native installers instead of npm. This cuts image size and cold-build time; version pinning,

@@ -262,7 +262,7 @@ agents-sandbox sandbox list
 
 Prints a header row followed by one line per agents-sandbox VM with columns
 `NAME`, `IMAGE`, `STATUS`, and `CREATED`. `CREATED` uses `YYYY-MM-DD HH:MM:SS`,
-matching microsandbox's `msb list` output. The `STATUS` cell is colored like
+matching microsandbox's own sandbox listing. The `STATUS` cell is colored like
 microsandbox when color is enabled (`running` green, `stopped`/`created` dim,
 transitional states yellow, `crashed` red); with color disabled it renders as
 plain text.
@@ -398,10 +398,10 @@ agents-sandbox tree
 
 ### doctor
 
-Check prerequisites (Docker, KVM, Git, and the microsandbox runtime) and exit.
-The runtime check compares the selected `msb` version with the SDK version
-linked into agents-sandbox. If they differ, an interactive recovery prompt is
-shown before any VM or runtime database operation.
+Check prerequisites (Docker, KVM, Git) and ensure the private microsandbox
+runtime is provisioned, then exit. The runtime is the one pinned by the linked
+SDK and lives under agents-sandbox's own data directory, so there is no
+`msb`-version comparison or recovery prompt.
 
 ```console
 agents-sandbox doctor
@@ -482,3 +482,20 @@ Create a new volume alongside the old one, for manual data transfer.
 - **Flags:**
   - `--rm` — remove old volume after you exit (you are responsible for confirming)
   - `--dry-run` — show what would be done
+
+#### `agents-sandbox volume remove <name>...`
+
+Remove one or more home volumes by name. Never prompts. Refuses when a volume is
+still referenced by a project's state file (naming the referencing projects), so
+a project's recorded home is never silently orphaned; pass `--force` to remove it
+anyway. The next run of an affected project then starts a fresh home.
+
+```console
+agents-sandbox volume remove agents-sandbox-home-myproj-aBc1234D-opencode-20260812T123456
+```
+
+- **Args:** one or more `volume-name`
+- **Flags:**
+  - `--force` — remove even when a project still references the volume
+
+**Aliases:** `volume rm`

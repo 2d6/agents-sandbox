@@ -144,12 +144,12 @@ docs-linkcheck-test:
 docs-serve:
 	cd docs && bundle install && bundle exec jekyll serve --livereload
 
-install-head:
+install-head: build
 	mkdir -p ~/.local/bin
 	cp agents-sandbox ~/.local/bin/agents-sandbox.tmp
 	mv -f ~/.local/bin/agents-sandbox.tmp ~/.local/bin/agents-sandbox
 
-install-head-and-bash-completion: build install-head install-bash-completion
+install-head-and-bash-completion: install-head install-bash-completion
 
 upgrade-deps:
 	go get -u ./...

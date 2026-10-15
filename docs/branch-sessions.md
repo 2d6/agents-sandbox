@@ -37,7 +37,7 @@ When you pass `--worktree <name>`:
 ## Validation
 
 - **`<name>` must be a slug**: only lowercase letters, digits, and single hyphens. Names like `feature/foo` are rejected immediately.
-- **`<base>` must already exist as a local ref**: msb never fetches from remotes.
+- **`<base>` must already exist as a local ref**: agents-sandbox never fetches from remotes.
 - The worktree stays on its own `opencode/<name>` branch.
 
 ## When to Use

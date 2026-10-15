@@ -624,7 +624,28 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 		),
 	)
 
+	cmd.AddCommand(buildVolumeRemoveCmd())
 	cmd.AddCommand(buildVolumePruneCmd(ui))
+	return cmd
+}
+
+// buildVolumeRemoveCmd builds `volume remove <name>...`, which deletes home
+// volumes by name. It refuses when a project still references a volume unless
+// --force is set, and never prompts.
+func buildVolumeRemoveCmd() *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:     cmdRemove + " <name>...",
+		Aliases: cmdRemoveAliases,
+		Args:    cobra.MinimumNArgs(1),
+		Short:   "Remove home volumes by name",
+		Long: "Remove the named home volumes. Refuses when a volume is still referenced by a " +
+			"project's state; pass --force to remove it anyway.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return volume.RemoveVolumes(cmd.Context(), args, force)
+		},
+	}
+	cmd.Flags().BoolVar(&force, flagForce, false, "Remove even when a project still references the volume")
 	return cmd
 }
 

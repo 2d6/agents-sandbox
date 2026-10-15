@@ -20,6 +20,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -445,15 +446,12 @@ func loadState(path string) state {
 	return s
 }
 
-// saveState writes the upgrade state to path, creating its directory if
-// needed.
+// saveState writes the upgrade state to path atomically, creating its directory
+// if needed.
 func saveState(path string, s state) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return atomicwrite.WriteFile(path, data)
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 
 	"gopkg.in/yaml.v3"
@@ -104,22 +105,12 @@ func ReadState(k Key) (*HomeState, error) {
 
 // WriteState atomically writes the state to disk.
 func WriteState(k Key, state HomeState) error {
-	dir := filepath.Dir(stateFile(k))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create state dir %s: %w", dir, err)
-	}
-	tmpFile := filepath.Join(dir, ".state.yaml.tmp")
 	data, err := yaml.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	if err := os.WriteFile(tmpFile, data, 0o600); err != nil {
-		return fmt.Errorf("write state temp: %w", err)
-	}
-	if err := os.Rename(tmpFile, stateFile(k)); err != nil {
-		// best-effort cleanup of temp file if rename failed
-		_ = os.Remove(tmpFile)
-		return fmt.Errorf("rename state file: %w", err)
+	if err := atomicwrite.WriteFile(stateFile(k), data); err != nil {
+		return fmt.Errorf("write state file: %w", err)
 	}
 	return nil
 }

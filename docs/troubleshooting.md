@@ -18,34 +18,57 @@ Start the Docker daemon. How to start it depends on your environment. When using
 
 You can verify afterwards by running `docker info`. It should show a healthy daemon.
 
-### Microsandbox runtime version mismatch
+### Microsandbox runtime
 
-Before using microsandbox, agents-sandbox compares the selected `msb` version
-with the microsandbox SDK version linked into the launcher. A mismatch is
-reported before the runtime database is opened. The interactive recovery menu
-can:
+agents-sandbox provisions its own private microsandbox runtime under its data
+directory (`~/.local/share/agents-sandbox/msb`, or
+`$XDG_DATA_HOME/agents-sandbox/msb`) and points the SDK at it. It never reads or
+writes your own `~/.microsandbox`, does not install a user-facing `msb`
+command, and does not require any particular `msb` version on your machine. If
+agents-sandbox is the only thing installed, the absence of an `msb` command is
+expected, not a defect.
 
-- upgrade agents-sandbox and restart when a newer launcher release is
-  available;
-- upgrade or downgrade `msb` to the required version;
-- use the installed runtime unchanged in unsupported brave mode;
-- print a sanitized diagnostic report and the bug-report URL; or
-- quit without changing anything.
-
-The default choice is always quit. `--yes` does not select a runtime recovery
-action; in a noninteractive invocation the command prints diagnostics and
-exits without modifying the runtime.
-
-Do not replace only `~/.microsandbox/bin/msb` manually. The runtime database,
-`libkrunfw`, FFI library, VM records, volumes, and caches are versioned state
-and must remain compatible with one another. If a newer `msb` has already
-migrated the database, use the official rollback offered by the prompt rather
-than copying an older binary over the newer one.
-
-If no newer agents-sandbox release supports the installed `msb`, submit the
-compatibility report at:
+If you encounter a runtime error, submit a bug report at:
 
 <https://github.com/inoio/agents-sandbox/issues/new?template=bug_report.yml>
+
+### Legacy home volumes after upgrading
+
+Versions before the private runtime home stored home volumes under
+`~/.microsandbox/volumes/`. On the first interactive `run`/`shell` after
+upgrading, agents-sandbox offers once to copy those `agents-sandbox-home-*`
+volumes into its private home. You must choose: **Copy the volumes** (carry the
+old data over), **Start fresh** (leave the old volumes untouched and never ask
+again), or **Quit** (abort this session; ask again next time). "Start fresh" is
+remembered and the offer is not shown again. (The option is labelled **Dismiss**
+instead of "Start fresh" when a private volume of unclear status must be removed,
+or when a copy was already in progress.)
+
+The decision is required before a session can proceed, because starting would
+otherwise create a fresh home volume and overwrite the project's recorded
+reference before the old data could be copied. Non-interactive runs (including
+`--yes`) therefore never copy and, while legacy volumes remain, stop with a
+message to run an interactive `run`/`shell` once to copy them or start fresh.
+
+Once the migration is resolved — copied, or dismissed with "Start fresh" — each
+project whose recorded volume is not present in the private home starts a fresh
+one automatically, so you can keep working without migrating anything.
+
+#### Private volumes with unclear status
+
+If a private volume already exists under a legacy name, the offer says so and
+cannot tell whether it is a complete copy or a partial one whose progress was
+lost (this can happen if `~/.local/state/agents-sandbox/state.yaml` was removed).
+The offer then gives two options:
+
+- **Copy the missing volumes; dismiss the existing private volumes from the
+  migration** — copies only the absent volumes and leaves the existing ones
+  untouched and never asked about again.
+- **Quit** — if you want a specific volume fully migrated, remove its private
+  copy with `agents-sandbox volume remove --force <name>` (the copy is still
+  referenced by its project's state, hence `--force`), then run again: the next
+  offer will re-copy it from the legacy home. Keep the copies you do not want
+  migrated.
 
 ### KVM unavailable
 

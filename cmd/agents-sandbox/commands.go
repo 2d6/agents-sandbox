@@ -12,7 +12,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	msbruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
-	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -144,14 +143,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		if !commandNeedsMSBRuntime(cmd) {
 			return nil
 		}
-		prepared, err := prepareMSBRuntime(cmd.Context(), ui, version)
-		if err != nil {
-			return err
-		}
-		if prepared.Restart {
-			return &sandbox.ExitError{Code: 0}
-		}
-		return nil
+		return prepareMSBRuntime(cmd.Context(), ui, version)
 	}
 	extendRunCmd(ui, rootCmd)
 

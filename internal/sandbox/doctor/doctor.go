@@ -3,12 +3,12 @@ package doctor
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
+	"path/filepath"
 
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -77,18 +77,14 @@ func realCheckDocker(ctx context.Context) error {
 	return nil
 }
 
-// checkMsb ensures the msb runtime is installed, returning non-fatal PATH
-// guidance as warnings when msb is installed but not on PATH.
+// checkMsb ensures the private msb runtime is installed and reports where it
+// lives. agents-sandbox owns the runtime at runtime.PrivateHome() and never
+// advertises a user-facing msb, so no PATH or shell-rc guidance is emitted; a
+// missing binary is not a user defect.
 func checkMsb(ctx context.Context) ([]string, error) {
 	if err := ensureMsbInstalled(ctx); err != nil {
 		return nil, fmt.Errorf("msb runtime setup failed: %w", err)
 	}
-	if _, err := exec.LookPath("msb"); err == nil {
-		return nil, nil
-	}
-	home, binDir, binPath, err := msbBinPath()
-	if err != nil {
-		return nil, err
-	}
-	return pathHints(home, os.Getenv("SHELL"), binDir, binPath), nil
+	home := runtime.PrivateHome()
+	return []string{fmt.Sprintf("msb runtime installed at %s", filepath.Join(home, "bin"))}, nil
 }

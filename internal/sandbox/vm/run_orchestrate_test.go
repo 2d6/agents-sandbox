@@ -2,14 +2,125 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+// TestPrepareHomeVolumeDryRunSkipsRuntimeHomeMigrationOffer pins that --dry-run
+// (documented as side-effect-free) never runs the interactive copy offer, which
+// could prompt and copy multi-gigabyte volumes. DryRunVM is unaffected.
+func TestPrepareHomeVolumeDryRunSkipsRuntimeHomeMigrationOffer(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: name}, nil
+		},
+	})
+
+	k := state.Key{Slug: "slug", Agent: "opencode"}
+	if err := state.WriteState(k, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	var offered bool
+	origOffer := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error {
+		offered = true
+		return nil
+	}
+	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
+
+	ui := termio.NewTestMock(t)
+	if _, _, _, _, err := prepareHomeVolume(
+		context.Background(),
+		k,
+		sandboximage.ImageInfo{},
+		options.RunOptions{DryRun: true},
+		&ui,
+	); err != nil {
+		t.Fatalf("prepareHomeVolume() error = %v", err)
+	}
+	if offered {
+		t.Error("prepareHomeVolume ran the migration offer under --dry-run")
+	}
+}
+
+// TestPrepareHomeVolumeDryRunVMStillOffers verifies the guard is scoped to
+// --dry-run only: DryRunVM keeps the offer, since it still sets up the volume.
+func TestPrepareHomeVolumeDryRunVMStillOffers(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: name}, nil
+		},
+	})
+
+	k := state.Key{Slug: "slug", Agent: "opencode"}
+	if err := state.WriteState(k, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	var offered bool
+	origOffer := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error {
+		offered = true
+		return nil
+	}
+	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
+
+	ui := termio.NewTestMock(t)
+	if _, _, _, _, err := prepareHomeVolume(
+		context.Background(),
+		k,
+		sandboximage.ImageInfo{},
+		options.RunOptions{DryRunVM: true},
+		&ui,
+	); err != nil {
+		t.Fatalf("prepareHomeVolume() error = %v", err)
+	}
+	if !offered {
+		t.Error("prepareHomeVolume skipped the migration offer under --dry-run-vm, want it offered")
+	}
+}
+
+// TestPrepareHomeVolumeOfferErrorPropagates verifies that a failure from the
+// runtime-home migration offer aborts volume setup with a wrapped error.
+func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+
+	k := state.Key{Slug: "slug", Agent: "opencode"}
+	wantErr := errors.New("offer boom")
+	origOffer := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error {
+		return wantErr
+	}
+	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
+
+	ui := termio.NewTestMock(t)
+	_, _, _, _, err := prepareHomeVolume(
+		context.Background(),
+		k,
+		sandboximage.ImageInfo{},
+		options.RunOptions{},
+		&ui,
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("prepareHomeVolume() error = %v, want %v", err, wantErr)
+	}
+}
 
 func TestResolveServeHostPortNotServeOnly(t *testing.T) {
 	if got := resolveServeHostPort(options.RunOptions{}, 0); got != 0 {

@@ -206,10 +206,16 @@ func TestVolumeOp_WriteStateFails_Warns(t *testing.T) {
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
 	)
 
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
 	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
-	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
+	// A read-only state dir makes the atomic temp-file creation fail, so the
+	// state write fails while reads (needing only execute) still succeed.
+	if err := os.Chmod(sdir, 0o500); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
@@ -398,10 +404,16 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"},
 	)
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
 	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
-	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
+	// A read-only state dir makes the atomic temp-file creation fail, so the
+	// state write fails while reads (needing only execute) still succeed.
+	if err := os.Chmod(sdir, 0o500); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
 	ui := &termio.Mock{}
 	vm := NewManager(ui)
@@ -528,10 +540,16 @@ func TestApplyHomeAction_WriteStateFails_Warns(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
 	)
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
 	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
-	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
+	// A read-only state dir makes the atomic temp-file creation fail, so the
+	// state write fails while reads (needing only execute) still succeed.
+	if err := os.Chmod(sdir, 0o500); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
