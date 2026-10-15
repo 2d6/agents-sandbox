@@ -200,12 +200,15 @@ Implemented (issue #172): `image.RemoveImages` guards with the Slice 1 seam —
 `inUseImageReferences` unions the project-state scan with the image refs held by
 live project/task sandboxes, and `refuseReferencedImages` names every referencing
 project — before prompting; `--force` skips the guard and is passed through to
-`ImageRemove`. `vm.RemoveSandbox` accepts only `agents-sandbox-vm-*` names,
-refuses a running VM unless `--force` (which stops it first), and drops the
+`ImageRemove`. `vm.RemoveSandbox` accepts only `agents-sandbox-vm-*` names and drops the
 persisted per-agent state only when `--force` is set; a same-name replacement
 (stale handle) fails closed. Both commands, and the retrofitted `volume remove`,
 confirm through `termio.ConfirmAction` unless the global `--yes` is set; the
-guard runs before the prompt, so a refusal fails fast without prompting.
+guard runs before the prompt, so a refusal fails fast without prompting. The
+order is always guard → confirm → mutate: a VM that is not stopped is refused
+without `--force` (the refusal reads "is not stopped" so an unknown/unfetchable
+status is not mislabelled "running"), and a forced running VM is stopped only
+after the confirmation succeeds, immediately before removal.
 
 ### Slice 5 — Storage accounting
 
