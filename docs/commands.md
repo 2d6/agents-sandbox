@@ -188,7 +188,7 @@ agents-sandbox prune --format json         # machine-readable report on stdout
 
 | Flag           | Short | Default | Purpose                            |
 |----------------|-------|---------|------------------------------------|
-| `--older-than` | —     | `7d`    | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--older-than` | —     | `config` | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
 | `--age`        | `-a`  | —       | Deprecated alias for `--older-than`. Hidden; still honored but warns. Setting both is an error. |
 | `--dry-run`    | `-n`  | `false` | Preview what would be pruned (no confirmation) |
 | `--format`     | —     | `""`    | Output format. `json` prints a structured report on stdout. |
@@ -214,7 +214,7 @@ agents-sandbox image prune --format json        # machine-readable report on std
 
 | Flag           | Short | Default | Purpose                                                                             |
 |----------------|-------|---------|-------------------------------------------------------------------------------------|
-| `--older-than` | —     | `7d`    | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--older-than` | —     | `config` | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
 | `--age`        | `-a`  | —       | Deprecated alias for `--older-than`. Hidden; still honored but warns. Setting both is an error. |
 | `--dry-run`    | `-n`  | `false` | Show what would be pruned without deleting (no confirmation)                        |
 | `--format`     | —     | `""`    | Output format. `json` prints a structured report on stdout.                         |
@@ -238,7 +238,7 @@ agents-sandbox volume prune --format json       # machine-readable report on std
 
 | Flag           | Short | Default | Purpose                                                                             |
 |----------------|-------|---------|-------------------------------------------------------------------------------------|
-| `--older-than` | —     | `7d`    | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--older-than` | —     | `config` | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
 | `--age`        | `-a`  | —       | Deprecated alias for `--older-than`. Hidden; still honored but warns. Setting both is an error. |
 | `--dry-run`    | `-n`  | `false` | Show what would be pruned without deleting (no confirmation)                        |
 | `--format`     | —     | `""`    | Output format. `json` prints a structured report on stdout.                         |
@@ -261,7 +261,7 @@ agents-sandbox sandbox prune --format json      # machine-readable report on std
 
 | Flag           | Short | Default | Purpose                                                                             |
 |----------------|-------|---------|-------------------------------------------------------------------------------------|
-| `--older-than` | —     | `7d`    | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--older-than` | —     | `config` | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
 | `--age`        | `-a`  | —       | Deprecated alias for `--older-than`. Hidden; still honored but warns. Setting both is an error. |
 | `--dry-run`    | `-n`  | `false` | Show what would be pruned without deleting (no confirmation)                        |
 | `--format`     | —     | `""`    | Output format. `json` prints a structured report on stdout.                         |

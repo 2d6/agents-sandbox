@@ -284,8 +284,11 @@ Images can be pruned via the `prune` command or, more targeted, the `image prune
 
 ```console
 agents-sandbox image prune --dry-run   # see what's stale
-agents-sandbox image prune             # actually remove them
+agents-sandbox image prune             # actually remove them (prompts; or pass --yes)
 ```
+
+Prune prompts for confirmation before removing anything (defaulting to no). Pass `--yes` to skip the prompt;
+non-interactively, `--yes` is required. `--dry-run` only previews and never prompts.
 
 Pruning retains the `-latest` images **per agent** per live project and any image a kept VM still references, reclaiming
 every other ref — pre-redesign digest refs no sandbox uses, orphaned surplus images, and every ref of projects (slugs)

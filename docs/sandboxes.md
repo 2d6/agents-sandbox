@@ -183,10 +183,13 @@ their reconnect semantics.
 
 ```console
 agents-sandbox prune                       # use manual-prune-age from config (default: 7d)
-agents-sandbox prune -a 24h                # 24-hour threshold
+agents-sandbox prune --older-than 24h      # 24-hour threshold
 agents-sandbox prune --dry-run             # preview only
-agents-sandbox prune --force               # skip confirmation
+agents-sandbox prune --yes                 # skip confirmation
 ```
+
+Prune prompts for confirmation before removing anything (defaulting to no). Pass `--yes` to skip the prompt;
+non-interactively, `--yes` is required or the command fails fast. `--dry-run` only previews and never prompts.
 
 To prune a single artifact type rather than everything, use the dedicated subcommands:
 
