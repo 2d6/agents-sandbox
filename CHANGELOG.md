@@ -10,6 +10,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- CLI: `image remove <ref>...` (`rm`) deletes cached runner images by reference and `sandbox remove <name>` (`rm`)
+  removes a project VM. Both refuse an in-use/guarded object unless `--force` (naming the referencing projects for
+  images), refuse a running VM unless `--force`, and prompt unless `--yes` is set.
+- Behavior: `volume remove` now prompts for confirmation; pass `--yes` to skip it non-interactively.
 - Runner image: per-tool multistage composition so tool layers (apt tools, Node, agent, Docker) cache independently of
   the user body and each other, reusing the same tool layers across projects on one machine.
 - Runner image: the `agents-sandbox/runner-base-docker` base reference is recognized (alongside the deprecated

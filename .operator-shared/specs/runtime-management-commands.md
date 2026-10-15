@@ -7,13 +7,13 @@ read_if: Adding or reviewing volume/image/sandbox inspection and removal command
 
 Date: 2026-10-15
 
-Status: **design; Slices 0–3 implemented** (Slices 0–2 merged in PRs #174/#176/
-#177; Slice 3 on branch `issue-171-runtime-management-slice-3`, PR pending).
+Status: **design; Slices 0–4 implemented** (Slices 0–3 merged; Slice 4 on
+branch `issue-172-runtime-management-slice-4`, PR pending).
 Tracked as issue #165; delivered as sub-issues #168 (Slice 0, implemented),
 #169 (Slice 1, implemented), #170 (Slice 2, implemented), #171 (Slice 3,
-implemented), #172 (Slice 4), and #155 (Slice 5). Slice 6 is dropped. Builds on
-`specs/runtime-home-decoupling.md` (the private `$MSB_HOME` home) and the
-reference in `guides/microsandbox-release-notes.md`.
+implemented), #172 (Slice 4, implemented), and #155 (Slice 5). Slice 6 is
+dropped. Builds on `specs/runtime-home-decoupling.md` (the private `$MSB_HOME`
+home) and the reference in `guides/microsandbox-release-notes.md`.
 
 ## Intent
 
@@ -196,6 +196,17 @@ the existing `ImageInspect` config-only method untouched) and `SandboxHandle.ID`
 
 Depends on: Slice 0 (confirmation/force conventions), Slice 1 (image guard).
 
+Implemented (issue #172): `image.RemoveImages` guards with the Slice 1 seam —
+`inUseImageReferences` unions the project-state scan with the image refs held by
+live project/task sandboxes, and `refuseReferencedImages` names every referencing
+project — before prompting; `--force` skips the guard and is passed through to
+`ImageRemove`. `vm.RemoveSandbox` accepts only `agents-sandbox-vm-*` names,
+refuses a running VM unless `--force` (which stops it first), and drops the
+persisted per-agent state only when `--force` is set; a same-name replacement
+(stale handle) fails closed. Both commands, and the retrofitted `volume remove`,
+confirm through `termio.ConfirmAction` unless the global `--yes` is set; the
+guard runs before the prompt, so a refusal fails fast without prompting.
+
 ### Slice 5 — Storage accounting
 
 Tracked as issue **#155** (the canonical ticket for this slice).
@@ -268,7 +279,9 @@ docker images, and msb images, but not runtime RAM.
 - **Destructive**: every removal/prune supports `--yes` to authorize
   non-interactively, and removal supports `--force` to override a
   reference/ownership guard. `--force` overrides a guard; `--yes` skips a
-  confirmation prompt — distinct, and they may coexist.
+  confirmation prompt — distinct, and they may coexist. Every removal command
+  prompts (Slice 4 retrofitted `volume remove`, which previously never did), and
+  the guard runs before the prompt so a refusal fails fast.
 - **Age threshold**: `--older-than` is the canonical flag (msb's spelling);
   `--age` is deprecated (hidden, warns, still honored; both set together is an
   error).

@@ -410,6 +410,26 @@ agents-sandbox image inspect <ref> --quiet         # reference only
   - `--format json` — structured output on stdout
   - `-q`/`--quiet` — print the reference only
 
+#### image remove
+
+Remove one or more cached runner images by reference. Refuses when an image is
+still in use — recorded by a project's state file or held by a live project/task
+sandbox — naming the referencing projects, so an in-use image is never silently
+deleted; pass `--force` to remove it anyway. Prompts for confirmation unless the
+global `--yes` is set; non-interactively, `--yes` is required.
+
+```console
+agents-sandbox image remove agents-sandbox/runner-myproj-aBc1234D:latest
+agents-sandbox image remove <ref>... --force   # remove even when still in use
+```
+
+- **Args:** one or more `ref`
+- **Flags:**
+  - `--force` — remove even when a project or sandbox still references the image
+  - `--yes` (global) — skip the confirmation prompt
+
+**Aliases:** `image rm`
+
 #### image build
 
 Build or rebuild the runner image. Equivalent to the top-level `build` command.
@@ -422,7 +442,7 @@ agents-sandbox image build
 
 ### sandbox
 
-Parent command that groups sandbox-related subcommands. Most (`run`, `shell`, `stop`, `kill`, `list`) are also available at the top level; `sandbox inspect` lives only under this group.
+Parent command that groups sandbox-related subcommands. Most (`run`, `shell`, `stop`, `kill`, `list`) are also available at the top level; `sandbox inspect` and `sandbox remove` live only under this group.
 
 ```console
 agents-sandbox sandbox run
@@ -451,6 +471,27 @@ agents-sandbox sandbox inspect <name> --quiet         # name only
 - **Flags:**
   - `--format json` — structured output on stdout
   - `-q`/`--quiet` — print the name only
+
+#### sandbox remove
+
+Remove a project sandbox VM by name. Only agents-sandbox project VMs
+(`agents-sandbox-vm-*`) are accepted. Refuses a running VM unless `--force` is
+set, which stops it first. `--force` also drops the project's persisted state, so
+the next run starts fresh; without it, the recorded state is left intact. Prompts
+for confirmation unless the global `--yes` is set; non-interactively, `--yes` is
+required.
+
+```console
+agents-sandbox sandbox remove agents-sandbox-vm-aBc1234D
+agents-sandbox sandbox remove <name> --force   # stop a running VM and drop its state
+```
+
+- **Args:** `name` — the sandbox name
+- **Flags:**
+  - `--force` — stop a running VM and drop its persisted project state
+  - `--yes` (global) — skip the confirmation prompt
+
+**Aliases:** `sandbox rm`
 
 ---
 
@@ -575,10 +616,12 @@ Create a new volume alongside the old one, for manual data transfer.
 
 #### `agents-sandbox volume remove <name>...`
 
-Remove one or more home volumes by name. Never prompts. Refuses when a volume is
-still referenced by a project's state file (naming the referencing projects), so
-a project's recorded home is never silently orphaned; pass `--force` to remove it
-anyway. The next run of an affected project then starts a fresh home.
+Remove one or more home volumes by name. Refuses when a volume is still
+referenced by a project's state file (naming the referencing projects), so a
+project's recorded home is never silently orphaned; pass `--force` to remove it
+anyway. Prompts for confirmation unless the global `--yes` is set;
+non-interactively, `--yes` is required. The next run of an affected project then
+starts a fresh home.
 
 ```console
 agents-sandbox volume remove agents-sandbox-home-myproj-aBc1234D-opencode-20260812T123456
@@ -587,5 +630,6 @@ agents-sandbox volume remove agents-sandbox-home-myproj-aBc1234D-opencode-202608
 - **Args:** one or more `volume-name`
 - **Flags:**
   - `--force` — remove even when a project still references the volume
+  - `--yes` (global) — skip the confirmation prompt
 
 **Aliases:** `volume rm`
