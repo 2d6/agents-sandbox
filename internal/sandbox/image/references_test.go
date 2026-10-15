@@ -1,9 +1,12 @@
 package image
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -19,8 +22,8 @@ func TestInUseImageReferencesUnionsProjectStatesAndKeptSandboxes(t *testing.T) {
 	}
 	pinnedKey := state.Key{Slug: "live-1mjusbm3wikhb0", Agent: "opencode"}
 	pinned := &msb.MockSandboxHandle{
-		Name_:  "agents-sandbox-vm-live-1mjusbm3wikhb0-opencode",
-		Image_: "agents-sandbox/runner-live-1mjusbm3wikhb0:digestOld",
+		Name_: "agents-sandbox-vm-live-1mjusbm3wikhb0-opencode",
+		Cfg:   &msbSdk.SandboxConfig{Image: "agents-sandbox/runner-live-1mjusbm3wikhb0:digestOld"},
 	}
 
 	references, err := InUseImageReferences([]msb.SandboxHandle{pinned})
@@ -44,8 +47,8 @@ func TestInUseImageReferencesDeduplicatesProjectAndSandbox(t *testing.T) {
 		t.Fatalf("write project state: %v", err)
 	}
 	same := &msb.MockSandboxHandle{
-		Name_:  "agents-sandbox-vm-proj-1mjusbm3wikhb0-opencode",
-		Image_: naming.RunnerImageRef(key.Slug, key.Agent),
+		Name_: "agents-sandbox-vm-proj-1mjusbm3wikhb0-opencode",
+		Cfg:   &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(key.Slug, key.Agent)},
 	}
 
 	references, err := InUseImageReferences([]msb.SandboxHandle{same})
@@ -59,7 +62,10 @@ func TestInUseImageReferencesDeduplicatesProjectAndSandbox(t *testing.T) {
 
 func TestInUseImageReferencesSkipsSandboxesWithoutImage(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	empty := &msb.MockSandboxHandle{Name_: "agents-sandbox-vm-proj-aBc1234D-opencode"}
+	empty := &msb.MockSandboxHandle{
+		Name_: "agents-sandbox-vm-proj-aBc1234D-opencode",
+		Cfg:   &msbSdk.SandboxConfig{},
+	}
 
 	references, err := InUseImageReferences([]msb.SandboxHandle{empty})
 	if err != nil {
@@ -67,6 +73,18 @@ func TestInUseImageReferencesSkipsSandboxesWithoutImage(t *testing.T) {
 	}
 	if len(references) != 0 {
 		t.Fatalf("references = %v, want empty (sandbox has no image ref)", references)
+	}
+}
+
+func TestInUseImageReferencesFailsClosedOnUnreadableSandboxConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	broken := &msb.MockSandboxHandle{
+		Name_:     "agents-sandbox-vm-proj-aBc1234D-opencode",
+		ConfigErr: errors.New("sandbox gone"),
+	}
+
+	if _, err := InUseImageReferences([]msb.SandboxHandle{broken}); !errors.Is(err, broken.ConfigErr) {
+		t.Fatalf("InUseImageReferences() error = %v, want the sandbox config error (fail closed)", err)
 	}
 }
 

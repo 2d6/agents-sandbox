@@ -133,7 +133,9 @@ mapping each state to the per-agent runner ref its slug and agent derive
 legacy agent-less key owns none, since runner images are per-agent.
 `image.InUseImageReferences(keptSandboxes)` unions that scan with the image refs of
 the given kept sandboxes, attributing each to the key parsed from the sandbox
-name and de-duplicating.
+name and de-duplicating. It reads each sandbox's image from `Config` (not
+`Image`, which swallows the config error) so an unreadable sandbox config fails
+closed rather than silently dropping the reference.
 
 ### Slice 2 — Home layout accounting seam (groundwork)
 
