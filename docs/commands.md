@@ -14,8 +14,8 @@ These flags are available on every command.
 
 | Flag          | Short | Default | Purpose                                                         |
 |---------------|-------|---------|-----------------------------------------------------------------|
-| `--yes`       | `-y`  | `false` | Assume yes to all prompts                                       |
-| `--quiet`     | `-q`  | `false` | Suppress stdout output                                          |
+| `--yes`       | `-y`  | `false` | Assume yes to all prompts; authorizes destructive commands non-interactively |
+| `--quiet`     | `-q`  | `false` | On list commands, print identifiers only; otherwise suppress stdout output |
 | `--log-level` | `-l`  | `info`  | Minimum log level to show (`error`, `warning`, `info`, `verbose`) |
 
 ## Commands
@@ -172,18 +172,26 @@ Remove stale VMs, volumes, and images in one pass. Staleness is determined by ag
 are pruned. The summary line reads `Pruned N VMs, N home volumes, N docker images, N msb images`. To prune a single
 artifact type, use the `image prune`, `volume prune`, or `sandbox prune` subcommands below.
 
+Unless `--dry-run` is set, prune asks for confirmation before removing anything (defaulting to no). Pass the global
+`--yes` to skip the prompt; non-interactively, `--yes` is required or the command fails fast instead of blocking.
+`--dry-run` only previews and never prompts.
+
 ```console
-agents-sandbox prune                       # use --age, else manual-prune-age from config, else 7d
-agents-sandbox prune -a 24h                # 24-hour threshold
-agents-sandbox prune --dry-run             # preview only
+agents-sandbox prune                       # use --older-than, else manual-prune-age from config, else 7d
+agents-sandbox prune --older-than 24h      # 24-hour threshold
+agents-sandbox prune --yes                 # skip the confirmation prompt
+agents-sandbox prune --dry-run             # preview only (no prompt)
+agents-sandbox prune --format json         # machine-readable report on stdout
 ```
 
 **Flags:**
 
 | Flag           | Short | Default | Purpose                            |
 |----------------|-------|---------|------------------------------------|
-| `--age`        | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
-| `--dry-run`    | `-n`  | `false` | Preview what would be pruned       |
+| `--older-than` | —     | `7d`    | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--age`        | `-a`  | —       | Deprecated alias for `--older-than`. Hidden; still honored but warns. Setting both is an error. |
+| `--dry-run`    | `-n`  | `false` | Preview what would be pruned (no confirmation) |
+| `--format`     | —     | `""`    | Output format. `json` prints a structured report on stdout. |
 
 ---
 
@@ -196,16 +204,20 @@ refreshing an image tag while an older VM still points at the previous manifest.
 
 ```console
 agents-sandbox image prune                      # use manual-prune-age from config (default: 7d)
-agents-sandbox image prune -a 24h               # 24-hour threshold
+agents-sandbox image prune --older-than 24h     # 24-hour threshold
+agents-sandbox image prune --yes                # skip the confirmation prompt
 agents-sandbox image prune --dry-run            # preview only
+agents-sandbox image prune --format json        # machine-readable report on stdout
 ```
 
 **Flags:**
 
-| Flag        | Short | Default | Purpose                                                                             |
-|-------------|-------|---------|-------------------------------------------------------------------------------------|
-| `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
-| `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
+| Flag           | Short | Default | Purpose                                                                             |
+|----------------|-------|---------|-------------------------------------------------------------------------------------|
+| `--older-than` | —     | `7d`    | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--age`        | `-a`  | —       | Deprecated alias for `--older-than`. Hidden; still honored but warns. Setting both is an error. |
+| `--dry-run`    | `-n`  | `false` | Show what would be pruned without deleting (no confirmation)                        |
+| `--format`     | —     | `""`    | Output format. `json` prints a structured report on stdout.                         |
 
 ---
 
@@ -216,16 +228,20 @@ state file is removed too.
 
 ```console
 agents-sandbox volume prune                     # use manual-prune-age from config (default: 7d)
-agents-sandbox volume prune -a 24h              # 24-hour threshold
+agents-sandbox volume prune --older-than 24h    # 24-hour threshold
+agents-sandbox volume prune --yes               # skip the confirmation prompt
 agents-sandbox volume prune --dry-run           # preview only
+agents-sandbox volume prune --format json       # machine-readable report on stdout
 ```
 
 **Flags:**
 
-| Flag        | Short | Default | Purpose                                                                             |
-|-------------|-------|---------|-------------------------------------------------------------------------------------|
-| `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
-| `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
+| Flag           | Short | Default | Purpose                                                                             |
+|----------------|-------|---------|-------------------------------------------------------------------------------------|
+| `--older-than` | —     | `7d`    | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--age`        | `-a`  | —       | Deprecated alias for `--older-than`. Hidden; still honored but warns. Setting both is an error. |
+| `--dry-run`    | `-n`  | `false` | Show what would be pruned without deleting (no confirmation)                        |
+| `--format`     | —     | `""`    | Output format. `json` prints a structured report on stdout.                         |
 
 ---
 
@@ -235,16 +251,20 @@ Prune stale sandboxes and leftover task workers. Task sandboxes fold into the VM
 
 ```console
 agents-sandbox sandbox prune                    # use manual-prune-age from config (default: 7d)
-agents-sandbox sandbox prune -a 24h             # 24-hour threshold
+agents-sandbox sandbox prune --older-than 24h   # 24-hour threshold
+agents-sandbox sandbox prune --yes              # skip the confirmation prompt
 agents-sandbox sandbox prune --dry-run          # preview only
+agents-sandbox sandbox prune --format json      # machine-readable report on stdout
 ```
 
 **Flags:**
 
-| Flag        | Short | Default | Purpose                                                                             |
-|-------------|-------|---------|-------------------------------------------------------------------------------------|
-| `--age`     | `-a`  | config  | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
-| `--dry-run` | `-n`  | `false` | Show what would be pruned without deleting                                          |
+| Flag           | Short | Default | Purpose                                                                             |
+|----------------|-------|---------|-------------------------------------------------------------------------------------|
+| `--older-than` | —     | `7d`    | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--age`        | `-a`  | —       | Deprecated alias for `--older-than`. Hidden; still honored but warns. Setting both is an error. |
+| `--dry-run`    | `-n`  | `false` | Show what would be pruned without deleting (no confirmation)                        |
+| `--format`     | —     | `""`    | Output format. `json` prints a structured report on stdout.                         |
 
 ---
 
@@ -256,6 +276,8 @@ List all sandboxes on this host (across all projects).
 agents-sandbox list
 agents-sandbox ls
 agents-sandbox sandbox list
+agents-sandbox list --quiet              # names only
+agents-sandbox list --format json        # machine-readable output
 ```
 
 **Aliases:** `ls`, `sandbox list`
@@ -267,6 +289,10 @@ microsandbox when color is enabled (`running` green, `stopped`/`created` dim,
 transitional states yellow, `crashed` red); with color disabled it renders as
 plain text.
 
+The default output is the human table. Pass `-q`/`--quiet` to print identifiers
+only (one sandbox name per line), or `--format json` for structured output (a
+top-level array on stdout). The two are mutually exclusive.
+
 **Flags:**
 
 | Flag         | Short | Default | Purpose                                                                                                  |
@@ -275,7 +301,7 @@ plain text.
 | `--limit`    | —     | `0`     | Limit the number of sandboxes listed (`0` = no limit).                                                   |
 | `--running`  | —     | `false` | Only list running sandboxes.                                                                             |
 | `--stopped`  | —     | `false` | Only list stopped sandboxes.                                                                            |
-| `--names`    | —     | `false` | Print names only (no header, no status, image, or created columns).                                     |
+| `--names`    | —     | `false` | Deprecated alias for `--quiet`. Hidden; still honored but warns.                                         |
 | `--format`   | —     | `""`    | Output format. `json` prints a top-level array of `{name,status,image,created,updated,labels}` objects. |
 
 `--running` wins over `--stopped` when both are set.
@@ -356,9 +382,15 @@ reports it.
 ```console
 agents-sandbox image list
 agents-sandbox image ls
+agents-sandbox image list --quiet            # references only
+agents-sandbox image list --format json      # machine-readable output
 ```
 
 **Aliases:** `image ls`
+
+The default output is the human table. Pass `-q`/`--quiet` to print references
+only (one per line), or `--format json` for structured output (a top-level array
+on stdout). The two are mutually exclusive.
 
 #### image build
 
@@ -445,9 +477,15 @@ List all managed home volumes.
 
 ```console
 agents-sandbox volume list
+agents-sandbox volume list --quiet           # names only
+agents-sandbox volume list --format json     # machine-readable output
 ```
 
 Columns: `NAME`, `KIND`, `SIZE`, `CREATED` (`YYYY-MM-DD HH:MM:SS`). `SIZE` shows capacity for disk volumes and quota for directory volumes, or `-` when unavailable.
+
+The default output is the human table. Pass `-q`/`--quiet` to print names only
+(one per line), or `--format json` for structured output (a top-level array on
+stdout). The two are mutually exclusive.
 
 **Aliases:** `volume ls`
 
