@@ -34,7 +34,8 @@
 
 **Files:**
 - Modify: `internal/sandbox/state/root.go`
-- Test: `internal/sandbox/state/root_test.go`
+- Modify: `internal/sandbox/runtimemigration/offer.go`
+- Test: `internal/sandbox/state/root_test.go`, `internal/sandbox/runtimemigration/offer_test.go`
 
 **Interfaces:**
 - Consumes: `atomicwrite.WriteFile`, `yaml.Marshal` (existing `marshalRootState` seam), `stateRoot()`.
@@ -45,6 +46,7 @@
   - `func (s *RootState) Migration(name string) (Migration, bool)` — missing registry or name returns `(Migration{}, false)` (the pending state).
   - `func (s *RootState) SetMigration(name string, m Migration)` — initializes the map if nil.
   - `func UpdateRootState(mutate func(*RootState)) error` — read-modify-write through `ReadRootState`/`WriteRootState`.
+  - `const MigrationName = "runtime_home"` (package `runtimemigration`) — introduced here in `offer.go`, consumed by Tasks 2–4.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -199,16 +201,25 @@ func UpdateRootState(mutate func(*RootState)) error {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Switch `offer.go` to the registry (keeps the module compiling)**
 
-Run: `go test ./internal/sandbox/state/ -v`
+Removing `RuntimeHomeMigration` breaks `internal/sandbox/runtimemigration/offer.go`, so migrate its call sites in this task. Add `const MigrationName = "runtime_home"`. Replace the `rootState.RuntimeHomeMigration.Dismissed` read with a `root.Migration(MigrationName)` status check (`state.MigrationDismissed`), and replace the start-fresh `state.WriteRootState(state.RootState{RuntimeHomeMigration: state.RuntimeHomeMigration{Dismissed: true}})` with `state.UpdateRootState(func(root *state.RootState) { root.SetMigration(MigrationName, state.Migration{Status: state.MigrationDismissed}) })`. Leave the `NecessaryVolumes()` and `CopyVolumes(ctx, client, names, ui)` calls unchanged (later tasks change them). Update the `RuntimeHomeMigration` references in `offer_test.go` (`TestOfferDismissedDoesNotPrompt`, `TestOfferChooseStartFreshPersistsDismissal`, `TestOfferChooseQuitAborts`, `TestOfferSelectErrorAborts`) to read/write via `root.Migration(MigrationName)`.
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `go test ./internal/sandbox/state/ ./internal/sandbox/runtimemigration/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Lint and commit**
+- [ ] **Step 6: Verify the whole module compiles**
+
+Run: `go build ./...`
+Expected: no errors (confirms no remaining caller of the removed `RuntimeHomeMigration`).
+
+- [ ] **Step 7: Lint and commit**
 
 ```bash
 make fmt && make lint
-git add internal/sandbox/state/root.go internal/sandbox/state/root_test.go
+git add internal/sandbox/state/root.go internal/sandbox/state/root_test.go internal/sandbox/runtimemigration/offer.go internal/sandbox/runtimemigration/offer_test.go
 git commit -m "feat(state): add a migrations registry to root state"
 ```
 
@@ -290,7 +301,7 @@ Expected: compile error — `necessaryVolumes` arity mismatch, `state` unused/mi
 
 - [ ] **Step 3: Implement in `internal/sandbox/runtimemigration/legacy.go`**
 
-Add `MigrationName`. Change `necessaryVolumes` to the three-arg status-aware form above. Rename `privateVolumeNames` → `presentPrivateVolumeNames` and drop the marker filtering (return all `naming.HomePrefix`-prefixed dirs). Delete `hasCopyCompleteMarker` and the `strings`-using marker logic if now unused (keep `strings` for the prefix check). Rewrite `Necessary`/`NecessaryVolumes` to read root state:
+`MigrationName` already exists (defined in `offer.go` by Task 1). Change `necessaryVolumes` to the three-arg status-aware form above. Rename `privateVolumeNames` → `presentPrivateVolumeNames` and drop the marker filtering (return all `naming.HomePrefix`-prefixed dirs). Delete `hasCopyCompleteMarker` and the `strings`-using marker logic if now unused (keep `strings` for the prefix check). Rewrite `Necessary`/`NecessaryVolumes` to read root state:
 
 ```go
 func NecessaryVolumes() ([]string, error) {
@@ -316,7 +327,12 @@ func necessaryVolumesFor(m state.Migration) ([]string, error) {
 Run: `go test ./internal/sandbox/runtimemigration/ -run TestNecessary -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Verify the whole module compiles**
+
+Run: `go build ./...`
+Expected: no errors (`Necessary`/`NecessaryVolumes` signatures are unchanged, so no caller breaks).
+
+- [ ] **Step 6: Lint and commit**
 
 ```bash
 make fmt && make lint
@@ -331,7 +347,8 @@ git commit -m "feat(migration): derive legacy necessity from migration status"
 **Files:**
 - Create: `internal/sandbox/runtimemigration/lock.go`
 - Modify: `internal/sandbox/runtimemigration/copy.go`
-- Test: `internal/sandbox/runtimemigration/lock_test.go`, `internal/sandbox/runtimemigration/copy_test.go`
+- Modify: `internal/sandbox/runtimemigration/offer.go` (call-site update for the `CopyVolumes` arity change)
+- Test: `internal/sandbox/runtimemigration/lock_test.go`, `internal/sandbox/runtimemigration/copy_test.go`, `internal/sandbox/runtimemigration/offer_test.go`
 
 **Interfaces:**
 - Consumes: Task 1 (`state.Migration`, `state.MigrationCopying/Completed`, `state.UpdateRootState`, `state.RootState.SetMigration`), Task 2 (`MigrationName`, `necessaryVolumesFor`), `state.FlockExclusive`, `runtime.PrivateHome`, `msb.Client`.
@@ -423,8 +440,11 @@ func TestCopyVolumesExcludesVolumeScopedFailureAndCompletes(t *testing.T) {
 	}
 	root, _ := state.ReadRootState()
 	m, _ := root.Migration(MigrationName)
-	if m.Status != state.MigrationCompleted || len(m.Excluded) != 1 || m.Excluded[0] != bad {
-		t.Fatalf("migration = %+v, want completed with %q excluded", m, bad)
+	// Terminal status drops the transient lists (per spec: a campaign reaching
+	// `completed` collapses to the status word). The exclusion itself is observed
+	// mid-campaign in TestCopyVolumesRecordsExclusionBeforeCompleting.
+	if m.Status != state.MigrationCompleted || len(m.Copied) != 0 || len(m.Excluded) != 0 {
+		t.Fatalf("migration = %+v, want terminal completed with no transient lists", m)
 	}
 	if len(ui.WarnCalls) == 0 {
 		t.Error("no warning for the excluded volume")
@@ -605,16 +625,25 @@ func copyVolume(ctx context.Context, client msb.Client, legacyHome, name string)
 }
 ```
 
-- [ ] **Step 6: Run the migration tests to verify they pass**
+- [ ] **Step 6: Update the `offer.go` call site for the new `CopyVolumes` arity**
+
+`CopyVolumes` no longer takes `names`. In `offer.go`, change the `choiceCopy` branch's `CopyVolumes(ctx, client, names, ui)` to `CopyVolumes(ctx, client, ui)`. Leave the rest of `Offer` (the `names` derivation for the prompt, the terminal check from Task 1) intact; Task 4 rewrites the flow.
+
+- [ ] **Step 7: Run the migration tests to verify they pass**
 
 Run: `go test ./internal/sandbox/runtimemigration/ -v`
-Expected: PASS (offer tests will still fail to compile until Task 4 — if so, run only the copy/lock subset now: `go test ./internal/sandbox/runtimemigration/ -run 'TestAcquireMigrationLock|TestCopyVolumes|TestCopyTree' -v`).
+Expected: PASS.
 
-- [ ] **Step 7: Lint and commit**
+- [ ] **Step 8: Verify the whole module compiles**
+
+Run: `go build ./...`
+Expected: no errors.
+
+- [ ] **Step 9: Lint and commit**
 
 ```bash
 make fmt && make lint
-git add internal/sandbox/runtimemigration/lock.go internal/sandbox/runtimemigration/copy.go internal/sandbox/runtimemigration/lock_test.go internal/sandbox/runtimemigration/copy_test.go
+git add internal/sandbox/runtimemigration/lock.go internal/sandbox/runtimemigration/copy.go internal/sandbox/runtimemigration/offer.go internal/sandbox/runtimemigration/lock_test.go internal/sandbox/runtimemigration/copy_test.go
 git commit -m "feat(migration): copy legacy volumes under a host-only lock with exact resume"
 ```
 
