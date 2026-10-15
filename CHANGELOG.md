@@ -62,6 +62,9 @@ command reports the bare version (e.g. `0.1.0`).
   volume, a cached runner image, or a sandbox VM (identity, storage/image configuration, mounts, resources). Each
   supports `--format json` (structured output on stdout) and the global `-q`/`--quiet` (the identifier only). Slice 3 of
   the runtime-management epic (#165).
+- Sessions started inside a git worktree now bind the enclosing checkout at `/workspace` and start the agent in that
+  worktree, so bare checkouts whose worktrees live inside the checkout work host-and-VM-consistently; a worktree outside
+  its checkout keeps the current behavior and warns.
 
 ### Fixed
 
