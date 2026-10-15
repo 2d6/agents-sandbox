@@ -32,6 +32,7 @@ type Mock struct {
 	OutCalls     []string
 	PrintCalls   []string
 	SpinnerCalls []string
+	ConfirmCalls []string
 	StdOutBuffer bytes.Buffer
 	StdErrBuffer bytes.Buffer
 
@@ -39,6 +40,8 @@ type Mock struct {
 	assumeYes           bool
 	quiet               bool
 	IsInteractiveResult bool
+	ConfirmResult       bool
+	ConfirmErr          error
 
 	SelectFn func(prompt string, choices []Choice, defaultKey string) (string, error)
 	InputFn  func(prompt, defaultValue string) (string, error)
@@ -204,6 +207,13 @@ func (m *Mock) Input(prompt, defaultValue string) (string, error) {
 		return inputFn(prompt, defaultValue)
 	}
 	return defaultValue, nil
+}
+
+func (m *Mock) Confirm(prompt string, defaultYes bool) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ConfirmCalls = append(m.ConfirmCalls, prompt)
+	return m.ConfirmResult, m.ConfirmErr
 }
 
 func (m *Mock) StdOut() io.Writer {

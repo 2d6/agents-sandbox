@@ -74,6 +74,30 @@ func TestMockPromptDefaults(t *testing.T) {
 	}
 }
 
+func TestMockConfirmRecordsPromptAndReturnsConfigured(t *testing.T) {
+	m := &Mock{ConfirmResult: true}
+	got, err := m.Confirm("Remove it?", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got {
+		t.Error("expected configured ConfirmResult true")
+	}
+	if len(m.ConfirmCalls) != 1 || m.ConfirmCalls[0] != "Remove it?" {
+		t.Errorf("expected recorded prompt, got %v", m.ConfirmCalls)
+	}
+
+	boom := errors.New("boom")
+	m = &Mock{ConfirmErr: boom}
+	got, err = m.Confirm("Remove it?", true)
+	if !errors.Is(err, boom) {
+		t.Errorf("expected configured error, got %v", err)
+	}
+	if got {
+		t.Error("expected false result alongside error")
+	}
+}
+
 func TestMockIsSafeForConcurrentUse(t *testing.T) {
 	m := &Mock{}
 	const workers = 8
