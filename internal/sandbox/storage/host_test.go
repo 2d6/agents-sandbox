@@ -24,6 +24,9 @@ func writeFile(t *testing.T, path string, size int) {
 // lockedRuntimeHome returns a private home whose bin subtree cannot be read.
 func lockedRuntimeHome(t *testing.T) string {
 	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0 does not block directory reads")
+	}
 	home := t.TempDir()
 	locked := filepath.Join(home, "bin", "locked")
 	writeFile(t, filepath.Join(locked, "msb"), 10)
