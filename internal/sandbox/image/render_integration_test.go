@@ -168,15 +168,16 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 // TestRenderDockerfileAgentVersionRebuildsInstall is the regression guard for
 // the stale-agent-layer bug: a changed agent version must re-run the agent
 // install RUN so the new release is baked, while the node and docker install
-// layers stay cached.
+// layers stay cached. It uses pi, the one agent whose render includes all three
+// tool stages (node + agent + docker).
 func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
 	t.Cleanup(func() { docker.Get = origGet })
 
-	a, ok := agent.Lookup("opencode")
+	a, ok := agent.Lookup("pi")
 	if !ok {
-		t.Fatal("opencode agent not registered")
+		t.Fatal("pi agent not registered")
 	}
 
 	project := []byte(
@@ -190,7 +191,11 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 	})
 
 	// Prime the cache with an older release, then rebuild with a newer one.
-	oldVersion, newVersion := "1.18.35", "1.19.0"
+	// Both must differ from the agent's resolved latest: the other pi tests in
+	// this package build pi@latest, which would cache the exact agent install
+	// layer this build needs to re-run (the shared classic-builder cache is keyed
+	// on content, not the tag).
+	oldVersion, newVersion := "1.0.0", "1.1.0"
 	buildDockerfileTag(t, a, renderBytesVersion(t, a, oldVersion, project, true), oldVersion, true, tag)
 
 	var lines []string

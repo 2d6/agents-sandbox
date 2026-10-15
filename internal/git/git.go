@@ -120,8 +120,9 @@ func originURL(root string) string {
 // resolveGitDir returns the absolute git directory for the checkout rooted at
 // root. For a normal checkout that is root/.git; for a linked worktree, whose
 // root/.git is a file containing "gitdir: <shared>.git/worktrees/<name>", it
-// returns the shared <shared>.git directory. It returns "" if the checkout is
-// not a repo.
+// returns the shared <shared>.git directory. Git may write that gitdir path
+// relative to the worktree (worktree.useRelativePaths), so a relative path is
+// resolved against root. It returns "" if the checkout is not a repo.
 func resolveGitDir(root string) string {
 	path := filepath.Join(root, ".git")
 	info, err := os.Stat(path)
@@ -142,7 +143,10 @@ func resolveGitDir(root string) string {
 	}
 	dir = strings.TrimSpace(dir)
 	if i := strings.LastIndex(dir, "/worktrees/"); i >= 0 {
-		return dir[:i]
+		dir = dir[:i]
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(root, dir)
 	}
 	return dir
 }

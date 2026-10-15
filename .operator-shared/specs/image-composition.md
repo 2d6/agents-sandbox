@@ -141,12 +141,13 @@ intact. The old finalize-time `daemon.json` overwrite is removed.
 The node stage exists to install/run npm-based agents; opencode v1 is a native Bun binary that does not need it. Facts
 that constrain the stage:
 
-- The pin is the **v24 LTS line (`v24.21.0`)**, not v26, because the v26 official tarballs gained a hard
-  `DT_NEEDED` on `libatomic.so.1`; the managed base (and most custom bases) does not provide it, so on the managed base
-  the npm agent's install `RUN` (which invokes `node` via npm's shebang) failed the build, and a native-agent image left a
-  `node`/`npx` that could not start ([#132](https://github.com/inoio/agents-sandbox/issues/132)). v24 has no libatomic
-  dependency on x86_64 or arm64. Every npm agent satisfies it (`pi` `>=22.19.0`, `claude-code` `>=22.0.0`; `opencode2`
-  unconstrained) — the earlier `v22.14.0` pin failed only because it was below pi's `>=22.19.0`.
+- Keep the pin **below v25**; it sits on the **v24 LTS line (`v24.21.0`)**. Node v25 and v26 official tarballs carry a
+  hard `DT_NEEDED` on `libatomic.so.1`, which the managed base (and most custom bases) does not provide, so on the managed
+  base the npm agent's install `RUN` (which invokes `node` via npm's shebang) failed the build, and a native-agent image
+  left a `node`/`npx` that could not start ([#132](https://github.com/inoio/agents-sandbox/issues/132)). v24 has no
+  libatomic dependency on x86_64 or arm64. There is **no solution yet for custom bases** that need node >= 25. Every npm
+  agent satisfies v24 (`pi` `>=22.19.0`, `claude-code` `>=22.0.0`; `opencode2` unconstrained) — the earlier `v22.14.0`
+  pin failed only because it was below pi's `>=22.19.0`.
 - Regression guard: `TestRenderDockerfileNpmAgentNodeRuns` (integration) builds an npm agent on the managed base and runs
   `node --version`/`npm --version` in the image; `TestRenderDockerfileBuilds` builds only the native `opencode`, so it
   cannot catch a broken node. A future pin that reintroduces libatomic must add `libatomic1` to the embedded base (a

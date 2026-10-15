@@ -35,6 +35,9 @@
 - `buildkit-builder-vm.md`
   - Description: Design for issue #15: build the runner image without host Docker by running `buildkitd` inside a microsandbox VM, driven by a host-side BuildKit Go client over a published TCP port; free/unique host port invariant, `native` snapshotter, wildcard guest bind, named-volume cache, `ImageLoad` delivery, identity/reuse via the msb cache, removal of `internal/sandbox/docker` + `doctor.CheckDocker`, registry auth via the BuildKit session, and open decisions (base-digest resolver, export format, builder VM reuse, cache scope, credential source). Validated by `spike/buildkit-vm/`.
   - Read If: Implementing or reviewing the Docker-free BuildKit builder (issue #15), the `internal/sandbox/builder` package, or changes to the image build/inspect/load pipeline and doctor prerequisites.
+- `runtime-management-commands.md`
+  - Description: Contract for extending the CLI to cover microsandbox's *management* surface against the private runtime home: `volume inspect`, `image inspect`/`remove`, `sandbox remove`/`inspect`/`copy`, a top-level `df` plus a `storage` group alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions. Specified as ordered, independently shippable slices (0 shared CLI conventions, 1 image reference-guard seam, 2 home-layout accounting seam, then inspection/removal/df/copy commands) with groundwork landing before any user-facing command. Explicitly excludes msb's lifecycle, exec/logs/metrics, pull/load/save, registry, cloud, and self-install surfaces.
+  - Read If: Adding or reviewing volume/image/sandbox inspection and removal commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
 
 ### `plans/` - TDD implementation plans
 

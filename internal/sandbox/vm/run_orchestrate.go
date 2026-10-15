@@ -61,6 +61,22 @@ func (s *Session) ServeHostPort() int {
 // legacy home; production always uses runtimemigration.Offer.
 var offerRuntimeHomeMigration = runtimemigration.Offer
 
+// SetRuntimeHomeMigrationOffer replaces the session-start migration offer used
+// by PrepareSandbox and returns the previous value. Tests in any package use it
+// to seal PrepareSandbox off from the developer's real legacy home:
+//
+//	orig := vm.SetRuntimeHomeMigrationOffer(func(context.Context, msb.Client, termio.UI) error {
+//		return nil
+//	})
+//	t.Cleanup(func() { vm.SetRuntimeHomeMigrationOffer(orig) })
+func SetRuntimeHomeMigrationOffer(
+	f func(ctx context.Context, client msb.Client, ui termio.UI) error,
+) func(ctx context.Context, client msb.Client, ui termio.UI) error {
+	orig := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = f
+	return orig
+}
+
 // PrepareSandbox builds (or reuses) the project VM, provisions config, and
 // returns a ready-to-attach Session. It is the setup half of a run:
 // Run and Shell in the session package call it and then attach to the result.

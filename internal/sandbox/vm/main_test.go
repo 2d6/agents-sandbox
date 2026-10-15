@@ -1,16 +1,22 @@
 package vm
 
 import (
+	"context"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
-	termio "github.com/inoio/agents-sandbox/internal/testutil/mocks"
+	mocks "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {
-	termio.InitFailFastMocks(m)
+	// Seal PrepareSandbox off from the developer's real legacy home: the default
+	// offer is a no-op, and the tests that exercise it opt in explicitly.
+	SetRuntimeHomeMigrationOffer(func(context.Context, msb.Client, termio.UI) error { return nil })
+	mocks.InitFailFastMocks(m)
 }
 
 // opencodeAgent returns the default opencode profile for tests that need a real
