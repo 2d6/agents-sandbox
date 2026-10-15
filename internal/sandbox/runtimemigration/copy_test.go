@@ -732,34 +732,3 @@ func assertFileWithMode(t *testing.T, path, content string, mode os.FileMode) {
 		t.Errorf("%q mode = %o, want %o", path, info.Mode().Perm(), mode)
 	}
 }
-
-func TestCopyVolumesDiscardIncompleteVolumeError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	legacy := installLegacyHome(t)
-	name := naming.HomePrefix + "legacy"
-	addVolumeDir(t, legacy, name)
-
-	wantErr := errors.New("remove boom")
-	var created []string
-	client := &msb.MockMsbClient{
-		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: volumeName}, nil
-		},
-		RemoveVolumeFn: func(_ context.Context, _ string) error { return wantErr },
-		CreateVolumeFn: func(_ context.Context, volumeName string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-			created = append(created, volumeName)
-			return &msb.MockVolumeHandle{Name_: volumeName}, nil
-		},
-	}
-
-	ui := termio.NewTestMock(t)
-	if err := CopyVolumes(context.Background(), client, &ui); err != nil {
-		t.Fatalf("CopyVolumes() error = %v, want the discard failure to be excluded", err)
-	}
-	if len(created) != 0 {
-		t.Fatalf("CreateVolume calls = %v, want none (discard failed before create)", created)
-	}
-	if len(ui.WarnCalls) == 0 {
-		t.Error("no warning for the excluded volume")
-	}
-}

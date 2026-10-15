@@ -107,7 +107,7 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 		}
 		return nil
 	case choiceFresh:
-		return dismissMigration()
+		return dismissMigration(ctx, client)
 	default:
 		return ErrMigrationPending
 	}
@@ -154,10 +154,13 @@ func finalizeCompletedCampaign() error {
 	})
 }
 
-// dismissMigration records the permanent opt-out under the lock, re-reading
-// first so a concurrent campaign's terminal write (completed or dismissed) is
-// not overwritten.
-func dismissMigration() error {
+// dismissMigration records the permanent opt-out under the lock, re-reading first
+// so a concurrent campaign's terminal write (completed or dismissed) is not
+// overwritten. It first removes every unclear private volume: recording the
+// dismissal while a usable partial remains would let the home resolver adopt an
+// incomplete home under a permanent opt-out. Volumes that were copied or kept at
+// the user's choice are preserved. A cleanup failure aborts the dismissal.
+func dismissMigration(ctx context.Context, client msb.Client) error {
 	return withMigrationLock(func() error {
 		root, err := state.ReadRootState()
 		if err != nil {
@@ -167,8 +170,38 @@ func dismissMigration() error {
 		if m.Status == state.MigrationCompleted || m.Status == state.MigrationDismissed {
 			return nil
 		}
+		if err := removeUnclearDestinations(ctx, client, m); err != nil {
+			return err
+		}
 		return saveMigration(state.Migration{Status: state.MigrationDismissed})
 	})
+}
+
+// removeUnclearDestinations removes every present private volume under a legacy
+// target name that is neither copied (fully migrated) nor kept (dismissed at the
+// user's choice). Such a volume is an interrupted copy's partial — or, in the
+// pending state, a copy whose registry entry was lost — and leaving it would let
+// the home resolver adopt an incomplete home.
+func removeUnclearDestinations(ctx context.Context, client msb.Client, m state.Migration) error {
+	presentTargets, err := presentLegacyTargetsFor()
+	if err != nil {
+		return err
+	}
+	protected := make(map[string]bool, len(m.Copied)+len(m.Kept))
+	for _, names := range [][]string{m.Copied, m.Kept} {
+		for _, name := range names {
+			protected[name] = true
+		}
+	}
+	for _, name := range presentTargets {
+		if protected[name] {
+			continue
+		}
+		if err := removeVolume(ctx, client, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // offerPrompt builds the prompt text, appending the unclear-volumes notice and

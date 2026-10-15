@@ -107,12 +107,12 @@ func startCampaign(legacyHome string) (state.Migration, error) {
 	return m, saveMigration(m)
 }
 
-// copyVolume discards any leftover partial volume, creates the destination
-// volume, and copies the legacy tree into it host-side. Completion is recorded
-// by the caller in the host-owned migration registry, never as a file inside
-// the guest-writable volume.
+// copyVolume removes any leftover partial under the target name, creates the
+// destination volume, and copies the legacy tree into it host-side. Completion
+// is recorded by the caller in the host-owned migration registry, never as a
+// file inside the guest-writable volume.
 func copyVolume(ctx context.Context, client msb.Client, legacyHome, name string) error {
-	if err := discardIncompleteVolume(ctx, client, name); err != nil {
+	if err := removeVolume(ctx, client, name); err != nil {
 		return err
 	}
 
@@ -128,16 +128,16 @@ func copyVolume(ctx context.Context, client msb.Client, legacyHome, name string)
 	return nil
 }
 
-// discardIncompleteVolume removes a leftover private volume under the target
-// name before a (re)copy. Such a volume is always an interrupted prior copy — a
-// campaign only re-copies names not recorded as Copied — so it must be discarded
-// for CreateVolume to recreate it.
-func discardIncompleteVolume(ctx context.Context, client msb.Client, name string) error {
+// removeVolume removes the private volume under name, if present. It returns an
+// error when a volume is present but cannot be removed, so a caller can refuse
+// to proceed while a usable partial destination remains. An absent volume needs
+// no removal and is not an error.
+func removeVolume(ctx context.Context, client msb.Client, name string) error {
 	if _, err := client.GetVolume(ctx, name); err != nil {
-		return nil //nolint:nilerr // a failed lookup means there is nothing to discard
+		return nil //nolint:nilerr // a failed lookup means there is nothing to remove
 	}
 	if err := client.RemoveVolume(ctx, name); err != nil {
-		return fmt.Errorf("discard incomplete volume %q: %w", name, err)
+		return fmt.Errorf("remove volume %q: %w", name, err)
 	}
 	return nil
 }

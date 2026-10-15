@@ -448,6 +448,161 @@ func makeLegacyVolumesUnlistable(t *testing.T, legacy string) {
 	}
 }
 
+// seedPartialDestination seeds an open copying campaign whose single legacy
+// target has a present, unrecorded destination: an interrupted copy's partial.
+func seedPartialDestination(t *testing.T, legacy, name string) {
+	t.Helper()
+	addVolumeDir(t, legacy, name)
+	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+		MigrationName: {Status: state.MigrationCopying},
+	}}); err != nil {
+		t.Fatalf("seed copying migration: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(runtime.PrivateHome(), "volumes", name), 0o750); err != nil {
+		t.Fatalf("seed partial destination: %v", err)
+	}
+}
+
+// TestOfferStartFreshRemovesUnfinishedDestination pins that choosing "start
+// fresh" after an interrupted copy cannot adopt the half-copied home: the
+// unfinished destination is removed before the dismissal is recorded, so the
+// home resolver creates a genuinely fresh volume.
+func TestOfferStartFreshRemovesUnfinishedDestination(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	name := naming.HomePrefix + "partial"
+	seedPartialDestination(t, legacy, name)
+
+	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+		},
+	}
+	var prompted bool
+	ui := interactiveUI(choiceFresh, &prompted)
+
+	if err := Offer(context.Background(), client, ui); err != nil {
+		t.Fatalf("Offer: %v", err)
+	}
+	if !prompted {
+		t.Fatal("Offer did not prompt")
+	}
+	if !slices.Contains(client.RemovedVolumes, name) {
+		t.Errorf("RemovedVolumes = %v, want the unfinished destination %q removed", client.RemovedVolumes, name)
+	}
+	root, _ := state.ReadRootState()
+	if m, _ := root.Migration(MigrationName); m.Status != state.MigrationDismissed {
+		t.Fatalf("status = %q, want dismissed", m.Status)
+	}
+}
+
+// TestOfferStartFreshRemovalFailureAborts pins that a failed cleanup blocks the
+// dismissal: recording "start fresh" while a usable partial remains would let the
+// home resolver adopt the half-copied home under a permanent opt-out.
+func TestOfferStartFreshRemovalFailureAborts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	name := naming.HomePrefix + "partial"
+	seedPartialDestination(t, legacy, name)
+
+	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+		},
+		RemoveVolumeFn: func(_ context.Context, _ string) error { return errors.New("remove boom") },
+	}
+	var prompted bool
+	ui := interactiveUI(choiceFresh, &prompted)
+
+	if err := Offer(context.Background(), client, ui); err == nil {
+		t.Fatal("Offer() error = nil, want an abort when the partial cannot be removed")
+	}
+	root, _ := state.ReadRootState()
+	if m, _ := root.Migration(MigrationName); m.Status == state.MigrationDismissed {
+		t.Fatal("migration was dismissed despite the failed partial cleanup")
+	}
+}
+
+func TestDismissMigrationStateReadError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	writeCorruptRootState(t)
+	if err := dismissMigration(context.Background(), &msb.MockMsbClient{}); err == nil {
+		t.Fatal("dismissMigration() error = nil, want a state read error")
+	}
+}
+
+// TestRemoveUnclearDestinationsRemovesOnlyUnclear pins the cleanup's
+// selectivity: it removes a present, unaccounted target (a partial) but leaves a
+// copied target, a user-kept target, and a private volume that is not a legacy
+// target.
+func TestRemoveUnclearDestinationsRemovesOnlyUnclear(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	partial := naming.HomePrefix + "partial"
+	copied := naming.HomePrefix + "copied"
+	kept := naming.HomePrefix + "kept"
+	addVolumeDir(t, legacy, partial)
+	addVolumeDir(t, legacy, copied)
+	addVolumeDir(t, legacy, kept)
+
+	privateHome := runtime.PrivateHome()
+	for _, name := range []string{partial, copied, kept, naming.HomePrefix + "unrelated"} {
+		if err := os.MkdirAll(filepath.Join(privateHome, "volumes", name), 0o750); err != nil {
+			t.Fatalf("seed %q: %v", name, err)
+		}
+	}
+	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: name}, nil
+		},
+	}
+	m := state.Migration{Status: state.MigrationCopying, Copied: []string{copied}, Kept: []string{kept}}
+	if err := removeUnclearDestinations(context.Background(), client, m); err != nil {
+		t.Fatalf("removeUnclearDestinations: %v", err)
+	}
+	assertSameSet(t, client.RemovedVolumes, []string{partial})
+}
+
+func TestRemoveUnclearDestinationsLegacyHomeError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("HOME", "")
+	if err := removeUnclearDestinations(
+		context.Background(), &msb.MockMsbClient{}, state.Migration{Status: state.MigrationCopying},
+	); err == nil {
+		t.Fatal("removeUnclearDestinations() error = nil, want legacy home resolution error")
+	}
+}
+
+func TestRemoveUnclearDestinationsLegacyListingError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	makeLegacyVolumesUnlistable(t, legacy)
+	if err := removeUnclearDestinations(
+		context.Background(), &msb.MockMsbClient{}, state.Migration{Status: state.MigrationCopying},
+	); err == nil {
+		t.Fatal("removeUnclearDestinations() error = nil, want legacy listing error")
+	}
+}
+
+func TestRemoveUnclearDestinationsPrivateListingError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	addVolumeDir(t, legacy, naming.HomePrefix+"target")
+
+	volumes := filepath.Join(runtime.PrivateHome(), "volumes")
+	if err := os.MkdirAll(filepath.Dir(volumes), 0o750); err != nil {
+		t.Fatalf("mkdir private home: %v", err)
+	}
+	if err := os.Symlink("volumes", volumes); err != nil {
+		t.Fatalf("symlink private volumes: %v", err)
+	}
+	if err := removeUnclearDestinations(
+		context.Background(), &msb.MockMsbClient{}, state.Migration{Status: state.MigrationCopying},
+	); err == nil {
+		t.Fatal("removeUnclearDestinations() error = nil, want private listing error")
+	}
+}
+
 // TestOfferChoicesAreCopyFreshQuit pins that "decide later" is gone: the only
 // outcomes are copy, start fresh, or quit.
 func TestOfferChoicesAreCopyFreshQuit(t *testing.T) {
@@ -546,5 +701,35 @@ func TestOfferAmbiguousStateCopyKeepsExisting(t *testing.T) {
 	root, _ := state.ReadRootState()
 	if got, _ := root.Migration(MigrationName); got.Status != state.MigrationCompleted {
 		t.Fatalf("status = %q, want completed", got.Status)
+	}
+}
+
+// TestOfferAmbiguousStateDismissRemovesUnclear pins option 2 in the ambiguous
+// state: "Dismiss" removes the unclear private volume before recording the
+// permanent opt-out, so the home resolver never adopts it.
+func TestOfferAmbiguousStateDismissRemovesUnclear(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	name := naming.HomePrefix + "unclear"
+	addVolumeDir(t, legacy, name)
+	if err := os.MkdirAll(filepath.Join(runtime.PrivateHome(), "volumes", name), 0o750); err != nil {
+		t.Fatalf("seed unclear private volume: %v", err)
+	}
+	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+		},
+	}
+	var prompted bool
+	ui := interactiveUI(choiceFresh, &prompted)
+	if err := Offer(context.Background(), client, ui); err != nil {
+		t.Fatalf("Offer: %v", err)
+	}
+	if !slices.Contains(client.RemovedVolumes, name) {
+		t.Errorf("RemovedVolumes = %v, want unclear %q removed", client.RemovedVolumes, name)
+	}
+	root, _ := state.ReadRootState()
+	if got, _ := root.Migration(MigrationName); got.Status != state.MigrationDismissed {
+		t.Fatalf("status = %q, want dismissed", got.Status)
 	}
 }
