@@ -85,7 +85,7 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 
 	switch choice {
 	case choiceCopy:
-		if err := CopyVolumes(ctx, client, names, ui); err != nil {
+		if err := CopyVolumes(ctx, client, ui); err != nil {
 			return fmt.Errorf("copying legacy home volumes: %w", err)
 		}
 		return nil

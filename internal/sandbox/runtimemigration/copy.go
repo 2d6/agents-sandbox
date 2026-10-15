@@ -11,46 +11,90 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// copyCompleteMarker names the sentinel file written into a private home volume
-// once its legacy copy has finished. Necessity treats a private volume without
-// it as still-to-copy, so a copy interrupted by a crash (which runs no cleanup)
-// is retried instead of being mistaken for a complete one.
-const copyCompleteMarker = ".agents-sandbox-copy-complete"
-
 // Filesystem seams. A real filesystem makes some failure branches (chmod, copy,
-// close, readlink, marker write) impractical to trigger, so tests substitute
-// them to exercise the error handling.
+// close, readlink) impractical to trigger, so tests substitute them to exercise
+// the error handling.
 var (
-	ioCopy          = io.Copy
-	chmodPath       = os.Chmod
-	closeFile       = (*os.File).Close
-	readLink        = os.Readlink
-	writeMarkerFile = os.WriteFile
+	ioCopy    = io.Copy
+	chmodPath = os.Chmod
+	closeFile = (*os.File).Close
+	readLink  = os.Readlink
 )
 
-// CopyVolumes copies the named legacy home volumes into newly created volumes
-// in the private runtime home. Each volume is a VolumeKindDir created through
-// the client (which places it under the private home); its contents are then
-// copied host-side as the invoking user. A volume whose copy fails is removed
-// best-effort so necessity stays derived true and the offer can retry later.
-func CopyVolumes(ctx context.Context, client msb.Client, names []string, ui termio.UI) error {
+// saveMigration persists a migration entry via a read-modify-write so other
+// registry entries survive.
+func saveMigration(m state.Migration) error {
+	return state.UpdateRootState(func(root *state.RootState) {
+		root.SetMigration(MigrationName, m)
+	})
+}
+
+// CopyVolumes runs the legacy home-volume copy campaign under a host-only lock,
+// recording progress in the migration registry so an interrupted campaign
+// resumes exactly and a concurrent session cannot clobber a live copy.
+//
+// A terminal migration (completed or dismissed) is a no-op. A first run writes
+// the copying status before deriving necessity; a volume-scoped copy failure is
+// recorded in Excluded (with a warning) and the campaign continues; a
+// campaign-scoped failure (the lock, the state read/write, or the home listing)
+// returns the error and leaves the status copying so the next session resumes.
+func CopyVolumes(ctx context.Context, client msb.Client, ui termio.UI) error {
+	release, err := acquireMigrationLock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	root, err := state.ReadRootState()
+	if err != nil {
+		return err
+	}
+	m, _ := root.Migration(MigrationName)
+	if m.Status == state.MigrationCompleted || m.Status == state.MigrationDismissed {
+		return nil
+	}
+	if m.Status != state.MigrationCopying {
+		m = state.Migration{Status: state.MigrationCopying}
+		if saveErr := saveMigration(m); saveErr != nil {
+			return saveErr
+		}
+	}
+
 	legacyHome, err := runtime.LegacyHome()
 	if err != nil {
 		return err
 	}
-
+	names, err := necessaryVolumesFor(m)
+	if err != nil {
+		return err
+	}
 	for _, name := range names {
 		if err := copyVolume(ctx, client, legacyHome, name); err != nil {
+			removeVolumeBestEffort(ctx, client, name)
+			m.Excluded = append(m.Excluded, name)
+			if serr := saveMigration(m); serr != nil {
+				return serr
+			}
+			ui.Warnf("skipping legacy home volume %q: %v", name, err)
+			continue
+		}
+		m.Copied = append(m.Copied, name)
+		if err := saveMigration(m); err != nil {
 			return err
 		}
 		ui.Infof("copied legacy home volume %q", name)
 	}
-	return nil
+	return saveMigration(state.Migration{Status: state.MigrationCompleted})
 }
 
+// copyVolume discards any leftover partial volume, creates the destination
+// volume, and copies the legacy tree into it host-side. Completion is recorded
+// by the caller in the host-owned migration registry, never as a file inside
+// the guest-writable volume.
 func copyVolume(ctx context.Context, client msb.Client, legacyHome, name string) error {
 	if err := discardIncompleteVolume(ctx, client, name); err != nil {
 		return err
@@ -63,20 +107,15 @@ func copyVolume(ctx context.Context, client msb.Client, legacyHome, name string)
 
 	src := filepath.Join(legacyHome, "volumes", name)
 	if err := copyTree(src, volume.Path()); err != nil {
-		removeVolumeBestEffort(ctx, client, name)
 		return fmt.Errorf("copy volume %q: %w", name, err)
-	}
-	if err := markCopyComplete(volume.Path()); err != nil {
-		removeVolumeBestEffort(ctx, client, name)
-		return fmt.Errorf("mark volume %q complete: %w", name, err)
 	}
 	return nil
 }
 
 // discardIncompleteVolume removes a leftover private volume under the target
-// name before a (re)copy. Such a volume is always an interrupted prior copy —
-// necessity only offers names absent or unmarked in the private home — so it
-// must be discarded for CreateVolume to recreate it.
+// name before a (re)copy. Such a volume is always an interrupted prior copy — a
+// campaign only re-copies names not recorded as Copied — so it must be discarded
+// for CreateVolume to recreate it.
 func discardIncompleteVolume(ctx context.Context, client msb.Client, name string) error {
 	if _, err := client.GetVolume(ctx, name); err != nil {
 		return nil //nolint:nilerr // a failed lookup means there is nothing to discard
@@ -85,11 +124,6 @@ func discardIncompleteVolume(ctx context.Context, client msb.Client, name string
 		return fmt.Errorf("discard incomplete volume %q: %w", name, err)
 	}
 	return nil
-}
-
-// markCopyComplete writes the completion sentinel into a finished volume.
-func markCopyComplete(dir string) error {
-	return writeMarkerFile(filepath.Join(dir, copyCompleteMarker), nil, 0o600)
 }
 
 // removeVolumeBestEffort discards a partially copied volume so it does not

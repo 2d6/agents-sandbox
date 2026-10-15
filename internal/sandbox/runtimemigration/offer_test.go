@@ -222,22 +222,23 @@ func TestOfferChooseCopyCopiesVolumes(t *testing.T) {
 // than continuing to a fresh home, which would overwrite the recorded reference
 // and orphan the old data. The partial volume is already removed, so necessity
 // stays true and the offer returns next session.
+// TestOfferCopyErrorAborts verifies that a campaign-scoped copy failure aborts
+// the session rather than continuing to a fresh home, which would overwrite the
+// recorded reference and orphan the old data. Here the state root is unwritable,
+// so persisting the copying status fails and the error propagates through Offer.
+// A volume-scoped copy failure, by contrast, is excluded inside CopyVolumes and
+// does not abort (see TestCopyVolumesExcludesVolumeScopedFailureAndCompletes).
 func TestOfferCopyErrorAborts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
-
-	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-			return nil, context.Canceled
-		},
-	}
+	blockRootState(t)
 
 	var prompted bool
 	ui := interactiveUI(choiceCopy, &prompted)
 
-	if err := Offer(context.Background(), client, ui); err == nil {
-		t.Fatal("Offer() error = nil, want a copy failure to abort the session")
+	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err == nil {
+		t.Fatal("Offer() error = nil, want a campaign-scoped copy failure to abort the session")
 	}
 }
 
