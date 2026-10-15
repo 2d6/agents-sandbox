@@ -7,9 +7,12 @@ read_if: Adding or reviewing volume/image/sandbox inspection and removal command
 
 Date: 2026-10-15
 
-Status: **design**. Not implemented. Tracked as issue #165. Builds on
-`specs/runtime-home-decoupling.md` (the private `$MSB_HOME` home) and the
-reference in `guides/microsandbox-release-notes.md`.
+Status: **design; Slice 0 implemented** (PR #174, branch
+`issue-168-runtime-management-slice-0`, pending merge). Tracked as issue #165;
+delivered as sub-issues #168 (Slice 0, implemented), #169 (Slice 1),
+#170 (Slice 2), #171 (Slice 3), #172 (Slice 4), and #155 (Slice 5). Slice 6 is
+dropped. Builds on `specs/runtime-home-decoupling.md` (the private `$MSB_HOME`
+home) and the reference in `guides/microsandbox-release-notes.md`.
 
 ## Intent
 
@@ -94,10 +97,12 @@ No new user-facing command. Land the cross-cutting seam every later slice uses:
   duplicating per command.
 - A shared `--yes` flag and non-interactive confirmation helper for destructive
   commands, distinct from `--force` (which overrides a guard).
-- Bind `--older-than` as an alias of the existing `--age` on prune commands
-  (both accept the existing human-duration syntax: `7d`, `2w`).
+- Make `--older-than` the canonical age flag on prune commands (human-duration
+  syntax: `7d`, `2w`) and deprecate `--age`/`-a`: it stays functional when set
+  but is hidden from help and warns when used.
 - JSON serialization for the prune reports (`prune` and each group `prune`).
-- Reconcile `sandbox list --names` with the `-q/--quiet` spelling.
+- Deprecate `sandbox list --names` as an alias of the `-q/--quiet` spelling
+  (hidden, warns, still honored).
 
 Depends on: nothing. Done when the existing `sandbox`/`volume`/`image` list and
 prune commands use the shared helpers, and the flags are covered by tests.
@@ -111,14 +116,28 @@ Generalize the fail-closed reference scan behind `volume remove`
 Depends on: nothing (parallel with Slice 0). Needed by Slice 4. Guard semantics:
 an unreadable or corrupt project state file blocks the operation unless forced.
 
+Resolved: an image is in use when a kept project state **or** a kept sandbox
+references its reference — the union of the project-state scan (the
+`HomeVolumeReferences` analogue) and the live kept-sandbox image refs already
+computed for image pruning. Project state is the source of truth for ownership;
+the live sandbox refs catch a digest-pinned VM whose tag is no longer the
+per-agent `-latest`.
+
 ### Slice 2 — Home layout accounting seam (groundwork)
 
-A function that enumerates the private home's storage categories with byte sizes
-and host paths: runtime/FFI artifacts, runner images, home volumes, VM disks, the
-buildkit cache, and docker images (when the docker backend is in use). No
-user-facing command.
+A seam that enumerates the private home's storage categories with byte sizes and
+host paths, feeding Slice 5's `df`. No user-facing command.
 
-Depends on: nothing. Needed by Slice 5.
+Prefer microsandbox's own storage observation (`StorageUsage`) for the objects it
+owns — images, snapshots, sandboxes, volumes, and branch/snapshot memory — which
+reports per-category and per-object usage and whose optional counters mean
+*unknown* when nil (never zero). Walk the private home only for what microsandbox
+does not report: the buildkit cache, docker images (when the docker backend is in
+use), and runtime/FFI artifacts. `ErrUnsupportedOperation` from the observation
+(cloud or older native libraries) degrades gracefully: the categories it covers
+are marked unknown rather than reported as zero.
+
+Depends on: nothing (parallel with Slices 0–1). Needed by Slice 5.
 
 ### Slice 3 — Object inspection (read-only commands)
 
@@ -146,6 +165,8 @@ Depends on: Slice 0 (confirmation/force conventions), Slice 1 (image guard).
 
 ### Slice 5 — Storage accounting
 
+Tracked as issue **#155** (the canonical ticket for this slice).
+
 - `df [--verbose] [--format json]` — category totals from the Slice 2 seam;
   `--verbose` adds per-object rows and host paths; `humanize.FormatBytes` for
   display.
@@ -154,13 +175,11 @@ Depends on: Slice 0 (confirmation/force conventions), Slice 1 (image guard).
 
 Depends on: Slice 0, Slice 2.
 
-### Slice 6 — Sandbox file transfer (optional)
+### Slice 6 — Sandbox file transfer (dropped)
 
-- `sandbox copy`/`cp` — host↔VM file transfer over `SandboxFS`.
-- *(Included because it was not in the drop list; this slice is the one that
-  should be dropped if copy counts as the excluded "data portability" surface.)*
-
-Depends on: Slice 0.
+`sandbox copy`/`cp` (host↔VM transfer over `SandboxFS`) is **dropped**: it is the
+excluded data-portability surface, not part of the bounded management surface
+this spec defines.
 
 ## Command surface contract
 
@@ -203,9 +222,11 @@ The full per-group contract, as the slices deliver it.
 - `df` and the `storage` group — Slice 5.
 
 Out of scope (explicit): `registry`/`registries`, `context`/`ctx`, `self`/
-`doctor`/`update`/`downgrade`/`uninstall`, and a separate runtime-RAM `prune`
-(agents-sandbox's extended `prune` already covers VMs, home volumes, docker
-images, and msb images).
+`doctor`/`update`/`downgrade`/`uninstall`, and `sandbox compact` (issue #157).
+Runtime-RAM pruning is **not** excluded: it is tracked by issue #156
+(microsandbox's `PruneStorage` over branch/snapshot memory backings) and enriches
+the top-level `prune`. The existing extended `prune` covers VMs, home volumes,
+docker images, and msb images, but not runtime RAM.
 
 ## Cross-cutting conventions (delivered by Slice 0)
 
@@ -215,23 +236,34 @@ images, and msb images).
   non-interactively, and removal supports `--force` to override a
   reference/ownership guard. `--force` overrides a guard; `--yes` skips a
   confirmation prompt — distinct, and they may coexist.
-- **Age threshold**: `--age` gains `--older-than` (msb's spelling).
+- **Age threshold**: `--older-than` is the canonical flag (msb's spelling);
+  `--age` is deprecated (hidden, warns, still honored; both set together is an
+  error).
 - **Prune report**: `prune` and each group `prune` support `--format json` and
-  `-q`.
+  `-q`. The report is rendered before an error is returned: a prune whose
+  per-group errors are joined (top-level `prune` and `AutoPrune`) still reports
+  what it removed first ("summary, then error"). Output mode and flag validation
+  (`--format`/`--quiet` mutex) run before the confirmation prompt so bad flags
+  fail fast rather than being masked by a non-interactive `ErrConfirmationRequired`.
 - **Tree**: new subcommands carry the `also: sandbox X` annotation and aliases
   consistent with the existing tree.
 - **Guards are fail-closed**: an unreadable or corrupt project state file blocks
   a guarded removal unless `--force` is given.
 
+## Resolved decisions
+
+- **Image reference scan (Slice 1)**: project state is the source of truth for
+  ownership; the scan is the union of the `HomeVolumeReferences` analogue and the
+  live kept-sandbox image refs. Fail-closed on unreadable or corrupt state.
+- **`df` category discovery (Slice 2)**: microsandbox's `StorageUsage` supplies
+  the categories it owns; the private-home walk supplies the buildkit cache,
+  docker images (docker backend only), and runtime/FFI artifacts. Nil = unknown.
+- **`sandbox copy` (Slice 6)**: dropped.
+- **Per-volume usage**: exposed in `volume inspect` only; `volume list` stays
+  cheap (no per-object stat).
+
 ## Left to the builder
 
-- The reference scan for `image remove` (Slice 1): the image analogue of
-  `state.HomeVolumeReferences`, and the exact tag/state source of truth.
-- `df`'s category discovery (Slice 2): which private-home subtrees count as
-  runtime vs image cache vs volumes vs VM disks, and how docker images fold in.
-- Whether `sandbox copy` (Slice 6) belongs, and, if so, its argument grammar
-  (`sandbox copy <name> <src> <dst>` vs a `cp`-style form).
-- Whether to expose per-volume usage in `volume list` or only in `inspect`.
 - Testing strategy per slice (table/JSON goldens, guard paths, fail-closed
   scans) and the CLI integration tests per the repo's conventions.
 - Docs (`docs/`, `README.md`) and `CHANGELOG.md` updates, per slice.
