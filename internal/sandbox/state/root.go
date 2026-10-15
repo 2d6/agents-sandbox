@@ -15,15 +15,43 @@ import (
 //
 //exhaustruct:ignore
 type RootState struct {
-	RuntimeHomeMigration RuntimeHomeMigration `yaml:"runtime_home_migration,omitempty"`
+	Migrations map[string]Migration `yaml:"migrations,omitempty"`
 }
 
-// RuntimeHomeMigration records the user's decision about the one-time opt-in
-// copy of legacy microsandbox home volumes into the private runtime home.
+// MigrationStatus is the terminal or in-flight state of a one-time migration.
+// The absent entry (no key) is the pending state and has no status value.
+type MigrationStatus string
+
+const (
+	MigrationCopying   MigrationStatus = "copying"
+	MigrationCompleted MigrationStatus = "completed"
+	MigrationDismissed MigrationStatus = "dismissed"
+)
+
+// Migration tracks one one-time migration. Copied and Excluded are written only
+// while Status is MigrationCopying and dropped when the migration reaches a
+// terminal status.
 //
 //exhaustruct:ignore
-type RuntimeHomeMigration struct {
-	Dismissed bool `yaml:"dismissed,omitempty"`
+type Migration struct {
+	Status   MigrationStatus `yaml:"status"`
+	Copied   []string        `yaml:"copied,omitempty"`
+	Excluded []string        `yaml:"excluded,omitempty"`
+}
+
+// Migration returns the named migration and whether it is present. A missing
+// registry or entry is the pending state: the zero Migration.
+func (s *RootState) Migration(name string) (Migration, bool) {
+	m, ok := s.Migrations[name]
+	return m, ok
+}
+
+// SetMigration records a migration entry, initializing the registry if nil.
+func (s *RootState) SetMigration(name string, m Migration) {
+	if s.Migrations == nil {
+		s.Migrations = map[string]Migration{}
+	}
+	s.Migrations[name] = m
 }
 
 func rootStateFile() string {
@@ -62,4 +90,16 @@ func WriteRootState(s RootState) error {
 		return fmt.Errorf("write root state: %w", err)
 	}
 	return nil
+}
+
+// UpdateRootState reads the launcher-global state (a missing file yields a zero
+// RootState), applies mutate, and writes it back atomically. It is a
+// read-modify-write so a writer preserves entries it does not touch.
+func UpdateRootState(mutate func(*RootState)) error {
+	s, err := ReadRootState()
+	if err != nil {
+		return err
+	}
+	mutate(s)
+	return WriteRootState(*s)
 }

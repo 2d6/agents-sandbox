@@ -22,6 +22,10 @@ const (
 	choiceQuit  = "q"
 )
 
+// MigrationName is the root-state migrations registry key for the one-time
+// legacy home-volume copy.
+const MigrationName = "runtime_home"
+
 // ErrMigrationPending reports that the one-time legacy home-volume decision has
 // not been made. A non-interactive session (including --yes) cannot make it, so
 // it returns this error before touching the home volume rather than silently
@@ -51,7 +55,7 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
 		return nil
 	}
-	if rootState.RuntimeHomeMigration.Dismissed {
+	if migration, ok := rootState.Migration(MigrationName); ok && migration.Status == state.MigrationDismissed {
 		return nil
 	}
 
@@ -86,8 +90,8 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 		}
 		return nil
 	case choiceFresh:
-		return state.WriteRootState(state.RootState{
-			RuntimeHomeMigration: state.RuntimeHomeMigration{Dismissed: true},
+		return state.UpdateRootState(func(root *state.RootState) {
+			root.SetMigration(MigrationName, state.Migration{Status: state.MigrationDismissed})
 		})
 	default:
 		return ErrMigrationPending

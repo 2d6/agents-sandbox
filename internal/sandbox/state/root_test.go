@@ -35,63 +35,86 @@ func TestReadRootState_MissingFileReturnsZero(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil zero RootState for missing file")
 	}
-	if result.RuntimeHomeMigration.Dismissed {
-		t.Error("expected Dismissed false for missing file")
+	if _, ok := result.Migration("runtime_home"); ok {
+		t.Error("expected pending (absent) runtime_home migration for missing file")
 	}
 }
 
-func TestWriteAndReadRootState_RoundTrip(t *testing.T) {
+func TestMigrationRegistryRoundTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-
-	err := WriteRootState(RootState{
-		RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true},
-	})
-	if err != nil {
+	if err := WriteRootState(RootState{Migrations: map[string]Migration{
+		"runtime_home": {Status: MigrationCopying, Copied: []string{"a"}, Excluded: []string{"b"}},
+	}}); err != nil {
 		t.Fatalf("WriteRootState: %v", err)
 	}
-
-	result, err := ReadRootState()
+	got, err := ReadRootState()
 	if err != nil {
 		t.Fatalf("ReadRootState: %v", err)
 	}
-	if !result.RuntimeHomeMigration.Dismissed {
-		t.Errorf("Dismissed = %v, want true", result.RuntimeHomeMigration.Dismissed)
+	m, ok := got.Migration("runtime_home")
+	if !ok || m.Status != MigrationCopying || len(m.Copied) != 1 || m.Copied[0] != "a" || len(m.Excluded) != 1 {
+		t.Fatalf("migration = %+v, ok = %v", m, ok)
 	}
 }
 
-// TestWriteRootStateUsesDocumentedWireKeys pins the on-disk YAML contract: the
-// single launcher-global key is runtime_home_migration, and its inner key is
-// dismissed. These names are the persisted interface other sessions rely on.
-func TestWriteRootStateUsesDocumentedWireKeys(t *testing.T) {
+func TestMigrationWireKeys(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-
-	if err := WriteRootState(RootState{
-		RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true},
-	}); err != nil {
+	if err := WriteRootState(RootState{Migrations: map[string]Migration{
+		"runtime_home": {Status: MigrationCompleted},
+	}}); err != nil {
 		t.Fatalf("WriteRootState: %v", err)
 	}
-
 	data, err := os.ReadFile(rootStateFile())
 	if err != nil {
-		t.Fatalf("read root state file: %v", err)
+		t.Fatalf("read root state: %v", err)
 	}
-
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("unmarshal raw root state: %v", err)
+		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(raw) != 1 {
-		t.Fatalf("top-level keys = %v, want exactly [runtime_home_migration]", raw)
-	}
-	inner, ok := raw["runtime_home_migration"].(map[string]any)
+	reg, ok := raw["migrations"].(map[string]any)
 	if !ok {
-		t.Fatalf("runtime_home_migration = %v, want a mapping", raw["runtime_home_migration"])
+		t.Fatalf("migrations = %v, want a mapping", raw["migrations"])
 	}
-	if len(inner) != 1 {
-		t.Fatalf("inner keys = %v, want exactly [dismissed]", inner)
+	entry, ok := reg["runtime_home"].(map[string]any)
+	if !ok || entry["status"] != "completed" {
+		t.Fatalf("runtime_home entry = %v, want status completed", reg["runtime_home"])
 	}
-	if inner["dismissed"] != true {
-		t.Errorf("dismissed = %v, want true", inner["dismissed"])
+}
+
+func TestMigrationAbsentIsPending(t *testing.T) {
+	var s RootState
+	if m, ok := s.Migration("runtime_home"); ok || m.Status != "" {
+		t.Fatalf("Migration() = %+v, %v; want zero and false", m, ok)
+	}
+}
+
+func TestSetMigrationInitializesRegistry(t *testing.T) {
+	var s RootState
+	s.SetMigration("runtime_home", Migration{Status: MigrationDismissed})
+	if s.Migrations["runtime_home"].Status != MigrationDismissed {
+		t.Fatalf("Migrations = %+v", s.Migrations)
+	}
+}
+
+func TestUpdateRootStatePreservesOtherMigrations(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := WriteRootState(RootState{Migrations: map[string]Migration{
+		"other": {Status: MigrationCompleted},
+	}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := UpdateRootState(func(s *RootState) {
+		s.SetMigration("runtime_home", Migration{Status: MigrationDismissed})
+	}); err != nil {
+		t.Fatalf("UpdateRootState: %v", err)
+	}
+	got, _ := ReadRootState()
+	if got.Migrations["other"].Status != MigrationCompleted {
+		t.Errorf("other migration lost: %+v", got.Migrations)
+	}
+	if got.Migrations["runtime_home"].Status != MigrationDismissed {
+		t.Errorf("runtime_home not set: %+v", got.Migrations)
 	}
 }
 
@@ -135,7 +158,7 @@ func TestWriteRootState_MarshalError(t *testing.T) {
 	t.Cleanup(func() { marshalRootState = orig })
 
 	if err := WriteRootState(
-		RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}},
+		RootState{Migrations: map[string]Migration{"runtime_home": {Status: MigrationDismissed}}},
 	); !errors.Is(
 		err,
 		wantErr,
@@ -155,7 +178,9 @@ func TestWriteRootState_MkdirAllError(t *testing.T) {
 	}
 	testutil.WritePath(t, root, "not a directory")
 
-	if err := WriteRootState(RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}}); err == nil {
+	if err := WriteRootState(
+		RootState{Migrations: map[string]Migration{"runtime_home": {Status: MigrationDismissed}}},
+	); err == nil {
 		t.Fatal("WriteRootState() error = nil, want MkdirAll failure")
 	}
 }
@@ -170,7 +195,9 @@ func TestWriteRootState_RenameErrorCleansTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := WriteRootState(RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}}); err == nil {
+	if err := WriteRootState(
+		RootState{Migrations: map[string]Migration{"runtime_home": {Status: MigrationDismissed}}},
+	); err == nil {
 		t.Fatal("WriteRootState() error = nil, want rename failure")
 	}
 	assertNoRootStateTempFiles(t)
@@ -189,7 +216,7 @@ func TestWriteRootState_ConcurrentWritesDoNotCollide(t *testing.T) {
 	errs := make(chan error, writers)
 	for range writers {
 		wg.Go(func() {
-			errs <- WriteRootState(RootState{RuntimeHomeMigration: RuntimeHomeMigration{Dismissed: true}})
+			errs <- WriteRootState(RootState{Migrations: map[string]Migration{"runtime_home": {Status: MigrationDismissed}}})
 		})
 	}
 	wg.Wait()

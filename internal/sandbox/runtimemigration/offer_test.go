@@ -97,7 +97,7 @@ func TestOfferDismissedDoesNotPrompt(t *testing.T) {
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
 	if err := state.WriteRootState(state.RootState{
-		RuntimeHomeMigration: state.RuntimeHomeMigration{Dismissed: true},
+		Migrations: map[string]state.Migration{MigrationName: {Status: state.MigrationDismissed}},
 	}); err != nil {
 		t.Fatalf("WriteRootState: %v", err)
 	}
@@ -258,8 +258,8 @@ func TestOfferChooseStartFreshPersistsDismissal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadRootState: %v", err)
 	}
-	if !root.RuntimeHomeMigration.Dismissed {
-		t.Error("start-fresh did not persist RuntimeHomeMigration.Dismissed")
+	if m, ok := root.Migration(MigrationName); !ok || m.Status != state.MigrationDismissed {
+		t.Error("start-fresh did not persist a dismissed runtime_home migration")
 	}
 }
 
@@ -282,7 +282,7 @@ func TestOfferChooseQuitAborts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadRootState: %v", err)
 	}
-	if root.RuntimeHomeMigration.Dismissed {
+	if m, ok := root.Migration(MigrationName); ok && m.Status == state.MigrationDismissed {
 		t.Error("quit dismissed the migration; want it still pending")
 	}
 }
@@ -309,7 +309,7 @@ func TestOfferSelectErrorAborts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadRootState: %v", err)
 	}
-	if root.RuntimeHomeMigration.Dismissed {
+	if m, ok := root.Migration(MigrationName); ok && m.Status == state.MigrationDismissed {
 		t.Error("a failed prompt dismissed the migration; want it still pending")
 	}
 	if len(client.RemovedVolumes) != 0 || len(client.Volumes) != 0 {
