@@ -325,6 +325,31 @@ func TestIsNotFound(t *testing.T) {
 	}
 }
 
+func TestIsReplaced(t *testing.T) {
+	replaced := &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "handle was replaced"}
+	other := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no such sandbox"}
+	plain := errors.New("some other failure")
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"replaced kind", replaced, true},
+		{"wrapped replaced", fmt.Errorf("outer: %w", replaced), true},
+		{"other kind", other, false},
+		{"plain error", plain, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsReplaced(tt.err); got != tt.want {
+				t.Errorf("IsReplaced(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetVMStatus(t *testing.T) {
 	tests := []struct {
 		name    string

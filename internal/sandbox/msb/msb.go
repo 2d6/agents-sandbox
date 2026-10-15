@@ -213,6 +213,14 @@ func IsNotFound(err error) bool {
 	return msbSdk.IsKind(err, msbSdk.ErrSandboxNotFound)
 }
 
+// IsReplaced reports whether err indicates that a handle's name now refers to a
+// different persisted sandbox identity (the handle was replaced), unwrapping any
+// wrapped errors. Operate on live identities and treat a replaced handle as a
+// no-op rather than acting on the stranger that now shares the name.
+func IsReplaced(err error) bool {
+	return msbSdk.IsKind(err, msbSdk.ErrSandboxReplaced)
+}
+
 // realMsbClient delegates to the actual microsandbox SDK.
 type realMsbClient struct{}
 

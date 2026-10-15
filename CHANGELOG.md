@@ -46,6 +46,9 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- Prune: stale sandboxes are now removed through their identity-bound handle instead of by name, and a sandbox replaced
+  since it was listed (`ErrSandboxReplaced`) is skipped rather than removed. Previously a concurrent `run` could recreate
+  the same name between listing and removal, and prune would delete the new VM.
 - State: launcher-global `state.yaml` (the legacy-migration dismissal lives here) is now written through a uniquely named
   temp file, so two concurrent sessions choosing "Start fresh" no longer collide on one shared temp name and abort a
   session. All persistent state/config writers (`state.WriteState`, `state.WriteRootState`, `vm.saveUpgradeState`,
