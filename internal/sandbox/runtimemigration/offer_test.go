@@ -603,6 +603,60 @@ func TestRemoveUnclearDestinationsPrivateListingError(t *testing.T) {
 	}
 }
 
+// TestOfferPendingListingErrorWarnsAndSkips pins the other side of finding 3: in
+// the pending state an unlistable legacy home is best-effort, so the offer warns
+// and skips rather than blocking. A regular file at volumes/ makes the strict
+// campaign listing fail (ENOTDIR) while the pending tolerant listing treats it as
+// empty, exercising the failure at the present-target listing.
+func TestOfferPendingListingErrorWarnsAndSkips(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	volumes := filepath.Join(legacy, "volumes")
+	if err := os.RemoveAll(volumes); err != nil {
+		t.Fatalf("remove volumes dir: %v", err)
+	}
+	if err := os.WriteFile(volumes, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write file at volumes path: %v", err)
+	}
+
+	var prompted bool
+	ui := interactiveUI(choiceCopy, &prompted)
+	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+		t.Fatalf("Offer() error = %v, want nil (best-effort in pending)", err)
+	}
+	if prompted {
+		t.Error("Offer() prompted on a pending listing failure")
+	}
+	if len(ui.WarnCalls) != 1 {
+		t.Errorf("WarnCalls = %v, want exactly one warning", ui.WarnCalls)
+	}
+}
+
+// TestOfferCopyingListingErrorBlocks pins finding 3: while a campaign is open, an
+// unlistable legacy volumes directory is campaign-scoped, so the offer returns
+// the error and blocks the session rather than letting it reuse the unfinished
+// destination. The pending state keeps its best-effort warn-and-skip (see
+// TestOfferNecessaryVolumesErrorWarnsAndSkips).
+func TestOfferCopyingListingErrorBlocks(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	makeLegacyVolumesUnlistable(t, legacy)
+	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+		MigrationName: {Status: state.MigrationCopying},
+	}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var prompted bool
+	ui := interactiveUI(choiceCopy, &prompted)
+	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err == nil {
+		t.Fatal("Offer() error = nil, want the campaign listing failure to block the session")
+	}
+	if prompted {
+		t.Error("Offer() prompted despite the campaign listing failure")
+	}
+}
+
 // TestOfferChoicesAreCopyFreshQuit pins that "decide later" is gone: the only
 // outcomes are copy, start fresh, or quit.
 func TestOfferChoicesAreCopyFreshQuit(t *testing.T) {

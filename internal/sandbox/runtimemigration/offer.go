@@ -48,11 +48,13 @@ var ErrMigrationPending = errors.New("legacy home-volume migration pending")
 // A non-interactive session is never prompted and never copies: because
 // proceeding would overwrite the project's recorded home-volume reference before
 // the copy can happen, it returns ErrMigrationPending with guidance instead. A
-// failure to read the persisted state or derive necessity is best-effort: it
-// warns and skips rather than blocking the session. A failed copy aborts the
-// session (ErrMigrationPending): continuing would orphan the old data, while the
-// per-volume copy already removed any partial volume so necessity stays true and
-// the offer returns next session.
+// failure to read the persisted state is best-effort: it warns and skips rather
+// than blocking the session. A failure to list the homes while a campaign is open
+// is campaign-scoped: it explains the situation, then blocks (the user must fix
+// it manually and run the migration again). A failed copy aborts the session
+// (ErrMigrationPending): continuing would orphan the old data, while the campaign
+// already removed each partial so necessity stays true and the offer returns next
+// session.
 func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 	rootState, err := state.ReadRootState()
 	if err != nil {
@@ -68,13 +70,11 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 
 	names, err := necessaryVolumesFor(migration)
 	if err != nil {
-		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
-		return nil
+		return handleOfferListingError(migration, ui, err)
 	}
 	presentTargets, err := presentLegacyTargetsFor()
 	if err != nil {
-		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
-		return nil
+		return handleOfferListingError(migration, ui, err)
 	}
 	unclear := unclearVolumes(migration, presentTargets)
 
@@ -111,6 +111,25 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 	default:
 		return ErrMigrationPending
 	}
+}
+
+// handleOfferListingError resolves a failure to list the homes while deriving the
+// offer. While a campaign is open it is campaign-scoped: the session must not
+// proceed (it would reuse an unfinished destination), so it explains the
+// situation and blocks. In the pending state the offer is a best-effort
+// convenience and warns and skips instead.
+func handleOfferListingError(m state.Migration, ui termio.UI, err error) error {
+	if m.Status != state.MigrationCopying {
+		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
+		return nil
+	}
+	ui.Warnf(
+		"the legacy home-volume copy is in progress but cannot continue: the legacy microsandbox home "+
+			"cannot be read (%v). Fix this manually (for example, restore read access to "+
+			"~/.microsandbox/volumes) and run the migration again.",
+		err,
+	)
+	return fmt.Errorf("cannot resume legacy home-volume migration: %w", err)
 }
 
 // presentLegacyTargetsFor resolves both homes and returns the present private

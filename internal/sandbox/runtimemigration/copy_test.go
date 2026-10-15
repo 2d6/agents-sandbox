@@ -454,6 +454,24 @@ func TestCopyVolumesTerminalIsNoOp(t *testing.T) {
 	}
 }
 
+// TestCopyVolumesResumeListingErrorAborts pins that resuming an open campaign
+// whose legacy home has become unlistable aborts (campaign-scoped) rather than
+// finalizing.
+func TestCopyVolumesResumeListingErrorAborts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	makeLegacyVolumesUnlistable(t, installLegacyHome(t))
+	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+		MigrationName: {Status: state.MigrationCopying},
+	}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	ui := termio.NewTestMock(t)
+	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {
+		t.Fatal("CopyVolumes() error = nil, want a resume listing failure to abort")
+	}
+}
+
 // TestCopyVolumesCopiedSaveErrorAborts pins that a failure to persist a
 // successful copy's progress (here, the state root is unwritable) aborts the
 // campaign-scoped run.
