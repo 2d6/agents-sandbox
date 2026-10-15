@@ -9,6 +9,10 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
+// flockExclusive is a seam over state.FlockExclusive so tests can exercise the
+// lock failure path, which a real file cannot trigger.
+var flockExclusive = state.FlockExclusive
+
 // acquireMigrationLock takes the host-only advisory lock that serializes the
 // legacy home-volume copy campaign across processes. The flock auto-releases on
 // process exit, so a crashed holder never pins the campaign. The returned
@@ -22,7 +26,7 @@ func acquireMigrationLock() (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("open migration lock: %w", err)
 	}
-	if err := state.FlockExclusive(f); err != nil {
+	if err := flockExclusive(f); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("flock migration lock: %w", err)
 	}

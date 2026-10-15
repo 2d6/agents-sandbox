@@ -232,6 +232,27 @@ func TestWriteRootState_ConcurrentWritesDoNotCollide(t *testing.T) {
 	}
 }
 
+// TestUpdateRootState_ReadError covers the read failure propagating out of
+// UpdateRootState: a corrupt state file makes the read fail before mutate runs.
+func TestUpdateRootState_ReadError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
+		t.Fatalf("create state root: %v", err)
+	}
+	if err := os.WriteFile(rootStateFile(), []byte("runtime_home_migration: [unterminated"), 0o600); err != nil {
+		t.Fatalf("write corrupt root state: %v", err)
+	}
+
+	mutated := false
+	if err := UpdateRootState(func(*RootState) { mutated = true }); err == nil {
+		t.Fatal("UpdateRootState() error = nil, want a read error")
+	}
+	if mutated {
+		t.Error("UpdateRootState ran mutate despite the read failure")
+	}
+}
+
 func assertNoRootStateTempFiles(t *testing.T) {
 	t.Helper()
 	matches, err := filepath.Glob(filepath.Join(stateRoot(), ".state.yaml.*"))
