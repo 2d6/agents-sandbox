@@ -36,8 +36,8 @@ type runtimeAccumulator struct {
 }
 
 func (a *runtimeAccumulator) scan(root string, includeObjects bool) error {
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		return a.visit(path, entry, err, includeObjects)
+	err := filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
+		return a.visit(path, info, err, includeObjects)
 	})
 	if err != nil {
 		return fmt.Errorf("scan runtime artifacts in %s: %w", root, err)
@@ -45,19 +45,15 @@ func (a *runtimeAccumulator) scan(root string, includeObjects bool) error {
 	return nil
 }
 
-func (a *runtimeAccumulator) visit(path string, entry fs.DirEntry, err error, includeObjects bool) error {
+func (a *runtimeAccumulator) visit(path string, info fs.FileInfo, err error, includeObjects bool) error {
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return fs.SkipDir
 		}
 		return err
 	}
-	if entry.IsDir() {
+	if info.IsDir() {
 		return nil
-	}
-	info, infoErr := entry.Info()
-	if infoErr != nil {
-		return infoErr
 	}
 	if !info.Mode().IsRegular() {
 		return nil

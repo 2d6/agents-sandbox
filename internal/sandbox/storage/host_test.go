@@ -1,9 +1,14 @@
 package storage
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 func writeFile(t *testing.T, path string, size int) {
@@ -14,6 +19,19 @@ func writeFile(t *testing.T, path string, size int) {
 	if err := os.WriteFile(path, make([]byte, size), 0o644); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", path, err)
 	}
+}
+
+// lockedRuntimeHome returns a private home whose bin subtree cannot be read.
+func lockedRuntimeHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	locked := filepath.Join(home, "bin", "locked")
+	writeFile(t, filepath.Join(locked, "msb"), 10)
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatalf("Chmod error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	return home
 }
 
 func TestObserveRuntimeSumsBinAndLib(t *testing.T) {
@@ -57,16 +75,20 @@ func TestObserveRuntimeMissingHomeIsKnownZero(t *testing.T) {
 }
 
 func TestObserveRuntimeWalkErrorPropagates(t *testing.T) {
-	home := t.TempDir()
-	locked := filepath.Join(home, "bin", "locked")
-	writeFile(t, filepath.Join(locked, "msb"), 10)
-	if err := os.Chmod(locked, 0o000); err != nil {
-		t.Fatalf("Chmod error = %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
-
-	if _, err := observeRuntime(home, Options{}); err == nil {
+	if _, err := observeRuntime(lockedRuntimeHome(t), Options{}); err == nil {
 		t.Fatal("observeRuntime() error = nil, want propagation of unreadable subtree")
+	}
+}
+
+func TestObservePropagatesRuntimeWalkError(t *testing.T) {
+	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
+		return &msbSdk.StorageUsageReport{}, nil
+	}})
+	home := lockedRuntimeHome(t)
+	privateHome = func() string { return home }
+
+	if _, err := Observe(context.Background(), Options{}); err == nil {
+		t.Fatal("Observe() error = nil, want propagation of runtime walk error")
 	}
 }
 
