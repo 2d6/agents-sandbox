@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,4 +68,48 @@ func TestImagePrune(t *testing.T) {
 			t.Errorf("expected prune summary, got: %v", ui.OutCalls)
 		}
 	})
+}
+
+func TestImagePruneFormatJSON(t *testing.T) {
+	m := &sandboxmsb.MockMsbClient{
+		Sandboxes: []sandboxmsb.SandboxHandle{
+			&sandboxmsb.MockSandboxHandle{
+				Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
+			},
+		},
+		Images: []sandboxmsb.ImageHandle{
+			sandboxmsb.MockImageHandle{
+				Reference_:  "agents-sandbox/runner-orphan-1mjusbm3wikhb0:v1",
+				LastUsedAt_: time.Now().Add(-30 * 24 * time.Hour),
+			},
+		},
+	}
+	cmd, ui := setupCommandFixtures(t, "image", "prune", "--format", "json")
+	sandboxmsb.WithMsbMock(t, m)
+	docker.WithNoopDockerMock(t)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var got struct {
+		DryRun       bool `json:"dry_run"`
+		Images       int  `json:"images"`
+		DockerImages int  `json:"docker_images"`
+		Details      []struct {
+			Type string `json:"type"`
+			Name string `json:"name"`
+		} `json:"details"`
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if err := json.Unmarshal([]byte(joined), &got); err != nil {
+		t.Fatalf("json.Unmarshal: %v; output: %q", err, joined)
+	}
+	if got.Images != 1 || got.DockerImages != 0 || len(got.Details) != 1 {
+		t.Fatalf("unexpected JSON: %+v", got)
+	}
+	if got.Details[0].Type != "msb-image" || got.Details[0].Name == "" {
+		t.Errorf("unexpected detail: %+v", got.Details[0])
+	}
 }

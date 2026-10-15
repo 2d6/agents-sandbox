@@ -35,7 +35,6 @@ func PruneVolumes(
 	if !dryRun {
 		removeStateForGoneKeys(ui, removed, exists)
 	}
-	printVolumePruneReport(ui, report, dryRun)
 	return report, nil
 }
 
@@ -111,7 +110,7 @@ func removeStateForGoneKeys(ui termio.UI, removed, exists map[state.Key]int) {
 	}
 }
 
-func printVolumePruneReport(ui termio.UI, r VolumeReport, dryRun bool) {
+func RenderVolumeReport(ui termio.UI, r VolumeReport, dryRun bool) {
 	ui.Outf("%s %d home volume(s)", pruneReportPrefix(dryRun), r.VolumesPruned)
 	for _, d := range r.Details {
 		ui.Verbosef("  %s (%s)", d.Name, d.Slug)

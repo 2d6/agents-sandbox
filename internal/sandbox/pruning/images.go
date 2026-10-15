@@ -66,7 +66,6 @@ func PruneImages(
 		}
 	}
 	report.DockerImagesPruned = pruneDockerImages(ctx, dryRun, ui)
-	printImagePruneReport(ui, report, dryRun)
 	return report, nil
 }
 
@@ -118,7 +117,7 @@ func pruneDockerImages(ctx context.Context, dryRun bool, ui termio.UI) int {
 	return len(result.Report.ImagesDeleted)
 }
 
-func printImagePruneReport(ui termio.UI, r ImageReport, dryRun bool) {
+func RenderImageReport(ui termio.UI, r ImageReport, dryRun bool) {
 	ui.Outf(
 		"%s %d runner image(s), %d dangling docker image(s)",
 		pruneReportPrefix(dryRun),

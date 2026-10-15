@@ -48,11 +48,10 @@ func PruneSandboxes(
 			Digest:   "",
 		})
 	}
-	printSandboxPruneReport(ui, report, dryRun)
 	return report, nil
 }
 
-func printSandboxPruneReport(ui termio.UI, r SandboxReport, dryRun bool) {
+func RenderSandboxReport(ui termio.UI, r SandboxReport, dryRun bool) {
 	ui.Outf("%s %d sandbox(es)", pruneReportPrefix(dryRun), r.VMsPruned)
 	for _, d := range r.Details {
 		ui.Verbosef("  %s (%s)", d.Name, d.Slug)

@@ -713,7 +713,17 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return pruning.Prune(cmd.Context(), age, dryRun, ui)
+			mode, err := resolvePruneOutputMode(cmd)
+			if err != nil {
+				return err
+			}
+			report, err := pruning.Prune(cmd.Context(), age, dryRun, ui)
+			if err != nil {
+				return err
+			}
+			return renderPruneReport(ui, mode,
+				func() { pruning.RenderPruneSummary(ui, report, dryRun) },
+				newPruneReportJSON(report, dryRun))
 		},
 	}
 	setPruneFlags(cmd)
@@ -756,7 +766,17 @@ func buildImagePruneCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneImages, age, dryRun, ui)
+			mode, err := resolvePruneOutputMode(cmd)
+			if err != nil {
+				return err
+			}
+			report, err := pruning.InvokePruneFunc(cmd.Context(), pruning.PruneImages, age, dryRun, ui)
+			if err != nil {
+				return err
+			}
+			return renderPruneReport(ui, mode,
+				func() { pruning.RenderImageReport(ui, report, dryRun) },
+				newImageReportJSON(report, dryRun))
 		},
 	}
 	setPruneFlags(cmd)
@@ -773,7 +793,17 @@ func buildVolumePruneCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneVolumes, age, dryRun, ui)
+			mode, err := resolvePruneOutputMode(cmd)
+			if err != nil {
+				return err
+			}
+			report, err := pruning.InvokePruneFunc(cmd.Context(), pruning.PruneVolumes, age, dryRun, ui)
+			if err != nil {
+				return err
+			}
+			return renderPruneReport(ui, mode,
+				func() { pruning.RenderVolumeReport(ui, report, dryRun) },
+				newVolumeReportJSON(report, dryRun))
 		},
 	}
 	setPruneFlags(cmd)
@@ -799,11 +829,27 @@ func buildSandboxPruneCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneSandboxes, age, dryRun, ui)
+			mode, err := resolvePruneOutputMode(cmd)
+			if err != nil {
+				return err
+			}
+			report, err := pruning.InvokePruneFunc(cmd.Context(), pruning.PruneSandboxes, age, dryRun, ui)
+			if err != nil {
+				return err
+			}
+			return renderPruneReport(ui, mode,
+				func() { pruning.RenderSandboxReport(ui, report, dryRun) },
+				newSandboxReportJSON(report, dryRun))
 		},
 	}
 	setPruneFlags(cmd)
 	return cmd
+}
+
+func resolvePruneOutputMode(cmd *cobra.Command) (listOutput, error) {
+	format, _ := cmd.Flags().GetString(flagFormat)
+	quiet, _ := cmd.Flags().GetBool(pFlagQuiet)
+	return resolveListOutput(format, quiet)
 }
 
 func setPruneFlags(cmd *cobra.Command) {
@@ -811,4 +857,5 @@ func setPruneFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP(flagAge, flagAge[:1], "", "Deprecated alias for --older-than")
 	_ = cmd.Flags().MarkDeprecated(flagAge, "use --older-than")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be pruned without deleting")
+	cmd.Flags().String(flagFormat, "", "Output format (json)")
 }

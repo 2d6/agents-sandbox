@@ -489,7 +489,7 @@ func TestPruneAggregateParity(t *testing.T) {
 	cp.WithMockConfigPaths(t)
 
 	testUI := termio.NewTestMock(t)
-	if err := Prune(context.Background(), 7*24*time.Hour, false, &testUI); err != nil {
+	if _, err := Prune(context.Background(), 7*24*time.Hour, false, &testUI); err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
 	if !stopped.DidRemove() {
@@ -517,16 +517,16 @@ func TestPrune_BuildStateError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	testUI := termio.NewTestMock(t)
-	err := Prune(context.Background(), 7*24*time.Hour, false, &testUI)
+	_, err := Prune(context.Background(), 7*24*time.Hour, false, &testUI)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected buildPruneState error, got %v", err)
 	}
 }
 
-func TestPrintPruneSummary_NilReport(t *testing.T) {
+func TestRenderPruneSummary_NilReport(t *testing.T) {
 	ui := &termio.Mock{}
-	printPruneSummary(ui, nil, false)
+	RenderPruneSummary(ui, nil, false)
 	if len(ui.OutCalls) != 0 {
-		t.Errorf("printPruneSummary with nil report must not emit output, got %v", ui.OutCalls)
+		t.Errorf("RenderPruneSummary with nil report must not emit output, got %v", ui.OutCalls)
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -14,6 +15,33 @@ import (
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
+
+type pruneJSONDetail struct {
+	Type            string `json:"type"`
+	Name            string `json:"name"`
+	Slug            string `json:"slug"`
+	Digest          string `json:"digest"`
+	StaleForSeconds int64  `json:"stale_for_seconds"`
+}
+
+type pruneJSONReport struct {
+	DryRun       bool              `json:"dry_run"`
+	Sandboxes    int               `json:"sandboxes"`
+	Volumes      int               `json:"volumes"`
+	Images       int               `json:"images"`
+	DockerImages int               `json:"docker_images"`
+	Details      []pruneJSONDetail `json:"details"`
+}
+
+func unmarshalPruneJSON(t *testing.T, outCalls []string) pruneJSONReport {
+	t.Helper()
+	joined := strings.Join(outCalls, "\n")
+	var got pruneJSONReport
+	if err := json.Unmarshal([]byte(joined), &got); err != nil {
+		t.Fatalf("json.Unmarshal: %v; output: %q", err, joined)
+	}
+	return got
+}
 
 // oldArtifactTime returns a time far enough in the past that images and volumes
 // carrying it are never considered recent for any prune threshold used in the
@@ -222,6 +250,59 @@ func TestPrune(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestPruneFormatJSON(t *testing.T) {
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
+	m.Volumes = append(m.Volumes,
+		homeVol("agents-sandbox-home-projectname-1mjusbm3wikhb0-20260806T143022"))
+	m.Images = append(m.Images,
+		msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:v2"))
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json")
+	sandboxmsb.WithMsbMock(t, m)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := unmarshalPruneJSON(t, ui.OutCalls)
+	if got.Sandboxes != 1 || got.Volumes != 1 || got.Images != 1 || got.DockerImages != 0 {
+		t.Errorf("unexpected counts: %+v", got)
+	}
+	if got.DryRun {
+		t.Error("dry_run = true, want false")
+	}
+	if len(got.Details) != 3 {
+		t.Fatalf("expected 3 details, got %d: %+v", len(got.Details), got.Details)
+	}
+	for _, detail := range got.Details {
+		if detail.Type == "" || detail.Name == "" || detail.Slug == "" {
+			t.Errorf("detail missing fields: %+v", detail)
+		}
+	}
+}
+
+func TestPruneFormatUnknown(t *testing.T) {
+	runPruneTestError(t, []string{"prune", "--format", "yaml"}, "unsupported format")
+}
+
+func TestPruneFormatJSONQuietConflict(t *testing.T) {
+	runPruneTestError(t, []string{"prune", "--format", "json", "--quiet"}, "mutually exclusive")
+}
+
+func TestPruneQuietSuppressesOutput(t *testing.T) {
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--quiet")
+	sandboxmsb.WithMsbMock(t, m)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("quiet prune should write no stdout, got: %v", ui.OutCalls)
+	}
 }
 
 func TestPruneOlderThan(t *testing.T) {

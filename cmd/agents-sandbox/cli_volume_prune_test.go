@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -51,4 +52,49 @@ func TestVolumePrune(t *testing.T) {
 			t.Errorf("expected invalid age error, got: %v", err)
 		}
 	})
+}
+
+func TestVolumePruneFormatJSON(t *testing.T) {
+	m := &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{
+				Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
+			},
+		},
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{
+				Name_:      "agents-sandbox-home-orphan-1mjusbm3wikhb0-20260806T143022",
+				CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
+			},
+		},
+	}
+	cmd, ui := setupCommandFixtures(t, "volume", "prune", "--format", "json")
+	msb.WithMsbMock(t, m)
+	docker.WithNoopDockerMock(t)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var got struct {
+		DryRun  bool `json:"dry_run"`
+		Volumes int  `json:"volumes"`
+		Details []struct {
+			Type            string `json:"type"`
+			Name            string `json:"name"`
+			Slug            string `json:"slug"`
+			StaleForSeconds int64  `json:"stale_for_seconds"`
+		} `json:"details"`
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if err := json.Unmarshal([]byte(joined), &got); err != nil {
+		t.Fatalf("json.Unmarshal: %v; output: %q", err, joined)
+	}
+	if got.Volumes != 1 || len(got.Details) != 1 {
+		t.Fatalf("unexpected JSON: %+v", got)
+	}
+	if got.Details[0].Type != "volume" || got.Details[0].Name == "" || got.Details[0].Slug == "" {
+		t.Errorf("unexpected detail: %+v", got.Details[0])
+	}
 }
