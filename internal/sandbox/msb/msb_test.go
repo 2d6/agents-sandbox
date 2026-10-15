@@ -179,9 +179,6 @@ func TestRealMsbClientLookupErrors(t *testing.T) {
 	if _, err := c.CreateSandbox(ctx, "does-not-exist"); err == nil {
 		t.Error("CreateSandbox() = nil error, want error without image source")
 	}
-	if err := c.RemoveSandbox(ctx, "does-not-exist"); err == nil {
-		t.Error("RemoveSandbox() = nil error, want error for missing sandbox")
-	}
 	if _, err := c.GetVolume(ctx, "does-not-exist"); err == nil {
 		t.Error("GetVolume() = nil error, want error for missing volume")
 	}

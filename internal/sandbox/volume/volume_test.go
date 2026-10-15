@@ -84,7 +84,8 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
-	client := &msb.MockMsbClient{}
+	prefillSandbox := &msb.MockSandbox{Name_: "prefill"}
+	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
 	vm := NewManager(ui)
 
 	err := vm.PrefillVolume(
@@ -101,8 +102,57 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 	if len(client.CreatedSandboxes) != 1 {
 		t.Fatalf("expected 1 created prefill sandbox, got %d", len(client.CreatedSandboxes))
 	}
-	if len(client.RemovedSandboxes) != 1 {
-		t.Fatalf("expected 1 removed prefill sandbox, got %d", len(client.RemovedSandboxes))
+	if !prefillSandbox.DidDestroy() {
+		t.Fatal("expected the prefill sandbox to be destroyed through its live handle")
+	}
+}
+
+func TestPrefillVolume_DestroyToleratesReplaced(t *testing.T) {
+	docker.WithNoopDockerMock(t)
+	ui := &termio.Mock{}
+	prefillSandbox := &msb.MockSandbox{
+		Name_:      "prefill",
+		DestroyErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"},
+	}
+	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
+	vm := NewManager(ui)
+
+	err := vm.PrefillVolume(
+		context.Background(),
+		client,
+		state.Key{Slug: "myproject", Agent: "opencode"},
+		"test-home-vol",
+		"agents-sandbox/runner-test:latest",
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("PrefillVolume failed: %v", err)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("a replaced throwaway sandbox must not warn, got %v", ui.WarnCalls)
+	}
+}
+
+func TestPrefillVolume_DestroyFailureWarns(t *testing.T) {
+	docker.WithNoopDockerMock(t)
+	ui := &termio.Mock{}
+	prefillSandbox := &msb.MockSandbox{Name_: "prefill", DestroyErr: errors.New("destroy failed")}
+	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
+	vm := NewManager(ui)
+
+	err := vm.PrefillVolume(
+		context.Background(),
+		client,
+		state.Key{Slug: "myproject", Agent: "opencode"},
+		"test-home-vol",
+		"agents-sandbox/runner-test:latest",
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("PrefillVolume failed: %v", err)
+	}
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "failed to destroy prefill sandbox") {
+		t.Errorf("expected a destroy-failure warning, got %v", ui.WarnCalls)
 	}
 }
 

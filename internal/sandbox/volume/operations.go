@@ -164,12 +164,15 @@ func CmdEdit(
 			if shellErr != nil {
 				ui.Warnf("shell exited with error: %v", shellErr)
 			}
-			// Best-effort cleanup
-			stopCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
-			_ = editSb.Stop(stopCtx)
+			// Best-effort cleanup: destroy through the live sandbox so a
+			// same-name replacement is never removed by mistake.
+			destroyCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
+			if destroyErr := editSb.Destroy(destroyCtx); destroyErr != nil &&
+				!msb.IsReplaced(destroyErr) && !msb.IsNotFound(destroyErr) {
+				ui.Warnf("failed to destroy edit sandbox %s: %v", editSandboxName, destroyErr)
+			}
 			cancel()
 			_ = editSb.Close()
-			_ = client.RemoveSandbox(context.Background(), editSandboxName)
 			ui.Infof("exited interactive session, new volume: %q", newVolumeName)
 			return nil
 		},

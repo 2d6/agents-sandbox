@@ -159,27 +159,6 @@ func TestMockMsbClientListSandboxes(t *testing.T) {
 	}
 }
 
-func TestMockMsbClientRemoveSandbox(t *testing.T) {
-	ctx := context.Background()
-	m := &MockMsbClient{}
-	if err := m.RemoveSandbox(ctx, "r1"); err != nil {
-		t.Fatalf("RemoveSandbox error = %v", err)
-	}
-	if len(m.RemovedSandboxes) != 1 || m.RemovedSandboxes[0] != "r1" {
-		t.Fatalf("RemovedSandboxes = %v", m.RemovedSandboxes)
-	}
-	m.removeSandboxErr = errors.New("fail")
-	if err := m.RemoveSandbox(ctx, "r2"); err == nil {
-		t.Fatal("expected removeSandboxErr")
-	}
-	m2 := &MockMsbClient{RemoveSandboxFn: func(_ context.Context, _ string) error {
-		return errors.New("fn")
-	}}
-	if err := m2.RemoveSandbox(ctx, "x"); err == nil {
-		t.Fatal("expected RemoveSandboxFn error")
-	}
-}
-
 func TestMockMsbClientGetVolume(t *testing.T) {
 	ctx := context.Background()
 	m := &MockMsbClient{}
@@ -748,7 +727,6 @@ func TestFailFastClientPanics(t *testing.T) {
 		{"GetSandbox", func() { _, _ = f.GetSandbox(ctx, "x") }},
 		{"CreateSandbox", func() { _, _ = f.CreateSandbox(ctx, "x") }},
 		{"ListSandboxes", func() { _, _ = f.ListSandboxes(ctx, nil) }},
-		{"RemoveSandbox", func() { _ = f.RemoveSandbox(ctx, "x") }},
 		{"GetVolume", func() { _, _ = f.GetVolume(ctx, "x") }},
 		{"CreateVolume", func() { _, _ = f.CreateVolume(ctx, "x") }},
 		{"ListVolumes", func() { _, _ = f.ListVolumes(ctx) }},

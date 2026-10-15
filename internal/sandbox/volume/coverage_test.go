@@ -338,6 +338,81 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 	}
 }
 
+func TestCopyVolume_DestroyFailureWarns(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
+
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return &msb.MockSandbox{DestroyErr: errors.New("destroy failed")}, nil
+	}
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+
+	err := vm.CopyVolume(
+		context.Background(),
+		mock,
+		state.Key{Slug: "myproject", Agent: "opencode"},
+		"old-vol",
+		"new-vol",
+		"img-tag",
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("CopyVolume failed: %v", err)
+	}
+	var warned bool
+	for _, c := range ui.WarnCalls {
+		if strings.Contains(c, "failed to destroy copy sandbox") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected a copy destroy-failure warning, got %v", ui.WarnCalls)
+	}
+}
+
+func TestCmdEdit_DestroyFailureWarns(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+	slug := "testproj-aBc1234D"
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
+
+	callCount := 0
+	mock.CreateSandboxFn = func(_ context.Context, name string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		callCount++
+		if callCount == 2 {
+			return &msb.MockSandbox{Name_: name, DestroyErr: errors.New("destroy failed")}, nil
+		}
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+
+	err := CmdEdit(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		"img-tag",
+		"sha256:abc",
+		false,
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("CmdEdit: %v", err)
+	}
+	var warned bool
+	for _, c := range ui.WarnCalls {
+		if strings.Contains(c, "failed to destroy edit sandbox") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected an edit destroy-failure warning, got %v", ui.WarnCalls)
+	}
+}
+
 func TestCopyVolume_LoadImageFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithDefaultErrorDockerMock(t)

@@ -150,7 +150,9 @@ func ensureProjectVM(
 }
 
 // replaceSandboxForReconfig stops and removes an existing VM whose config
-// changed, reporting notFound=true so the caller recreates it.
+// changed, reporting notFound=true so the caller recreates it. A replaced or
+// already-gone identity is treated the same as a successful removal: the stale
+// name no longer refers to the VM this handle owned, so it must be recreated.
 func replaceSandboxForReconfig(
 	handle msb.SandboxHandle,
 	name string,
@@ -162,6 +164,10 @@ func replaceSandboxForReconfig(
 		ui.Verbosef("stop old VM on reconfig failed (continuing): %v", stopErr)
 	}
 	if removeErr := handle.Remove(context.Background()); removeErr != nil {
+		if msb.IsReplaced(removeErr) || msb.IsNotFound(removeErr) {
+			ui.Verbosef("project VM %s was already replaced or removed; recreating from new config", name)
+			return true, nil
+		}
 		spin.StopError(removeErr)
 		return false, fmt.Errorf("remove old project VM %q: %w", name, removeErr)
 	}

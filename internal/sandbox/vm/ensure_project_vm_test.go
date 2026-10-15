@@ -1075,6 +1075,70 @@ func TestEnsureProjectVMRecreateRemoveError(t *testing.T) {
 	}
 }
 
+// TestEnsureProjectVMRecreateStaleIdentity covers the recreate path where the
+// old handle's identity was replaced by, or no longer exists as, a same-name
+// sandbox: removing the held handle fails closed and recreation proceeds
+// instead of erroring out.
+func TestEnsureProjectVMRecreateStaleIdentity(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"replaced", &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"}},
+		{"gone", &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			docker.WithNoopDockerMock(t)
+			ui := termio.NewTestMock(t)
+			callCount := 0
+			oldHandle := &msb.MockSandboxHandle{
+				Name_:     "agents-sandbox-vm-test",
+				Status_:   msbSdk.SandboxStatusRunning,
+				RemoveErr: tc.err,
+			}
+			client := &msb.MockMsbClient{}
+			client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+				callCount++
+				if callCount == 1 {
+					return oldHandle, nil
+				}
+				return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
+			}
+			client.CreateSandboxFn = func(
+				_ context.Context,
+				name string,
+				_ ...msbSdk.SandboxOption,
+			) (msb.Sandbox, error) {
+				return &msb.MockSandbox{Name_: name}, nil
+			}
+			client.EnsureInstalledFn = func(context.Context) error { return nil }
+			msb.WithMsbMock(t, client)
+
+			sb, boot, err := ensureProjectVM(
+				context.Background(),
+				options.RunOptions{Recreate: true, CPUs: 1, Memory: "2G"},
+				"new:tag",
+				"homevol",
+				"/workspace",
+				map[string]string{},
+				testVMKey(),
+				&ui,
+			)
+			if err != nil {
+				t.Fatalf("ensureProjectVM recreate with stale identity: %v", err)
+			}
+			if !boot.booted() {
+				t.Error("expected a boot after recreate")
+			}
+			if sb == nil {
+				t.Error("expected a sandbox after recreate")
+			}
+		})
+	}
+}
+
 // TestEnsureProjectVMCreateEnsureLoadedError covers the image-load failure
 // branch inside createProjectVM when reached through ensureProjectVM.
 func TestEnsureProjectVMCreateEnsureLoadedError(t *testing.T) {

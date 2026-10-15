@@ -37,15 +37,16 @@ func ValidateInstalled(_ context.Context) error {
 }
 
 // Client is the public abstraction over the microsandbox SDK used by the
-// sandbox package. It covers discovery, creation, and deletion of sandboxes,
-// volumes, and images, plus runtime setup. Production code uses realMsbClient;
-// tests construct MockMsbClient directly.
+// sandbox package. It covers discovery and creation of sandboxes and deletion
+// of volumes and images, plus runtime setup. Sandboxes are removed through the
+// identity-aware handle/live operations (SandboxHandle.Remove, Sandbox.Destroy)
+// rather than by bare name, so this interface has no RemoveSandbox. Production
+// code uses realMsbClient; tests construct MockMsbClient directly.
 type Client interface {
 	EnsureInstalled(ctx context.Context) error
 	GetSandbox(ctx context.Context, name string) (SandboxHandle, error)
 	CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
 	ListSandboxes(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
-	RemoveSandbox(ctx context.Context, name string) error
 	GetVolume(ctx context.Context, name string) (VolumeHandle, error)
 	CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
 	ListVolumes(ctx context.Context) ([]VolumeHandle, error)
@@ -86,6 +87,7 @@ type Sandbox interface {
 	Attach(ctx context.Context, command string, args ...string) (int, error)
 	Detach(ctx context.Context) error
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
+	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
 	Close() error
 }
 
@@ -278,10 +280,6 @@ func (realMsbClient) ListSandboxes(ctx context.Context, labels map[string]string
 		}
 	}
 	return result, nil
-}
-
-func (realMsbClient) RemoveSandbox(ctx context.Context, name string) error {
-	return msbSdk.RemoveSandbox(ctx, name)
 }
 
 func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, error) {
@@ -648,6 +646,10 @@ func (s realSandbox) Detach(ctx context.Context) error {
 
 func (s realSandbox) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
 	return s.sandbox.Stop(ctx, opts...)
+}
+
+func (s realSandbox) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
+	return s.sandbox.Destroy(ctx, opts...)
 }
 
 func (s realSandbox) Close() error {

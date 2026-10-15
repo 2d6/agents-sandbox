@@ -116,26 +116,60 @@ func waitQuiescent(
 			return nil
 		}
 
-		states, err := sessionStates(ctx, sb, provider.SessionStatusCmd())
-		if err != nil {
-			ui.Verbosef("session status poll failed: %v", err)
+		poll := pollQuiescence(ctx, sb, provider, maxRetry, ui)
+		if poll.terminal {
+			return nil
+		}
+		if poll.failed {
 			continue
 		}
-
-		busy, stuckRetry := quiescenceOf(states, nil, maxRetry)
-		if busy > 0 {
-			pending, pendingErr := pendingQuestionSessionIDs(ctx, sb, provider.QuestionListCmd())
-			if pendingErr != nil {
-				ui.Verbosef("question status poll failed: %v", pendingErr)
-			}
-			busy, stuckRetry = quiescenceOf(states, pending, maxRetry)
-		}
-		ui.Verbosef("waiting: busy=%d stuckRetry=%v", busy, stuckRetry)
-
-		if busy == 0 && !stuckRetry {
+		if poll.busy == 0 && !poll.stuckRetry {
 			return nil
 		}
 	}
+}
+
+// sessionPoll is the outcome of one quiescence poll. terminal reports that the
+// held sandbox was replaced or removed, so waiting can stop; failed reports a
+// transient poll error, so the caller keeps waiting.
+//
+//exhaustruct:ignore
+type sessionPoll struct {
+	busy       int
+	stuckRetry bool
+	failed     bool
+	terminal   bool
+}
+
+// pollQuiescence reads the provider's session-status endpoint once and reports
+// how many sessions are busy and whether any retry session is stuck.
+func pollQuiescence(
+	ctx context.Context,
+	sb msb.Sandbox,
+	provider agent.SessionStatusProvider,
+	maxRetry int,
+	ui termio.UI,
+) sessionPoll {
+	states, err := sessionStates(ctx, sb, provider.SessionStatusCmd())
+	if err != nil {
+		if msb.IsReplaced(err) || msb.IsNotFound(err) {
+			ui.Verbosef("sandbox was replaced or removed; stopping reaper wait")
+			return sessionPoll{terminal: true}
+		}
+		ui.Verbosef("session status poll failed: %v", err)
+		return sessionPoll{failed: true}
+	}
+
+	busy, stuckRetry := quiescenceOf(states, nil, maxRetry)
+	if busy > 0 {
+		pending, pendingErr := pendingQuestionSessionIDs(ctx, sb, provider.QuestionListCmd())
+		if pendingErr != nil {
+			ui.Verbosef("question status poll failed: %v", pendingErr)
+		}
+		busy, stuckRetry = quiescenceOf(states, pending, maxRetry)
+	}
+	ui.Verbosef("waiting: busy=%d stuckRetry=%v", busy, stuckRetry)
+	return sessionPoll{busy: busy, stuckRetry: stuckRetry}
 }
 
 // sessionStates reads the provider's session-status endpoint once via an in-VM

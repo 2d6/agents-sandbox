@@ -31,8 +31,8 @@ func PruneSandboxes(
 		}
 		if !dryRun {
 			if err := handle.Remove(ctx); err != nil {
-				if msb.IsReplaced(err) {
-					ui.Warnf("sandbox %s was replaced since it was listed; skipping", name)
+				if msb.IsReplaced(err) || msb.IsNotFound(err) {
+					ui.Verbosef("sandbox %s was already replaced or removed; skipping", name)
 					continue
 				}
 				ui.Warnf("failed to remove sandbox %s: %v", name, err)
