@@ -291,6 +291,28 @@ func TestPruneYesSkipsPrompt(t *testing.T) {
 	}
 }
 
+func TestPruneDryRunSkipsConfirmation(t *testing.T) {
+	vm := mkStaleVM(time.Now().Add(-15 * 24 * time.Hour))
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, vm)
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--dry-run")
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.ConfirmCalls) != 0 {
+		t.Errorf("dry-run must not prompt, got: %v", ui.ConfirmCalls)
+	}
+	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+		t.Error("dry-run must not remove anything")
+	}
+	if !slices.Contains(ui.OutCalls, staleSummary("dry-run: Would prune", 1, 0, 0)) {
+		t.Errorf("expected dry-run preview, got: %v", ui.OutCalls)
+	}
+}
+
 func TestPruneDeclined(t *testing.T) {
 	vm := mkStaleVM(time.Now().Add(-15 * 24 * time.Hour))
 	m := &sandboxmsb.MockMsbClient{}

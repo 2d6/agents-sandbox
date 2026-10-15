@@ -703,11 +703,15 @@ func buildSandboxCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-// confirmPrune gates a destructive prune behind confirmation. The global
-// --yes flag authorizes non-interactively through ui.Confirm's assume-yes path;
-// a non-interactive UI without --yes fails fast via ui.Confirm rather than
+// confirmPrune gates a destructive prune behind confirmation. A dry-run only
+// previews, so it is authorized without prompting. The global --yes flag
+// authorizes non-interactively through ui.Confirm's assume-yes path; a
+// non-interactive UI without --yes fails fast via ui.Confirm rather than
 // blocking.
-func confirmPrune(ui termio.UI) error {
+func confirmPrune(ui termio.UI, dryRun bool) error {
+	if dryRun {
+		return nil
+	}
 	ok, err := ui.Confirm("Prune stale runtime objects?", false)
 	if err != nil {
 		return err
@@ -724,11 +728,11 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune stale VMs, volumes, and images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := confirmPrune(ui); err != nil {
-				return err
-			}
 			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
+				return err
+			}
+			if err = confirmPrune(ui, dryRun); err != nil {
 				return err
 			}
 			mode, err := resolvePruneOutputMode(cmd)
@@ -780,11 +784,11 @@ func buildImagePruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune cached runner images not in use",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := confirmPrune(ui); err != nil {
-				return err
-			}
 			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
+				return err
+			}
+			if err = confirmPrune(ui, dryRun); err != nil {
 				return err
 			}
 			mode, err := resolvePruneOutputMode(cmd)
@@ -810,11 +814,11 @@ func buildVolumePruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune home volumes no longer referenced by a project VM",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := confirmPrune(ui); err != nil {
-				return err
-			}
 			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
+				return err
+			}
+			if err = confirmPrune(ui, dryRun); err != nil {
 				return err
 			}
 			mode, err := resolvePruneOutputMode(cmd)
@@ -849,11 +853,11 @@ func buildSandboxPruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune stale sandboxes and leftover task workers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := confirmPrune(ui); err != nil {
-				return err
-			}
 			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
+				return err
+			}
+			if err = confirmPrune(ui, dryRun); err != nil {
 				return err
 			}
 			mode, err := resolvePruneOutputMode(cmd)

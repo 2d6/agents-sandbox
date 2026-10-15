@@ -36,6 +36,32 @@ func TestSandboxPruneNonInteractiveRequiresYes(t *testing.T) {
 	}
 }
 
+func TestSandboxPruneDryRunSkipsConfirmation(t *testing.T) {
+	vm := &msb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
+		Status_:    msbSdk.SandboxStatusStopped,
+		UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
+	}
+	m := &msb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, vm)
+
+	cmd, ui := setupCommandFixtures(t, "sandbox", "prune", "--dry-run")
+	msb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.ConfirmCalls) != 0 {
+		t.Errorf("dry-run must not prompt, got: %v", ui.ConfirmCalls)
+	}
+	if vm.DidRemove() {
+		t.Error("dry-run must not remove anything")
+	}
+	if !slices.Contains(ui.OutCalls, "dry-run: Would prune 1 sandbox(es)") {
+		t.Errorf("expected dry-run preview, got: %v", ui.OutCalls)
+	}
+}
+
 func TestSandboxPrune(t *testing.T) {
 	t.Run("prunes stale sandbox", func(t *testing.T) {
 		m := &msb.MockMsbClient{
