@@ -627,8 +627,20 @@ func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
 
 func (h *realStreamHandle) Close() error { return h.handle.Close() }
 
+// The realSandbox lifecycle/passthrough methods delegate to the SDK sandbox.
+// Each delegation target is a package-level seam (a method expression) so the
+// thin wrapper is unit-testable without a live VM.
+var (
+	realSandboxAttach     = (*msbSdk.Sandbox).Attach
+	realSandboxAttachWith = (*msbSdk.Sandbox).AttachWith
+	realSandboxDetach     = (*msbSdk.Sandbox).Detach
+	realSandboxStop       = (*msbSdk.Sandbox).Stop
+	realSandboxDestroy    = (*msbSdk.Sandbox).Destroy
+	realSandboxClose      = (*msbSdk.Sandbox).Close
+)
+
 func (s realSandbox) Attach(ctx context.Context, command string, args ...string) (int, error) {
-	return s.sandbox.Attach(ctx, command, args...)
+	return realSandboxAttach(s.sandbox, ctx, command, args...)
 }
 
 func (s realSandbox) AttachWith(
@@ -637,21 +649,21 @@ func (s realSandbox) AttachWith(
 	args []string,
 	opts ...msbSdk.AttachOption,
 ) (int, error) {
-	return s.sandbox.AttachWith(ctx, command, args, opts...)
+	return realSandboxAttachWith(s.sandbox, ctx, command, args, opts...)
 }
 
 func (s realSandbox) Detach(ctx context.Context) error {
-	return s.sandbox.Detach(ctx)
+	return realSandboxDetach(s.sandbox, ctx)
 }
 
 func (s realSandbox) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
-	return s.sandbox.Stop(ctx, opts...)
+	return realSandboxStop(s.sandbox, ctx, opts...)
 }
 
 func (s realSandbox) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
-	return s.sandbox.Destroy(ctx, opts...)
+	return realSandboxDestroy(s.sandbox, ctx, opts...)
 }
 
 func (s realSandbox) Close() error {
-	return s.sandbox.Close()
+	return realSandboxClose(s.sandbox)
 }

@@ -347,6 +347,91 @@ func TestIsReplaced(t *testing.T) {
 	}
 }
 
+func TestRealSandboxDelegatesToSDK(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Attach", func(t *testing.T) {
+		original := realSandboxAttach
+		t.Cleanup(func() { realSandboxAttach = original })
+		called := false
+		realSandboxAttach = func(_ *msbSdk.Sandbox, _ context.Context, _ string, _ ...string) (int, error) {
+			called = true
+			return 3, nil
+		}
+		code, err := (realSandbox{}).Attach(ctx, "cmd")
+		if err != nil || code != 3 || !called {
+			t.Fatalf("Attach() = (%d, %v), called=%v; want (3, nil, true)", code, err, called)
+		}
+	})
+
+	t.Run("AttachWith", func(t *testing.T) {
+		original := realSandboxAttachWith
+		t.Cleanup(func() { realSandboxAttachWith = original })
+		called := false
+		realSandboxAttachWith = func(
+			_ *msbSdk.Sandbox, _ context.Context, _ string, _ []string, _ ...msbSdk.AttachOption,
+		) (int, error) {
+			called = true
+			return 4, nil
+		}
+		code, err := (realSandbox{}).AttachWith(ctx, "cmd", []string{"a"})
+		if err != nil || code != 4 || !called {
+			t.Fatalf("AttachWith() = (%d, %v), called=%v; want (4, nil, true)", code, err, called)
+		}
+	})
+
+	t.Run("Detach", func(t *testing.T) {
+		original := realSandboxDetach
+		t.Cleanup(func() { realSandboxDetach = original })
+		called := false
+		realSandboxDetach = func(_ *msbSdk.Sandbox, _ context.Context) error {
+			called = true
+			return nil
+		}
+		if err := (realSandbox{}).Detach(ctx); err != nil || !called {
+			t.Fatalf("Detach() = %v, called=%v; want nil, true", err, called)
+		}
+	})
+
+	t.Run("Stop", func(t *testing.T) {
+		original := realSandboxStop
+		t.Cleanup(func() { realSandboxStop = original })
+		called := false
+		realSandboxStop = func(_ *msbSdk.Sandbox, _ context.Context, _ ...msbSdk.StopOption) error {
+			called = true
+			return nil
+		}
+		if err := (realSandbox{}).Stop(ctx); err != nil || !called {
+			t.Fatalf("Stop() = %v, called=%v; want nil, true", err, called)
+		}
+	})
+
+	t.Run("Destroy", func(t *testing.T) {
+		original := realSandboxDestroy
+		t.Cleanup(func() { realSandboxDestroy = original })
+		wantErr := errors.New("destroy failed")
+		realSandboxDestroy = func(_ *msbSdk.Sandbox, _ context.Context, _ ...msbSdk.DestroyOption) error {
+			return wantErr
+		}
+		if err := (realSandbox{}).Destroy(ctx); !errors.Is(err, wantErr) {
+			t.Fatalf("Destroy() error = %v, want %v", err, wantErr)
+		}
+	})
+
+	t.Run("Close", func(t *testing.T) {
+		original := realSandboxClose
+		t.Cleanup(func() { realSandboxClose = original })
+		called := false
+		realSandboxClose = func(_ *msbSdk.Sandbox) error {
+			called = true
+			return nil
+		}
+		if err := (realSandbox{}).Close(); err != nil || !called {
+			t.Fatalf("Close() = %v, called=%v; want nil, true", err, called)
+		}
+	})
+}
+
 func TestGetVMStatus(t *testing.T) {
 	tests := []struct {
 		name    string
