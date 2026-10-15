@@ -150,9 +150,10 @@ func ensureProjectVM(
 }
 
 // replaceSandboxForReconfig stops and removes an existing VM whose config
-// changed, reporting notFound=true so the caller recreates it. A replaced or
-// already-gone identity is treated the same as a successful removal: the stale
-// name no longer refers to the VM this handle owned, so it must be recreated.
+// changed, reporting notFound=true so the caller recreates it. An already-gone
+// name is treated like a successful removal. A name whose held identity was
+// replaced now refers to a sandbox this session did not create for this config,
+// so the reconfiguration fails closed rather than silently adopting it.
 func replaceSandboxForReconfig(
 	handle msb.SandboxHandle,
 	name string,
@@ -163,15 +164,23 @@ func replaceSandboxForReconfig(
 	if stopErr := handle.Stop(context.Background()); stopErr != nil {
 		ui.Verbosef("stop old VM on reconfig failed (continuing): %v", stopErr)
 	}
-	if removeErr := handle.Remove(context.Background()); removeErr != nil {
-		if msb.IsReplaced(removeErr) || msb.IsNotFound(removeErr) {
-			ui.Verbosef("project VM %s was already replaced or removed; recreating from new config", name)
-			return true, nil
-		}
+	removeErr := handle.Remove(context.Background())
+	switch {
+	case msb.IsReplaced(removeErr):
+		spin.StopError(removeErr)
+		return false, fmt.Errorf(
+			"project VM %q was replaced by a different sandbox since it was checked; rerun to reconfigure it: %w",
+			name,
+			removeErr,
+		)
+	case msb.IsNotFound(removeErr):
+		ui.Verbosef("project VM %s was already gone; recreating from new config", name)
+	case removeErr != nil:
 		spin.StopError(removeErr)
 		return false, fmt.Errorf("remove old project VM %q: %w", name, removeErr)
+	default:
+		ui.Verbosef("replaced project VM %s; recreating from new config", name)
 	}
-	ui.Verbosef("replaced project VM %s; recreating from new config", name)
 	return true, nil
 }
 

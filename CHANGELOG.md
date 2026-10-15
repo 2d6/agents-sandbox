@@ -55,8 +55,8 @@ command reports the bare version (e.g. `0.1.0`).
   replacement). Every destructive/attach path goes through the identity-aware handle or live sandbox it already holds
   instead of a bare name — prune skips-and-reports a replaced or already-gone sandbox, throwaway volume sandboxes
   (prefill/copy/edit) destroy through the sandbox they created, a reconfig replace recreates when the old identity is
-  gone or replaced, and the reaper stops waiting for a sandbox that no longer exists. Defense-in-depth for the
-  shared-VM-name collision (#144).
+  already gone and fails closed when it was replaced, and the reaper stops waiting for a sandbox that no longer exists.
+  Defense-in-depth for the shared-VM-name collision (#144).
 - State: launcher-global `state.yaml` (the legacy-migration dismissal lives here) is now written through a uniquely named
   temp file, so two concurrent sessions choosing "Start fresh" no longer collide on one shared temp name and abort a
   session. All persistent state/config writers (`state.WriteState`, `state.WriteRootState`, `vm.saveUpgradeState`,

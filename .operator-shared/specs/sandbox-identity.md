@@ -17,8 +17,10 @@ Per-path handling:
 
 - **Prune** (best-effort cleanup): skip-and-report on replaced or gone; removal must never use a bare name.
 - **Throwaway task sandboxes** (prefill/copy/edit): destroy through the live sandbox they created; tolerate replaced/not-found.
-- **Reconfig replace**: remove through the held handle; a replaced identity routes to the recreate path.
+- **Reconfig replace**: remove the held old VM through its handle when its config changed. An already-gone name is recreated; a replaced identity **fails closed** (errors) — the name now holds a sandbox this session did not create, so routing to recreate would silently attach to it and skip the requested image/mount changes.
 - **Reaper**: its live sandbox being replaced or gone is terminal — stop waiting, return.
+
+Invariant: the launcher never silently adopts a same-name replacement to satisfy a recreate request. Recreate either removes the sandbox this session held (then creates fresh) or fails closed; it must not re-look-up the name and attach to whatever now holds it.
 
 The name-based `msb.Client.RemoveSandbox(ctx, name)` is retired so no path can act on a bare name; removal goes through `SandboxHandle.Remove`/`Destroy` and a new `Sandbox.Destroy(ctx)` on the seam.
 
