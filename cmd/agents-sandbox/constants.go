@@ -34,6 +34,7 @@ const (
 	cmdMigrate    = "migrate"
 	cmdReset      = "reset"
 	cmdEdit       = "edit"
+	cmdRemove     = "remove"
 
 	flagRemove = "rm"
 
@@ -78,6 +79,7 @@ var (
 	cmdImageAliases   = []string{"img"}
 	cmdVolumeAliases  = []string{"vol"}
 	cmdSandboxAliases = []string{"sb"}
+	cmdRemoveAliases  = []string{"rm"}
 )
 
 // namedArg represents a named positional argument for display in usage and tree output.

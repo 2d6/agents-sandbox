@@ -1,11 +1,11 @@
 ---
-description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: a private XDG data home, no user-facing msb, retired version-matching recovery, and an opt-in copy of legacy home volumes whose progress is tracked in a host-owned `migrations` registry (`runtime_home` entry with `copying`/`completed`/`dismissed` status plus transient `copied`/`excluded` sets) in root `state.yaml`.
-read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu, or the legacy home-volume copy prompt and its persisted migration state.
+description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: a private XDG data home, no user-facing msb, retired version-matching recovery, and an opt-in copy of legacy home volumes whose progress is tracked in a host-owned `migrations` registry (`runtime_home` entry with `copying`/`completed`/`dismissed` status plus transient `copied`/`kept`/`excluded` sets) in root `state.yaml`. The offer surfaces present private volumes of unclear status, and `volume remove [--force]` is the sanctioned cleanup path.
+read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu, the legacy home-volume copy prompt and its persisted migration state, the ambiguous-state offer, or the `volume remove` cleanup command.
 ---
 
 # Runtime home decoupling
 
-Date: 2026-10-13
+Date: 2026-10-15
 
 Status: **implemented** on `opencode/runtime-home-decoupling` (PR #142); pending
 merge. The copy state model is the host-owned `migrations` registry in
@@ -14,6 +14,11 @@ sentinel and no cross-process locking; review found it unsafe (guest-controlled
 completion, symlink-followable marker write, concurrent sessions deleting each
 other's copy), and it was superseded by the registry (plan
 [2026-10-15-runtime-home-migration-state](../plans/2026-10-15-runtime-home-migration-state.md)).
+A second review round found the copy could overwrite or silently adopt a present
+private volume of unclear status, or complete while a usable partial remained;
+the "no unusable partial" invariant, the `copied`/`kept`/`excluded` split, and the
+ambiguous-state offer below resolve it (plan
+[2026-10-15-runtime-home-migration-state-review-fixes](../plans/2026-10-15-runtime-home-migration-state-review-fixes.md)).
 The ownership-mapping verification under "Open verification" still remains. The
 original implementation plan is
 [2026-10-13-runtime-home-decoupling](../plans/2026-10-13-runtime-home-decoupling.md).
@@ -141,15 +146,39 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   *undismissed*. Not offered on unrelated runtime-touching commands (`list`,
   `prune`, `volume`, `image`, ...): the offer only matters where a home volume is
   about to be used.
-- The choice is **mandatory**: **copy**, **start fresh**, or **quit**. There is
-  no "decide later". The session cannot proceed with the decision unmade, because
-  proceeding resolves the home volume and would overwrite the project's recorded
-  reference before the old data could be copied. Quitting the prompt (or a prompt
-  failure) aborts the session without a decision and re-offers next time.
+- The choice is **mandatory**: **copy**, **start fresh**/**dismiss**, or
+  **quit**. There is no "decide later". The session cannot proceed with the
+  decision unmade, because proceeding resolves the home volume and would
+  overwrite the project's recorded reference before the old data could be copied.
+  Quitting the prompt (or a prompt failure) aborts the session without a decision
+  and re-offers next time.
+- The opt-out option is worded **"Start fresh"** only when the migration is
+  `pending` and no private volume of unclear status is present; otherwise it is
+  **"Dismiss"**, because it also removes those unclear volumes (below).
 - Copies **all** necessary legacy home volumes in one acceptance (the offer is
   global, not per project). Names are preserved, so the existing
   project → volume mapping in `~/.local/state` resolves unchanged in the private
   home.
+
+#### Ambiguous state: present private volumes of unclear status
+
+- A legacy-named volume can only exist in the private home because the campaign
+  copied it (fresh homes are timestamped), and a campaign only creates it under
+  `status: copying`. So a legacy-named private volume observed while the
+  migration is `pending` means the registry entry was lost (e.g. root `state.yaml`
+  deleted), and its contents — complete or a partial — cannot be trusted.
+- When such a volume exists, the offer says so (the prompt names the situation and
+  the count) and shows **two** copy/dismiss outcomes:
+  - **Copy the missing volumes; dismiss the existing private volumes from the
+    migration** — copies only the absent legacy targets; each present private
+    volume is recorded as **kept** and left untouched (never re-copied, never
+    asked about again). Terminal: `completed`.
+  - **Dismiss** — removes every unclear private volume, then records `dismissed`.
+- The prompt also tells the user they can **quit** and clean up manually: remove
+  the private copies they want fully re-migrated with
+  `agents-sandbox volume remove --force <name>` (the copy is still referenced by
+  its project's state, so `--force` is required), then run again to re-copy them;
+  keep the copies they do not want migrated.
 - Never copies binaries, `libkrunfw`, the FFI cache, the runtime database, VM
   records, or image caches — those are re-provisioned/rebuildable. The buildkit
   cache volume (`agents-sandbox-buildkit-cache`) is likewise excluded.
@@ -159,26 +188,41 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 - Source selection is by name, not by our per-project state: any directory under
   `~/.microsandbox/volumes/` matching `agents-sandbox-home-*` that is absent from
   the private home. No layout guessing beyond this convention.
-- Failure scope governs exclusion:
+- Failure scope governs exclusion (see also the "no unusable partial" invariant
+  under "Host-side copy mechanics"):
   - A **volume-scoped** failure (source unreadable, a file's permission denied,
-    ENOSPC, or a chmod/copy error on one volume) is recoverable: that volume is
-    **excluded** from the campaign and recorded as such, the remaining volumes
-    are copied, and the campaign can still reach `completed`. The legacy source
-    is never written, so an exclusion costs only that volume's data. Exclusion
-    is automatic, with a warning naming the volumes left behind.
+    ENOSPC, or a chmod/copy error on one volume) is recoverable: the volume's
+    partial destination is removed, the volume is **excluded** from the campaign,
+    the remaining volumes are copied, and the campaign can still reach
+    `completed`. The legacy source is never written, so an exclusion costs only
+    that volume's data. At finalization the campaign warns, naming the volumes it
+    could not copy.
   - A **campaign-scoped** failure (writing `state.yaml`, taking the lock, or
     listing the homes) aborts the session and leaves the campaign open
-    (`copying`) to resume next time.
-- A clean break (user chooses "Start fresh") is recorded as the dismissal: the
-  legacy volumes remain, so without a persisted decision the offer would keep
-  returning.
+    (`copying`) to resume next time. A campaign-scoped failure aborts rather than
+    excluding the volume, because it cannot guarantee the partial destination was
+    removed.
+- A clean break (user chooses "Start fresh"/"Dismiss") is recorded as the
+  dismissal: the legacy volumes remain, so without a persisted decision the offer
+  would keep returning.
 - `--yes` and non-interactive runs never accept the copy and cannot make the
-  decision, so while the migration is necessary and undismissed they **block
-  before starting a fresh home**, printing guidance to run an interactive
-  `run`/`shell` once. `--yes` is treated as non-interactive for this offer,
-  matching the precedent that `--yes` does not auto-select the (now removed)
-  runtime recovery action. A multi-gigabyte copy must never be triggered
+  decision, so while the migration has volumes to copy or unclear volumes present
+  and is undismissed they **block before starting a fresh home**, printing
+  guidance to run an interactive `run`/`shell` once or clean up with
+  `agents-sandbox volume remove`. `--yes` is treated as non-interactive for this
+  offer, matching the precedent that `--yes` does not auto-select the (now
+  removed) runtime recovery action. A multi-gigabyte copy must never be triggered
   implicitly, and the recorded reference must never be silently overwritten.
+
+### `volume remove` (cleanup path)
+
+- `agents-sandbox volume remove <name>...` (alias `rm`) deletes private home
+  volumes by name. It never prompts, and refuses when a volume is still
+  referenced by a project `state.yaml` (naming the referencing projects), so a
+  project's recorded home is never silently orphaned; `--force` overrides. This
+  command exists so the ambiguous-state prompt has a sanctioned way to remove a
+  copy that the user wants fully re-migrated. The reference scan is fail-closed:
+  an unreadable or corrupt project state file blocks the removal (use `--force`).
 
 ### Host-side copy mechanics
 
@@ -200,19 +244,35 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   evidence of a host→guest translation.
 - A recursive copy preserves file mode and modification time; symlinks are
   recreated as symlinks, never followed.
-- Interruption handling: a volume-scoped copy failure removes that volume
-  best-effort and records it in `excluded`, so it is not retried this campaign
-  while the others proceed. Previously completed volumes are recorded in
-  `copied` and simply stop being necessary.
+- **No unusable partial (invariant):** the home resolver (`ResolveHomeVolume`)
+  adopts any present private volume whose name matches a project's recorded home,
+  so the migration must never leave a private volume under a migration-target name
+  that is neither a finished copy nor a deliberate keep. Concretely:
+  - An **automated** exclusion (a copy failure) is recorded in `excluded` **only
+    after** the partial destination is confirmed removed; if removal fails, the
+    campaign aborts (campaign-scoped, stays `copying`) rather than completing with
+    a usable partial left behind.
+  - A **user-chosen** keep (`kept`, from "copy the missing volumes") deliberately
+    leaves the present volume in place; it is disclosed in the option label.
+  - **Start fresh / Dismiss** removes every present target not in `copied` and not
+    in `kept` (i.e. the unclear partials) before recording `dismissed`; a removal
+    failure aborts the dismissal.
+  - A campaign reaches `completed` only when no such partial remains.
+- Interruption handling: a volume-scoped copy failure removes that volume's
+  partial destination and records the volume in `excluded`, so it is not retried
+  this campaign while the others proceed. Previously completed volumes are
+  recorded in `copied` and simply stop being necessary; user-kept volumes are
+  recorded in `kept`.
 - Cross-process safety: the campaign holds a host-only advisory lock
   (`state.FlockExclusive`) for its duration and (re-)derives necessity under the
   lock, so a second session sees the in-flight status and never discards or
   re-copies a volume another session is copying.
 - Crash safety: a copy stopped by a crash or kill runs no cleanup, but the
   persisted status is `copying`, so the next session treats every present
-  private volume not in `copied` as an unambiguous partial: it discards and
-  re-copies exactly those, and leaves `copied` volumes alone. Completion is a
-  host-owned record, never a file inside the guest-writable volume.
+  private volume not in `copied`/`kept`/`excluded` as an unambiguous partial: it
+  discards and re-copies exactly those, and leaves accounted-for volumes alone.
+  Completion is a host-owned record, never a file inside the guest-writable
+  volume.
 - Symlink safety: the copy recreates symlinks without following them, and after
   the copy the host performs **no** further write into the copied tree (the
   completion record is host-side), so a symlink planted in a legacy volume
@@ -222,10 +282,12 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   finalize `completed`. A `volumes/` directory that exists but cannot be listed
   (permission denied, not-a-directory, or an I/O error) is a **campaign-scoped**
   failure: the campaign must not finalize, leaves `status: copying`, and retries
-  next session. This keeps a transient permission problem from permanently
-  marking an under-migrated campaign complete. (Outside a campaign, in the
-  `pending` state, a missing or unreadable legacy home still counts as "nothing
-  usable to copy".)
+  next session. The offer explains the situation and tells the user to fix it
+  manually and run the migration again (the same "quit and retry" semantics).
+  This keeps a transient permission problem from permanently marking an
+  under-migrated campaign complete. (Outside a campaign, in the `pending` state, a
+  missing or unreadable legacy home still counts as "nothing usable to copy", and
+  the offer warns and skips rather than blocking.)
 
 ### Persisted state
 
@@ -242,24 +304,27 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   migrations:
     runtime_home:
       status: copying        # copying | completed | dismissed
-      copied:                # present only while status: copying
+      copied:                # present only while status: copying; fully migrated
         - agents-sandbox-home-1mjusbm3wikhb0
-      excluded:              # present only while status: copying
+      kept:                  # present only while status: copying; user-dismissed, left in place
         - agents-sandbox-home-1mjusbm3wikhb1
+      excluded:              # present only while status: copying; copy failed, destination removed
+        - agents-sandbox-home-1mjusbm3wikhb2
   ```
 
 - `status` is the only mandatory field; **absence of the `runtime_home` entry is
   the `pending` state** and is always derived, never written:
   - **pending** (absent) — offer if any legacy name is not present in the private
-    home.
-  - **copying** — a campaign is open. Necessary = legacy names minus `copied`
-    minus `excluded`. Any present private volume not in `copied` is an
-    unambiguous partial: discard and re-copy. `copied` gives exact per-volume
-    resume; `excluded` stops a volume that failed from being retried.
+    home, or any present private volume is a legacy target (unclear status).
+  - **copying** — a campaign is open. Necessary = legacy names minus the
+    accounted-for names (`copied` ∪ `kept` ∪ `excluded`). A present private
+    volume not accounted for is a partial: discard and re-copy. `copied` gives
+    exact per-volume resume; `kept` records user-dismissed volumes; `excluded`
+    stops a failed volume from being retried.
   - **completed** — campaign over, no offer, permanent.
-  - **dismissed** — user chose start-fresh, no offer, permanent.
-- `copied` and `excluded` are transient: written only while `copying` and
-  dropped when the campaign reaches a terminal word. Terminal words are
+  - **dismissed** — user chose start-fresh/dismiss, no offer, permanent.
+- `copied`, `kept`, and `excluded` are transient: written only while `copying`
+  and dropped when the campaign reaches a terminal word. Terminal words are
   permanent with no re-arm (unlike onboarding's source-hash re-arm); after
   `completed` or `dismissed`, agents-sandbox never re-offers and never re-probes.
 - Concurrent sessions are serialized by a host-only advisory lock

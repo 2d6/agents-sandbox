@@ -28,14 +28,23 @@ const (
 	MigrationDismissed MigrationStatus = "dismissed"
 )
 
-// Migration tracks one one-time migration. Copied and Excluded are written only
-// while Status is MigrationCopying and dropped when the migration reaches a
-// terminal status.
+// Migration tracks one one-time migration. Copied, Kept, and Excluded are
+// written only while Status is MigrationCopying and dropped when the migration
+// reaches a terminal status.
+//
+// The three lists are disjoint and together account for every legacy volume the
+// campaign has considered:
+//   - Copied: fully migrated into the private home.
+//   - Kept: dismissed from the migration at the user's choice (option "copy the
+//     missing volumes"); the present private volume is intentionally left as-is.
+//   - Excluded: dropped from the migration by a copy failure; the partial
+//     destination has been removed.
 //
 //exhaustruct:ignore
 type Migration struct {
 	Status   MigrationStatus `yaml:"status"`
 	Copied   []string        `yaml:"copied,omitempty"`
+	Kept     []string        `yaml:"kept,omitempty"`
 	Excluded []string        `yaml:"excluded,omitempty"`
 }
 

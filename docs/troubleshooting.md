@@ -40,7 +40,9 @@ upgrading, agents-sandbox offers once to copy those `agents-sandbox-home-*`
 volumes into its private home. You must choose: **Copy the volumes** (carry the
 old data over), **Start fresh** (leave the old volumes untouched and never ask
 again), or **Quit** (abort this session; ask again next time). "Start fresh" is
-remembered and the offer is not shown again.
+remembered and the offer is not shown again. (The option is labelled **Dismiss**
+instead of "Start fresh" when a private volume of unclear status must be removed,
+or when a copy was already in progress.)
 
 The decision is required before a session can proceed, because starting would
 otherwise create a fresh home volume and overwrite the project's recorded
@@ -51,6 +53,22 @@ message to run an interactive `run`/`shell` once to copy them or start fresh.
 Once the migration is resolved — copied, or dismissed with "Start fresh" — each
 project whose recorded volume is not present in the private home starts a fresh
 one automatically, so you can keep working without migrating anything.
+
+#### Private volumes with unclear status
+
+If a private volume already exists under a legacy name, the offer says so and
+cannot tell whether it is a complete copy or a partial one whose progress was
+lost (this can happen if `~/.local/state/agents-sandbox/state.yaml` was removed).
+The offer then gives two options:
+
+- **Copy the missing volumes; dismiss the existing private volumes from the
+  migration** — copies only the absent volumes and leaves the existing ones
+  untouched and never asked about again.
+- **Quit** — if you want a specific volume fully migrated, remove its private
+  copy with `agents-sandbox volume remove --force <name>` (the copy is still
+  referenced by its project's state, hence `--force`), then run again: the next
+  offer will re-copy it from the legacy home. Keep the copies you do not want
+  migrated.
 
 ### KVM unavailable
 

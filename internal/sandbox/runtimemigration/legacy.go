@@ -46,9 +46,10 @@ func presentPrivateVolumeNames(privateHome string) ([]string, error) {
 // given the current migration status. The migration is the source of truth for
 // what "necessary" means:
 //   - completed/dismissed: the campaign is over; nothing is ever necessary.
-//   - copying: legacy names minus those already Copied and those Excluded. The
-//     private listing is not consulted, so a present volume not recorded as
-//     Copied is an unambiguous partial and stays necessary (to be re-copied).
+//   - copying: legacy names minus those already accounted for (Copied, Kept, or
+//     Excluded). The private listing is not consulted, so a present volume not
+//     recorded as accounted for is an unambiguous partial and stays necessary
+//     (to be re-copied).
 //   - pending (zero status): legacy names absent from the private home.
 func necessaryVolumes(legacyHome, privateHome string, m state.Migration) ([]string, error) {
 	switch m.Status {
@@ -59,6 +60,35 @@ func necessaryVolumes(legacyHome, privateHome string, m state.Migration) ([]stri
 	default:
 		return pendingNecessaryVolumes(legacyHome, privateHome)
 	}
+}
+
+// unclearVolumes returns the present private volumes under a legacy target name
+// that the migration has not accounted for: neither copied (fully migrated), kept
+// (dismissed at the user's choice), nor excluded (dropped by a failure). Such a
+// volume is either a partial from an interrupted copy or, under the pending
+// status, a copy whose registry entry was lost — in both cases its contents
+// cannot be trusted as a complete home.
+func unclearVolumes(m state.Migration, presentTargets []string) []string {
+	accounted := accountedSet(m)
+	var unclear []string
+	for _, name := range presentTargets {
+		if !accounted[name] {
+			unclear = append(unclear, name)
+		}
+	}
+	return unclear
+}
+
+// accountedSet returns the legacy names the migration has already resolved, in
+// any of the three disjoint outcomes.
+func accountedSet(m state.Migration) map[string]bool {
+	accounted := make(map[string]bool, len(m.Copied)+len(m.Kept)+len(m.Excluded))
+	for _, names := range [][]string{m.Copied, m.Kept, m.Excluded} {
+		for _, name := range names {
+			accounted[name] = true
+		}
+	}
+	return accounted
 }
 
 // pendingNecessaryVolumes returns the legacy volume names absent from the
@@ -89,7 +119,7 @@ func pendingNecessaryVolumes(legacyHome, privateHome string) ([]string, error) {
 }
 
 // copyingNecessaryVolumes returns the legacy volume names not yet accounted for
-// by an open campaign: those neither Copied nor Excluded. It deliberately
+// by an open campaign: those neither Copied, Kept, nor Excluded. It deliberately
 // ignores the private listing, because during a campaign a present-but-unrecorded
 // private volume is a partial that must be re-copied.
 func copyingNecessaryVolumes(legacyHome string, m state.Migration) ([]string, error) {
@@ -98,13 +128,7 @@ func copyingNecessaryVolumes(legacyHome string, m state.Migration) ([]string, er
 		return nil, err
 	}
 
-	accounted := make(map[string]bool, len(m.Copied)+len(m.Excluded))
-	for _, name := range m.Copied {
-		accounted[name] = true
-	}
-	for _, name := range m.Excluded {
-		accounted[name] = true
-	}
+	accounted := accountedSet(m)
 
 	necessary := make([]string, 0, len(legacy))
 	for _, name := range legacy {
@@ -113,6 +137,34 @@ func copyingNecessaryVolumes(legacyHome string, m state.Migration) ([]string, er
 		}
 	}
 	return necessary, nil
+}
+
+// presentLegacyTargets returns the legacy home volume names already present in
+// the private home. Presence under the pending status means a target was already
+// restored, so a campaign starting now records these as copied rather than
+// discarding and re-copying a home the user already has.
+func presentLegacyTargets(legacyHome, privateHome string) ([]string, error) {
+	targets, err := campaignLegacyVolumeNames(legacyHome)
+	if err != nil {
+		return nil, err
+	}
+	present, err := presentPrivateVolumeNames(privateHome)
+	if err != nil {
+		return nil, err
+	}
+
+	presentSet := make(map[string]bool, len(present))
+	for _, name := range present {
+		presentSet[name] = true
+	}
+
+	var restored []string
+	for _, name := range targets {
+		if presentSet[name] {
+			restored = append(restored, name)
+		}
+	}
+	return restored, nil
 }
 
 // necessaryVolumesFor resolves both homes and delegates to necessaryVolumes.

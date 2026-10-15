@@ -482,3 +482,20 @@ Create a new volume alongside the old one, for manual data transfer.
 - **Flags:**
   - `--rm` — remove old volume after you exit (you are responsible for confirming)
   - `--dry-run` — show what would be done
+
+#### `agents-sandbox volume remove <name>...`
+
+Remove one or more home volumes by name. Never prompts. Refuses when a volume is
+still referenced by a project's state file (naming the referencing projects), so
+a project's recorded home is never silently orphaned; pass `--force` to remove it
+anyway. The next run of an affected project then starts a fresh home.
+
+```console
+agents-sandbox volume remove agents-sandbox-home-myproj-aBc1234D-opencode-20260812T123456
+```
+
+- **Args:** one or more `volume-name`
+- **Flags:**
+  - `--force` — remove even when a project still references the volume
+
+**Aliases:** `volume rm`

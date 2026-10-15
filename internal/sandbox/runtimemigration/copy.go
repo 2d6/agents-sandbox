@@ -37,11 +37,14 @@ func saveMigration(m state.Migration) error {
 // recording progress in the migration registry so an interrupted campaign
 // resumes exactly and a concurrent session cannot clobber a live copy.
 //
-// A terminal migration (completed or dismissed) is a no-op. A first run writes
-// the copying status before deriving necessity; a volume-scoped copy failure is
-// recorded in Excluded (with a warning) and the campaign continues; a
-// campaign-scoped failure (the lock, the state read/write, or the home listing)
-// returns the error and leaves the status copying so the next session resumes.
+// A terminal migration (completed or dismissed) is a no-op. Starting from
+// pending records the legacy targets already present in the private home as Kept
+// (dismissed from the migration at the user's choice), so accepting the offer
+// neither discards nor re-copies a home the user already has. A volume-scoped
+// copy failure is recorded in Excluded (with a warning) and the campaign
+// continues; a campaign-scoped failure (the lock, the state read/write, or the
+// home listing) returns the error and leaves the status copying so the next
+// session resumes.
 func CopyVolumes(ctx context.Context, client msb.Client, ui termio.UI) error {
 	release, err := acquireMigrationLock()
 	if err != nil {
@@ -57,17 +60,18 @@ func CopyVolumes(ctx context.Context, client msb.Client, ui termio.UI) error {
 	if m.Status == state.MigrationCompleted || m.Status == state.MigrationDismissed {
 		return nil
 	}
-	if m.Status != state.MigrationCopying {
-		m = state.Migration{Status: state.MigrationCopying}
-		if saveErr := saveMigration(m); saveErr != nil {
-			return saveErr
-		}
-	}
 
 	legacyHome, err := runtime.LegacyHome()
 	if err != nil {
 		return err
 	}
+	if m.Status != state.MigrationCopying {
+		m, err = startCampaign(legacyHome)
+		if err != nil {
+			return err
+		}
+	}
+
 	names, err := necessaryVolumesFor(m)
 	if err != nil {
 		return err
@@ -89,6 +93,18 @@ func CopyVolumes(ctx context.Context, client msb.Client, ui termio.UI) error {
 		ui.Infof("copied legacy home volume %q", name)
 	}
 	return saveMigration(state.Migration{Status: state.MigrationCompleted})
+}
+
+// startCampaign opens the migration campaign, recording the legacy targets
+// already present in the private home as Kept and persisting the copying status,
+// so an interrupted campaign resumes without re-asking for them.
+func startCampaign(legacyHome string) (state.Migration, error) {
+	present, err := presentLegacyTargets(legacyHome, runtime.PrivateHome())
+	if err != nil {
+		return state.Migration{}, err
+	}
+	m := state.Migration{Status: state.MigrationCopying, Kept: present}
+	return m, saveMigration(m)
 }
 
 // copyVolume discards any leftover partial volume, creates the destination

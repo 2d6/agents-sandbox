@@ -33,11 +33,16 @@ command reports the bare version (e.g. `0.1.0`).
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
 - Runtime: on the first interactive `run`/`shell`, agents-sandbox offers once to copy legacy
   `~/.microsandbox/volumes/agents-sandbox-home-*` volumes into its private runtime home. The choice is now mandatory:
-  copy, start fresh, or quit. The decision and any in-flight progress are tracked in a `migrations.runtime_home` entry in
-  `~/.local/state/agents-sandbox/state.yaml` — a `status` of `copying` (with transient `copied`/`excluded` volume lists),
-  `completed`, or `dismissed`; an absent entry means the migration is still pending. While legacy volumes remain, `--yes`
-  and non-interactive runs never copy and stop with a message to run an interactive session once, so the project's
-  recorded home-volume reference is never overwritten before the copy can happen.
+  copy, start fresh/dismiss, or quit. The decision and any in-flight progress are tracked in a `migrations.runtime_home`
+  entry in `~/.local/state/agents-sandbox/state.yaml` — a `status` of `copying` (with transient
+  `copied`/`kept`/`excluded` volume lists), `completed`, or `dismissed`; an absent entry means the migration is still
+  pending. While legacy volumes remain, `--yes` and non-interactive runs never copy and stop with a message to run an
+  interactive session once, so the project's recorded home-volume reference is never overwritten before the copy can
+  happen. When a private volume already exists under a legacy name (a prior copy of unclear status), the offer says so
+  and lets you copy only the missing volumes (leaving the existing ones untouched) or dismiss; the prompt points at
+  `volume remove` for manual cleanup.
+- `volume remove <name>...` (alias `rm`) removes home volumes by name. It never prompts and refuses when a project's
+  state still references a volume, unless `--force` is given.
 
 ### Fixed
 
@@ -52,7 +57,13 @@ command reports the bare version (e.g. `0.1.0`).
   copied is treated as a partial and re-copied instead of being used as a truncated home. A volume that cannot be copied
   is excluded from the campaign and recorded, so the remaining volumes still migrate and the campaign can still complete.
 - Runtime: a legacy `~/.microsandbox/volumes` directory that exists but is transiently unlistable during a copy campaign
-  no longer silently finalizes the migration as complete; the campaign stays `copying` and retries next session.
+  no longer silently finalizes the migration as complete; the campaign stays `copying`, explains the situation, and
+  retries next session.
+- Runtime: the legacy home-volume copy no longer overwrites or silently adopts a present private volume of unclear
+  status. Such a volume is recorded as `kept` (left untouched) when you choose to copy only the missing volumes, and is
+  removed when you dismiss. A campaign fully discards a failed volume's partial before excluding it, and never reaches
+  `completed` while a usable partial destination remains, so the home resolver can never adopt a half-copied home.
+  Finalization warns about any legacy volumes that could not be copied.
 - Runner image: each tool stage now pins its version as an `ARG` default in the rendered Dockerfile (Node, agent, Docker),
   so a version bump changes the build content and reliably invalidates that stage's install layer. Previously only the
   agent version build arg carried the version, which could leave the agent layer cached (and the image on the old release)

@@ -75,6 +75,7 @@ func TestEveryLeafCommandHelpRenders(t *testing.T) {
 		{"volume", "migrate"},
 		{"volume", "reset"},
 		{"volume", "edit"},
+		{"volume", "remove"},
 		{"sandbox", "list"},
 		{"sandbox", "shell"},
 		{"sandbox", "run"},
@@ -98,7 +99,7 @@ func TestGroupCommandHelpListsSubcommands(t *testing.T) {
 	}{
 		{path: []string{"config"}, subs: []string{"show", "home"}},
 		{path: []string{"image"}, subs: []string{"list", "build"}},
-		{path: []string{"volume"}, subs: []string{"list", "migrate", "reset", "edit"}},
+		{path: []string{"volume"}, subs: []string{"list", "migrate", "reset", "edit", "remove"}},
 		{path: []string{"sandbox"}, subs: []string{"list", "shell", "run", "stop", "kill"}},
 	} {
 		t.Run(strings.Join(tc.path, "_"), func(t *testing.T) {
@@ -113,7 +114,7 @@ func TestGroupCommandHelpListsSubcommands(t *testing.T) {
 }
 
 func TestVolumeSubcommandsDoNotExposeRebuild(t *testing.T) {
-	for _, sub := range []string{"migrate", "reset", "edit"} {
+	for _, sub := range []string{"migrate", "reset", "edit", "remove"} {
 		t.Run(sub, func(t *testing.T) {
 			out := commandOut(t, "volume", sub, "--help")
 			if strings.Contains(out, "--rebuild") {

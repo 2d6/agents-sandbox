@@ -6,16 +6,19 @@ import (
 	"fmt"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // Offer choices. "copy" copies every necessary legacy volume at once; "fresh"
-// records a permanent opt-out; "quit" aborts the session without a decision, so
-// the offer returns next time. There is deliberately no "decide later": the
-// session cannot proceed while the decision is unmade, because resolving the
-// home volume would create a fresh one and overwrite the project's recorded
-// reference before the old data could be copied.
+// records a permanent opt-out — labelled "Start fresh" when there is nothing to
+// clean up, or "Dismiss" when unclear private volumes must be removed; "quit"
+// aborts the session without a decision, so the offer returns next time. There
+// is deliberately no "decide later": the session cannot proceed while the
+// decision is unmade, because resolving the home volume would create a fresh one
+// and overwrite the project's recorded reference before the old data could be
+// copied.
 const (
 	choiceCopy  = "c"
 	choiceFresh = "s"
@@ -36,17 +39,20 @@ var ErrMigrationPending = errors.New("legacy home-volume migration pending")
 // Offer presents the one-time, opt-in copy of legacy microsandbox home volumes
 // into the private runtime home, at the start of an interactive session.
 //
-// The offer is global: one acceptance copies every necessary volume. It is
-// shown only while the migration is both necessary and undismissed.
+// The offer is global: one acceptance copies every necessary volume. It is shown
+// while the migration is undismissed and either has volumes to copy or has
+// present private volumes of unclear status (a previous copy whose progress was
+// lost). The latter is surfaced so the user decides explicitly instead of the
+// session silently adopting a possibly-incomplete home.
 //
 // A non-interactive session is never prompted and never copies: because
-// proceeding would overwrite the project's recorded home-volume reference
-// before the copy can happen, it returns ErrMigrationPending with guidance
-// instead. A failure to read the persisted state or derive necessity is
-// best-effort: it warns and skips rather than blocking the session. A failed
-// copy aborts the session (ErrMigrationPending): continuing would orphan the
-// old data, while the per-volume copy already removed any partial volume so
-// necessity stays true and the offer returns next session.
+// proceeding would overwrite the project's recorded home-volume reference before
+// the copy can happen, it returns ErrMigrationPending with guidance instead. A
+// failure to read the persisted state or derive necessity is best-effort: it
+// warns and skips rather than blocking the session. A failed copy aborts the
+// session (ErrMigrationPending): continuing would orphan the old data, while the
+// per-volume copy already removed any partial volume so necessity stays true and
+// the offer returns next session.
 func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 	rootState, err := state.ReadRootState()
 	if err != nil {
@@ -62,12 +68,17 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 
 	names, err := necessaryVolumesFor(migration)
 	if err != nil {
-		// Likewise, a failure deriving necessity warns and skips rather than
-		// blocking the session.
 		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
 		return nil
 	}
-	if len(names) == 0 {
+	presentTargets, err := presentLegacyTargetsFor()
+	if err != nil {
+		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
+		return nil
+	}
+	unclear := unclearVolumes(migration, presentTargets)
+
+	if len(names) == 0 && len(unclear) == 0 {
 		if migration.Status == state.MigrationCopying {
 			return finalizeCompletedCampaign()
 		}
@@ -76,13 +87,15 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 
 	if !ui.IsInteractive() {
 		return fmt.Errorf(
-			"%w: %d legacy microsandbox home volume(s) can be copied into agents-sandbox; "+
-				"run an interactive `run`/`shell` session to copy them or start fresh",
-			ErrMigrationPending, len(names),
+			"%w: %d legacy microsandbox home volume(s) can be copied into agents-sandbox "+
+				"and %d present private volume(s) have unclear status; "+
+				"run an interactive `run`/`shell` session to decide, "+
+				"or use `agents-sandbox volume remove` to clean up and dismiss",
+			ErrMigrationPending, len(names), len(unclear),
 		)
 	}
 
-	choice, err := ui.Select(offerPrompt(len(names)), offerChoices(), choiceQuit)
+	choice, err := ui.Select(offerPrompt(len(names), len(unclear)), offerChoices(migration, len(unclear)), choiceQuit)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrMigrationPending, err)
 	}
@@ -100,11 +113,14 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 	}
 }
 
-// migrationStatus returns the recorded status of the runtime-home migration, or
-// the empty (pending) status when no entry exists.
-func migrationStatus(root *state.RootState) state.MigrationStatus {
-	m, _ := root.Migration(MigrationName)
-	return m.Status
+// presentLegacyTargetsFor resolves both homes and returns the present private
+// volumes under a legacy target name.
+func presentLegacyTargetsFor() ([]string, error) {
+	legacyHome, err := runtime.LegacyHome()
+	if err != nil {
+		return nil, err
+	}
+	return presentLegacyTargets(legacyHome, runtime.PrivateHome())
 }
 
 // withMigrationLock runs fn while holding the host-only migration lock, so a
@@ -130,42 +146,72 @@ func finalizeCompletedCampaign() error {
 		if err != nil {
 			return err
 		}
-		if migrationStatus(root) != state.MigrationCopying {
+		m, _ := root.Migration(MigrationName)
+		if m.Status != state.MigrationCopying {
 			return nil
 		}
 		return saveMigration(state.Migration{Status: state.MigrationCompleted})
 	})
 }
 
-// dismissMigration records the permanent start-fresh opt-out under the lock,
-// re-reading first so a concurrent campaign's terminal write (completed or
-// dismissed) is not overwritten.
+// dismissMigration records the permanent opt-out under the lock, re-reading
+// first so a concurrent campaign's terminal write (completed or dismissed) is
+// not overwritten.
 func dismissMigration() error {
 	return withMigrationLock(func() error {
 		root, err := state.ReadRootState()
 		if err != nil {
 			return err
 		}
-		status := migrationStatus(root)
-		if status == state.MigrationCompleted || status == state.MigrationDismissed {
+		m, _ := root.Migration(MigrationName)
+		if m.Status == state.MigrationCompleted || m.Status == state.MigrationDismissed {
 			return nil
 		}
 		return saveMigration(state.Migration{Status: state.MigrationDismissed})
 	})
 }
 
-func offerPrompt(count int) string {
-	return fmt.Sprintf("Copy %d legacy home volume(s) into agents-sandbox?", count)
+// offerPrompt builds the prompt text, appending the unclear-volumes notice and
+// the user's cleanup options when present.
+func offerPrompt(copyCount, unclearCount int) string {
+	text := fmt.Sprintf("Copy %d legacy home volume(s) into agents-sandbox?", copyCount)
+	if unclearCount == 0 {
+		return text
+	}
+	return text + fmt.Sprintf(
+		"\n\n%d present private volume(s) have unclear status: a previous copy whose progress was lost, "+
+			"so their contents cannot be trusted as complete. Copying leaves them untouched and dismisses them "+
+			"from the migration. To migrate one fully, Quit, remove its private copy with "+
+			"`agents-sandbox volume remove --force <name>`, and run again; keep the copies you do not want "+
+			"migrated.",
+		unclearCount,
+	)
 }
 
-func offerChoices() []termio.Choice {
+// offerChoices builds the menu. "Start fresh" is used only when the migration is
+// pending and there is nothing unclear to clean up; otherwise the opt-out is
+// worded "Dismiss" because it removes the unclear private volumes.
+func offerChoices(m state.Migration, unclearCount int) []termio.Choice {
+	copyLabel := "Copy the volumes"
+	copyDescription := "carry your old sandbox home data into agents-sandbox"
+	dismissLabel := "Start fresh"
+	dismissDescription := "never offer again; leave the old volumes untouched"
+	quitDescription := "abort this session; ask again next time"
+
+	if unclearCount > 0 {
+		copyLabel = "Copy the missing volumes; dismiss the existing private volumes from the migration"
+		copyDescription = "copy the absent volumes; the unclear private volumes are left untouched"
+	}
+	if m.Status != "" || unclearCount > 0 {
+		dismissLabel = "Dismiss"
+		dismissDescription = "never offer again; remove the unclear private volumes"
+		quitDescription = "abort this session; remove the private copies you want re-migrated with " +
+			"`agents-sandbox volume remove`, then run again"
+	}
+
 	return []termio.Choice{
-		{
-			Label:       "Copy the volumes",
-			Key:         choiceCopy,
-			Description: "carry your old sandbox home data into agents-sandbox",
-		},
-		{Label: "Start fresh", Key: choiceFresh, Description: "never offer again; leave the old volumes untouched"},
-		{Label: "Quit", Key: choiceQuit, Description: "abort this session; ask again next time"},
+		{Label: copyLabel, Key: choiceCopy, Description: copyDescription},
+		{Label: dismissLabel, Key: choiceFresh, Description: dismissDescription},
+		{Label: "Quit", Key: choiceQuit, Description: quitDescription},
 	}
 }

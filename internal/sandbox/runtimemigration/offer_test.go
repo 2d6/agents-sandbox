@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -433,13 +434,117 @@ func TestOfferSelectErrorAborts(t *testing.T) {
 	}
 }
 
+// makeLegacyVolumesUnlistable replaces <legacy>/volumes with a self-referential
+// symlink, so listing it fails with ELOOP (a non-tolerated error in both the
+// pending and copying listings).
+func makeLegacyVolumesUnlistable(t *testing.T, legacy string) {
+	t.Helper()
+	volumes := filepath.Join(legacy, "volumes")
+	if err := os.RemoveAll(volumes); err != nil {
+		t.Fatalf("remove volumes dir: %v", err)
+	}
+	if err := os.Symlink("volumes", volumes); err != nil {
+		t.Fatalf("symlink volumes: %v", err)
+	}
+}
+
 // TestOfferChoicesAreCopyFreshQuit pins that "decide later" is gone: the only
 // outcomes are copy, start fresh, or quit.
 func TestOfferChoicesAreCopyFreshQuit(t *testing.T) {
-	choices := offerChoices()
+	choices := offerChoices(state.Migration{}, 0)
 	got := make([]string, len(choices))
 	for i, c := range choices {
 		got[i] = c.Key
 	}
 	assertSameSet(t, got, []string{choiceCopy, choiceFresh, choiceQuit})
+}
+
+func choiceLabels(choices []termio.Choice) []string {
+	labels := make([]string, len(choices))
+	for i, c := range choices {
+		labels[i] = c.Label
+	}
+	return labels
+}
+
+// TestOfferChoicesWording pins the label rule: "Start fresh" only when the
+// migration is pending and there is nothing unclear to clean up; otherwise the
+// opt-out is worded "Dismiss".
+func TestOfferChoicesWording(t *testing.T) {
+	t.Run("pending no unclear is start fresh", func(t *testing.T) {
+		labels := choiceLabels(offerChoices(state.Migration{}, 0))
+		if !slices.Contains(labels, "Start fresh") || slices.Contains(labels, "Dismiss") {
+			t.Errorf("labels = %v, want Start fresh, not Dismiss", labels)
+		}
+	})
+	t.Run("pending with unclear is dismiss", func(t *testing.T) {
+		labels := choiceLabels(offerChoices(state.Migration{}, 2))
+		if !slices.Contains(labels, "Dismiss") || slices.Contains(labels, "Start fresh") {
+			t.Errorf("labels = %v, want Dismiss, not Start fresh", labels)
+		}
+	})
+	t.Run("copying is dismiss", func(t *testing.T) {
+		labels := choiceLabels(offerChoices(state.Migration{Status: state.MigrationCopying}, 0))
+		if !slices.Contains(labels, "Dismiss") || slices.Contains(labels, "Start fresh") {
+			t.Errorf("labels = %v, want Dismiss, not Start fresh", labels)
+		}
+	})
+}
+
+// TestOfferPromptIncludesUnclearNotice pins the ambiguous-state instructions: the
+// prompt explains the unclear volumes and the `volume remove --force` cleanup
+// path, and omits them when there is nothing unclear.
+func TestOfferPromptIncludesUnclearNotice(t *testing.T) {
+	plain := offerPrompt(1, 0)
+	if strings.Contains(plain, "unclear") {
+		t.Errorf("plain prompt mentions unclear volumes: %q", plain)
+	}
+	noted := offerPrompt(1, 2)
+	for _, want := range []string{"unclear", "volume remove --force", "Quit"} {
+		if !strings.Contains(noted, want) {
+			t.Errorf("prompt %q missing %q", noted, want)
+		}
+	}
+}
+
+// TestOfferAmbiguousStateCopyKeepsExisting pins option 1 in the ambiguous state:
+// a present private volume of unclear status is recorded as Kept and left
+// untouched while only the missing volumes are copied.
+func TestOfferAmbiguousStateCopyKeepsExisting(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	present := naming.HomePrefix + "present"
+	missing := naming.HomePrefix + "missing"
+	addVolumeDir(t, legacy, present)
+	addVolumeDir(t, legacy, missing)
+	if err := os.MkdirAll(filepath.Join(runtime.PrivateHome(), "volumes", present), 0o750); err != nil {
+		t.Fatalf("seed present private volume: %v", err)
+	}
+
+	target := t.TempDir()
+	var created []string
+	client := &msb.MockMsbClient{
+		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			created = append(created, n)
+			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+		},
+	}
+	var prompted bool
+	ui := interactiveUI(choiceCopy, &prompted)
+	if err := Offer(context.Background(), client, ui); err != nil {
+		t.Fatalf("Offer: %v", err)
+	}
+	if !prompted {
+		t.Fatal("Offer did not prompt in the ambiguous state")
+	}
+	if len(created) != 1 || created[0] != missing {
+		t.Errorf("created = %v, want only %q", created, missing)
+	}
+	if slices.Contains(client.RemovedVolumes, present) {
+		t.Errorf("RemovedVolumes = %v, want present %q kept", client.RemovedVolumes, present)
+	}
+	root, _ := state.ReadRootState()
+	if got, _ := root.Migration(MigrationName); got.Status != state.MigrationCompleted {
+		t.Fatalf("status = %q, want completed", got.Status)
+	}
 }

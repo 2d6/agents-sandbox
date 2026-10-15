@@ -280,6 +280,34 @@ func loopedVolumeHome(t *testing.T) string {
 	return home
 }
 
+func TestPresentLegacyTargets(t *testing.T) {
+	legacy := newHome(t)
+	private := newHome(t)
+	present := naming.HomePrefix + "present"
+	addVolumeDir(t, legacy, present)
+	addVolumeDir(t, legacy, naming.HomePrefix+"missing")
+	addVolumeDir(t, private, present)
+	addVolumeDir(t, private, naming.HomePrefix+"unrelated")
+
+	got, err := presentLegacyTargets(legacy, private)
+	if err != nil {
+		t.Fatalf("presentLegacyTargets: %v", err)
+	}
+	assertSameSet(t, got, []string{present})
+}
+
+func TestPresentLegacyTargetsLegacyReadError(t *testing.T) {
+	if _, err := presentLegacyTargets(loopedVolumeHome(t), newHome(t)); err == nil {
+		t.Fatal("presentLegacyTargets() error = nil, want legacy listing error")
+	}
+}
+
+func TestPresentLegacyTargetsPrivateReadError(t *testing.T) {
+	if _, err := presentLegacyTargets(newHome(t), loopedVolumeHome(t)); err == nil {
+		t.Fatal("presentLegacyTargets() error = nil, want private listing error")
+	}
+}
+
 func TestNecessaryVolumesLegacyReadError(t *testing.T) {
 	got, err := necessaryVolumes(loopedVolumeHome(t), newHome(t), state.Migration{})
 	if err == nil {
