@@ -92,7 +92,9 @@ them — for example **Alpine** (busybox `adduser`/`addgroup`, no shadow-utils o
 (no shell or package manager).
 
 When a base image already contains the selected agent, the image records the agent as **user-provided** and
-agents-sandbox does not manage its upgrades. If that provenance has no recorded version and a later rebuild no longer
+agents-sandbox does not manage its upgrades. This works by `PATH` precedence, so a base-provided tool must live
+**outside `/opt/agents-sandbox`**: that prefix is the tool-owned one, and the runner's tool `COPY` overwrites any
+same-named file a base placed inside it. If that provenance has no recorded version and a later rebuild no longer
 contains the agent, the image builder resolves a real release version before installing it; `user-provided` is
 provenance
 metadata, not an agent release version. A matching user-provided image is reused without resolving a release first.

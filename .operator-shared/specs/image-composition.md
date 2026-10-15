@@ -101,7 +101,9 @@ Detection ("leave alone if the base already provides node/agent/dockerd") and th
 `agent-source`/`docker-source` provenance files are resolved in the **adoption step after the user body**. The install
 stages do not probe the base: they build on the tool base, which cannot see it, so they always install into `/opt`. Because
 the runner's `PATH` prefers base binaries, `command -v` in the adoption step still sees a base-provided tool, and the
-tool's copy is left unused. `user-provided` provenance semantics are unchanged.
+tool's copy is left unused. `user-provided` provenance semantics are unchanged. This relies on `PATH` order, so a
+base-provided tool must live **outside** `/opt/agents-sandbox` (the tool-owned prefix): the runner's tool `COPY` merges
+into that tree and overwrites any same-named file a base placed inside it, which `PATH` precedence cannot protect.
 
 ## Docker marker
 
