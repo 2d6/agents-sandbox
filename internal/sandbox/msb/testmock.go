@@ -46,6 +46,7 @@ type MockMsbClient struct {
 	ImageRemoveFn     func(ctx context.Context, ref string, force bool) error
 	ImageLoadFn       func(ctx context.Context, ref string, r io.Reader) error
 	ImageInspectFn    func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	StorageUsageFn    func(ctx context.Context) (*msbSdk.StorageUsageReport, error)
 
 	// Pre-populated collections — List* methods return these when the callback is nil.
 	// Tests can append to these fields freely.
@@ -84,6 +85,7 @@ type MockMsbClient struct {
 	removeImageErr     error
 	imageGetErr        error
 	imageLoadErr       error
+	storageUsageErr    error
 }
 
 // Compile-time check.
@@ -269,6 +271,23 @@ func (m *MockMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.I
 		return m.ImageInspectFn(ctx, ref)
 	}
 	return &msbSdk.ImageConfig{}, nil
+}
+
+// StorageUsage implements Client.
+func (m *MockMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
+	if m.StorageUsageFn != nil {
+		return m.StorageUsageFn(ctx)
+	}
+	if m.storageUsageErr != nil {
+		return nil, m.storageUsageErr
+	}
+	return &msbSdk.StorageUsageReport{}, nil
+}
+
+// SetStorageUsageErr sets the error returned by MockMsbClient.StorageUsage.
+func (m *MockMsbClient) SetStorageUsageErr(err error) *MockMsbClient {
+	m.storageUsageErr = err
+	return m
 }
 
 // SetGetSandboxErr sets the error returned by MockMsbClient.GetSandbox.
@@ -844,6 +863,11 @@ func (f *failFastMsbClient) ImageLoad(_ context.Context, _ string, _ io.Reader) 
 }
 
 func (f *failFastMsbClient) ImageInspect(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+	f.mustMock()
+	return nil, nil
+}
+
+func (f *failFastMsbClient) StorageUsage(_ context.Context) (*msbSdk.StorageUsageReport, error) {
 	f.mustMock()
 	return nil, nil
 }

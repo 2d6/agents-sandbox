@@ -32,6 +32,10 @@ command reports the bare version (e.g. `0.1.0`).
   walk, and add `state.ImageReferences` (the per-agent runner-image analogue of `state.HomeVolumeReferences`) plus
   `image.InUseImageReferences`, which unions the project-state scan with the runner image references held by kept sandboxes
   so a later `image remove` can refuse an in-use runner image. Slice 1 of the runtime-management epic (#165).
+- Internal: add `internal/sandbox/storage`, a no-command seam that accounts for the private runtime home's storage
+  categories — the six categories microsandbox reports (missing counters stay unknown, an unsupported observation
+  degrades to unknown) plus the runtime/FFI artifacts under the home's `bin`/`lib`. It is the data source for a future
+  `df`/`storage` report. Slice 2 of the runtime-management epic (#165).
 - Custom project Dockerfiles can place a `# agents-sandbox:docker` marker line in the final stage to control where the
   Docker install block is injected, e.g. to run `buildx`/`docker compose` setup after the engine is installed (the legacy
   `# agents-sandbox:dind` marker is still recognized). Without the marker the block is still appended after the

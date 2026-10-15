@@ -7,13 +7,14 @@ read_if: Adding or reviewing volume/image/sandbox inspection and removal command
 
 Date: 2026-10-15
 
-Status: **design; Slices 0–1 implemented** (Slice 0 merged in PR #174; Slice 1
-on branch `issue-169-runtime-management-slice-1`, PR pending). Tracked as issue
-#165; delivered as sub-issues #168 (Slice 0, implemented), #169 (Slice 1,
-implemented), #170 (Slice 2), #171 (Slice 3), #172 (Slice 4), and #155
-(Slice 5). Slice 6 is dropped. Builds on `specs/runtime-home-decoupling.md`
-(the private `$MSB_HOME` home) and the reference in
-`guides/microsandbox-release-notes.md`.
+Status: **design; Slices 0–2 implemented** (Slice 0 merged in PR #174; Slice 1
+on branch `issue-169-runtime-management-slice-1`, PR pending; Slice 2 on branch
+`issue-170-runtime-management-slice-2`, PR pending). Tracked as issue #165;
+delivered as sub-issues #168 (Slice 0, implemented), #169 (Slice 1,
+implemented), #170 (Slice 2, implemented), #171 (Slice 3), #172 (Slice 4), and
+#155 (Slice 5). Slice 6 is dropped. Builds on
+`specs/runtime-home-decoupling.md` (the private `$MSB_HOME` home) and the
+reference in `guides/microsandbox-release-notes.md`.
 
 ## Intent
 
@@ -146,12 +147,20 @@ Prefer microsandbox's own storage observation (`StorageUsage`) for the objects i
 owns — images, snapshots, sandboxes, volumes, and branch/snapshot memory — which
 reports per-category and per-object usage and whose optional counters mean
 *unknown* when nil (never zero). Walk the private home only for what microsandbox
-does not report: the buildkit cache, docker images (when the docker backend is in
-use), and runtime/FFI artifacts. `ErrUnsupportedOperation` from the observation
-(cloud or older native libraries) degrades gracefully: the categories it covers
-are marked unknown rather than reported as zero.
+does not report: the runtime/FFI artifacts. `ErrUnsupportedOperation` from the
+observation (cloud or older native libraries) degrades gracefully: the categories
+it covers are marked unknown rather than reported as zero.
 
 Depends on: nothing (parallel with Slices 0–1). Needed by Slice 5.
+
+Implemented (issue #170) in `internal/sandbox/storage`: `Observe` emits the six
+microsandbox categories (nil counters stay unknown; `ErrUnsupportedOperation`
+marks them unknown with a note) followed by a `runtime` category that walks the
+private home's `bin`/`lib` for the runtime/FFI artifacts. The host-side buildkit
+cache and docker images were **deferred out of this seam**: the buildkit cache is
+a named msb volume already covered by the `volumes` category, and host Docker's
+store is outside the private home. Revisit when a docker-backend image store
+lands.
 
 ### Slice 3 — Object inspection (read-only commands)
 
@@ -270,8 +279,9 @@ docker images, and msb images, but not runtime RAM.
   ownership; the scan is the union of the `HomeVolumeReferences` analogue and the
   live kept-sandbox image refs. Fail-closed on unreadable or corrupt state.
 - **`df` category discovery (Slice 2)**: microsandbox's `StorageUsage` supplies
-  the categories it owns; the private-home walk supplies the buildkit cache,
-  docker images (docker backend only), and runtime/FFI artifacts. Nil = unknown.
+  the categories it owns; the private-home walk supplies the runtime/FFI
+  artifacts (its `bin`/`lib`). Nil = unknown. The buildkit cache and docker
+  images were deferred (see Slice 2).
 - **`sandbox copy` (Slice 6)**: dropped.
 - **Per-volume usage**: exposed in `volume inspect` only; `volume list` stays
   cheap (no per-object stat).

@@ -1,12 +1,53 @@
 package msb
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
+
+func TestMockStorageUsageReturnsReport(t *testing.T) {
+	want := &msbSdk.StorageUsageReport{}
+	m := &MockMsbClient{StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
+		return want, nil
+	}}
+	got, err := m.StorageUsage(context.Background())
+	if err != nil {
+		t.Fatalf("StorageUsage() error = %v", err)
+	}
+	if got != want {
+		t.Fatal("StorageUsage() did not return the callback report")
+	}
+}
+
+func TestMockStorageUsageDefaultsAndError(t *testing.T) {
+	m := &MockMsbClient{}
+	got, err := m.StorageUsage(context.Background())
+	if err != nil {
+		t.Fatalf("StorageUsage() default error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("StorageUsage() default report = nil, want empty report")
+	}
+
+	m = (&MockMsbClient{}).SetStorageUsageErr(errors.New("boom"))
+	if _, err := m.StorageUsage(context.Background()); err == nil {
+		t.Fatal("StorageUsage() with SetStorageUsageErr = nil error, want boom")
+	}
+}
+
+func TestFailFastStorageUsagePanics(t *testing.T) {
+	f := &failFastMsbClient{}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic from fail-fast StorageUsage")
+		}
+	}()
+	_, _ = f.StorageUsage(context.Background())
+}
 
 func TestMockImageHandleNewAccessors(t *testing.T) {
 	bytes := int64(123456)
