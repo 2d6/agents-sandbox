@@ -33,10 +33,11 @@ command reports the bare version (e.g. `0.1.0`).
 - `run` and `shell` now accept `--agent-version` to pin the agent version baked into the runner image, matching `build`.
 - Runtime: on the first interactive `run`/`shell`, agents-sandbox offers once to copy legacy
   `~/.microsandbox/volumes/agents-sandbox-home-*` volumes into its private runtime home. The choice is now mandatory:
-  copy, start fresh (persisted as `runtime_home_migration.dismissed: true` in `~/.local/state/agents-sandbox/state.yaml`),
-  or quit. While legacy volumes remain, `--yes` and non-interactive runs never copy and stop with a message to run an
-  interactive session once, so the project's recorded home-volume reference is never overwritten before the copy can
-  happen.
+  copy, start fresh, or quit. The decision and any in-flight progress are tracked in a `migrations.runtime_home` entry in
+  `~/.local/state/agents-sandbox/state.yaml` — a `status` of `copying` (with transient `copied`/`excluded` volume lists),
+  `completed`, or `dismissed`; an absent entry means the migration is still pending. While legacy volumes remain, `--yes`
+  and non-interactive runs never copy and stop with a message to run an interactive session once, so the project's
+  recorded home-volume reference is never overwritten before the copy can happen.
 
 ### Fixed
 
@@ -44,9 +45,12 @@ command reports the bare version (e.g. `0.1.0`).
   temp file, so two concurrent sessions choosing "Start fresh" no longer collide on one shared temp name and abort a
   session. All persistent state/config writers (`state.WriteState`, `state.WriteRootState`, `vm.saveUpgradeState`,
   `upgrade.saveState`) now share one atomic-write helper (`internal/atomicwrite`).
-- Runtime: the legacy home-volume copy is now crash-safe. A finished copy is marked with a sentinel file inside the
-  volume, and necessity treats an unmarked private volume as still-to-copy, so a copy interrupted by a crash is
-  discarded and retried instead of being used as a truncated home.
+- Runtime: the legacy home-volume copy is now crash-safe and concurrency-safe. Completion is recorded host-side in the
+  `migrations.runtime_home` state (never a file inside the guest-writable volume), and the copy campaign holds a
+  host-only lock, so a second session cannot discard a copy that is still in flight. A copy interrupted by a crash
+  resumes exactly — volumes already recorded as copied are left alone, while any present private volume not recorded as
+  copied is treated as a partial and re-copied instead of being used as a truncated home. A volume that cannot be copied
+  is excluded from the campaign and recorded, so the remaining volumes still migrate and the campaign can still complete.
 - Runner image: each tool stage now pins its version as an `ARG` default in the rendered Dockerfile (Node, agent, Docker),
   so a version bump changes the build content and reliably invalidates that stage's install layer. Previously only the
   agent version build arg carried the version, which could leave the agent layer cached (and the image on the old release)
