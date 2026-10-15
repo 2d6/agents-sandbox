@@ -224,6 +224,58 @@ func TestPrune(t *testing.T) {
 	})
 }
 
+func TestPruneOlderThan(t *testing.T) {
+	runPruneTestWithFlags(t, []string{"--older-than", "2w"}, func(m *sandboxmsb.MockMsbClient) {
+		m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
+			Name_:      "agents-sandbox-vm-staleproject-1mjusbm3wikhb0",
+			Status_:    msb.SandboxStatusStopped,
+			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
+		})
+	}, staleSummary("Pruned", 1, 0, 0))
+}
+
+func TestPruneOlderThanInvalid(t *testing.T) {
+	runPruneTestError(t, []string{"prune", "--older-than", "nope"}, "invalid age")
+}
+
+func TestPruneOlderThanAndAgeConflict(t *testing.T) {
+	runPruneTestError(t, []string{"prune", "--older-than", "7d", "--age", "7d"},
+		"use either --older-than or --age, not both")
+}
+
+func TestPruneAgeDeprecated(t *testing.T) {
+	runPruneTestWithFlags(t, []string{"--age", "2w"}, func(m *sandboxmsb.MockMsbClient) {
+		m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
+			Name_:      "agents-sandbox-vm-staleproject-1mjusbm3wikhb0",
+			Status_:    msb.SandboxStatusStopped,
+			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
+		})
+	}, staleSummary("Pruned", 1, 0, 0))
+
+	cmd, _ := setupCommandFixtures(t, "prune")
+	pruneCmd, _, err := cmd.Find([]string{cmdPrune})
+	if err != nil {
+		t.Fatalf("find prune command: %v", err)
+	}
+	flag := pruneCmd.Flags().Lookup(flagAge)
+	if flag == nil || flag.Deprecated == "" {
+		t.Fatal("--age flag must be marked deprecated")
+	}
+}
+
+func runPruneTestWithFlags(t *testing.T, flags []string, setupMock func(m *sandboxmsb.MockMsbClient), expected string) {
+	t.Helper()
+	mock := &sandboxmsb.MockMsbClient{}
+	setupMock(mock)
+	cmd, ui := setupCommandFixtures(t, append([]string{"prune"}, flags...)...)
+	sandboxmsb.WithMsbMock(t, mock)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	checkSummary(t, ui.OutCalls, expected)
+}
+
 func runPruneTest(t *testing.T, flags []string, setupMocks func(), expected string) {
 	t.Helper()
 	cmd, ui := setupCommandFixtures(t, append([]string{"prune"}, flags...)...)

@@ -721,16 +721,24 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 }
 
 // resolvePruneAge returns the effective prune threshold for a manual prune:
-// --age if set, else manual-prune-age from config, else the 7d default.
+// --older-than (or the deprecated --age) if set, else manual-prune-age from
+// config, else the 7d default.
 func resolvePruneAge(cmd *cobra.Command) (time.Duration, error) {
+	olderThanFlag := cmd.Flags().Lookup(flagOlderThan)
 	ageFlag := cmd.Flags().Lookup(flagAge)
-	if !ageFlag.Changed {
+	if olderThanFlag.Changed && ageFlag.Changed {
+		return 0, fmt.Errorf("use either --%s or --%s, not both", flagOlderThan, flagAge)
+	}
+	if !olderThanFlag.Changed && !ageFlag.Changed {
 		if r := resolverFromContext(cmd.Context()); r != nil && r.ManualPruneAge() > 0 {
 			return r.ManualPruneAge(), nil
 		}
 		return 7 * 24 * time.Hour, nil
 	}
-	ageStr := ageFlag.Value.String()
+	ageStr := olderThanFlag.Value.String()
+	if ageFlag.Changed {
+		ageStr = ageFlag.Value.String()
+	}
 	d, ok := viperconfig.ParseHumanDuration(ageStr)
 	if !ok {
 		return 0, fmt.Errorf("invalid age %q: use a Go duration or suffix d/w (e.g. 7d, 2w)", ageStr)
@@ -799,6 +807,8 @@ func buildSandboxPruneCmd(ui termio.UI) *cobra.Command {
 }
 
 func setPruneFlags(cmd *cobra.Command) {
-	cmd.Flags().StringP(flagAge, flagAge[:1], "7d", "Prune threshold (default: manualPruneAge from config)")
+	cmd.Flags().String(flagOlderThan, "7d", "Prune threshold (default: manualPruneAge from config)")
+	cmd.Flags().StringP(flagAge, flagAge[:1], "", "Deprecated alias for --older-than")
+	_ = cmd.Flags().MarkDeprecated(flagAge, "use --older-than")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be pruned without deleting")
 }

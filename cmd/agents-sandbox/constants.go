@@ -48,15 +48,17 @@ const (
 	flagDryRunShort    = "n"
 	flagDryRunVM       = launcherconfig.FlagDryRunVM
 	flagForce          = "force"
-	flagAge            = "age"
-	flagWorktree       = launcherconfig.FlagWorktree
-	flagRoot           = launcherconfig.FlagRoot
-	flagServeOnly      = launcherconfig.FlagServeOnly
-	flagNetwork        = launcherconfig.FlagNetwork
-	flagDNSServers     = launcherconfig.FlagDNSServers
-	flagAgent          = launcherconfig.FlagAgent
-	flagNotify         = launcherconfig.FlagNotify
-	flagDocker         = "docker"
+	flagOlderThan      = "older-than"
+	// flagAge is the deprecated alias for --older-than.
+	flagAge        = "age"
+	flagWorktree   = launcherconfig.FlagWorktree
+	flagRoot       = launcherconfig.FlagRoot
+	flagServeOnly  = launcherconfig.FlagServeOnly
+	flagNetwork    = launcherconfig.FlagNetwork
+	flagDNSServers = launcherconfig.FlagDNSServers
+	flagAgent      = launcherconfig.FlagAgent
+	flagNotify     = launcherconfig.FlagNotify
+	flagDocker     = "docker"
 	// flagDind is the deprecated alias for --docker.
 	flagDind            = "dind"
 	flagAgentVersion    = "agent-version"
