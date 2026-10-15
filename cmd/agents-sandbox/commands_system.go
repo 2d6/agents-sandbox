@@ -78,6 +78,26 @@ func truncateDigest(digest string) string {
 	return digest[:shortLen]
 }
 
+type jsonVolume struct {
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Size      string `json:"size"`
+	CreatedAt string `json:"created"`
+}
+
+func volumeJSON(infos []volume.VolumeInfo) any {
+	out := make([]jsonVolume, 0, len(infos))
+	for _, v := range infos {
+		out = append(out, jsonVolume{
+			Name:      v.Name,
+			Kind:      v.Kind,
+			Size:      volumeSize(v.Kind, v.QuotaMiB, v.CapacityBytes),
+			CreatedAt: v.CreatedAt,
+		})
+	}
+	return out
+}
+
 func buildVolumeOpsCmd(
 	ui termio.UI,
 	name string,
@@ -519,27 +539,55 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 		Args:    cobra.NoArgs,
 		Short:   "Manage runner images",
 	}
-	cmd.AddCommand(&cobra.Command{
+	var format string
+	listCmd := &cobra.Command{
 		Use:     cmdList,
 		Args:    cobra.NoArgs,
 		Aliases: cmdListAliases,
 		Short:   "List cached runner images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			quiet, _ := cmd.Flags().GetBool(pFlagQuiet)
+			mode, err := resolveListOutput(format, quiet)
+			if err != nil {
+				return err
+			}
 			images, err := image.ListImages(cmd.Context())
 			if err != nil {
 				return err
 			}
-			return printList(ui, listOutputTable, images, "No images found.", imageListHeaders(), nil,
+			return printList(ui, mode, images, "No images found.", imageListHeaders(), imageJSON,
 				func(i image.Info) string { return i.Reference },
 				func(i image.Info) string { return truncateDigest(i.Digest) },
 				func(i image.Info) string { return i.Size },
 				func(i image.Info) string { return i.CreatedAt },
 			)
 		},
-	})
+	}
+	listCmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
+	cmd.AddCommand(listCmd)
 	cmd.AddCommand(buildBuildCmd(ui))
 	cmd.AddCommand(buildImagePruneCmd(ui))
 	return cmd
+}
+
+type jsonImage struct {
+	Reference string `json:"reference"`
+	Digest    string `json:"digest"`
+	Size      string `json:"size"`
+	Created   string `json:"created"`
+}
+
+func imageJSON(infos []image.Info) any {
+	out := make([]jsonImage, 0, len(infos))
+	for _, i := range infos {
+		out = append(out, jsonImage{
+			Reference: i.Reference,
+			Digest:    i.Digest,
+			Size:      i.Size,
+			Created:   i.CreatedAt,
+		})
+	}
+	return out
 }
 
 func buildVolumeCmd(ui termio.UI) *cobra.Command {
@@ -548,24 +596,32 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 		Aliases: cmdVolumeAliases,
 		Short:   "Manage home volumes",
 	}
-	cmd.AddCommand(&cobra.Command{
+	var format string
+	listCmd := &cobra.Command{
 		Use:     cmdList,
 		Aliases: cmdListAliases,
 		Args:    cobra.NoArgs,
 		Short:   "List managed volumes",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			quiet, _ := cmd.Flags().GetBool(pFlagQuiet)
+			mode, err := resolveListOutput(format, quiet)
+			if err != nil {
+				return err
+			}
 			volumes, err := volume.ListVolumes(cmd.Context())
 			if err != nil {
 				return err
 			}
-			return printList(ui, listOutputTable, volumes, "No volumes found.", volumeListHeaders(), nil,
+			return printList(ui, mode, volumes, "No volumes found.", volumeListHeaders(), volumeJSON,
 				func(v volume.VolumeInfo) string { return v.Name },
 				func(v volume.VolumeInfo) string { return v.Kind },
 				func(v volume.VolumeInfo) string { return volumeSize(v.Kind, v.QuotaMiB, v.CapacityBytes) },
 				func(v volume.VolumeInfo) string { return v.CreatedAt },
 			)
 		},
-	})
+	}
+	listCmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
+	cmd.AddCommand(listCmd)
 
 	var migrateRmOld bool
 	cmd.AddCommand(

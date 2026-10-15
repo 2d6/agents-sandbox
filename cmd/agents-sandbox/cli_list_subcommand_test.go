@@ -562,6 +562,143 @@ func TestListImages(t *testing.T) {
 	}
 }
 
+func TestListImagesQuiet(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Images = []sandboxmsb.ImageHandle{
+		&sandboxmsb.MockImageHandle{Reference_: "agents-sandbox/runner-aaa", ManifestDigest_: "sha256-aaa"},
+		&sandboxmsb.MockImageHandle{Reference_: "agents-sandbox/runner-bbb", ManifestDigest_: "sha256-bbb"},
+	}
+	cmd, ui := setupCommandFixtures(t, cmdImage, cmdList, "--quiet")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"agents-sandbox/runner-aaa", "agents-sandbox/runner-bbb"} {
+		if !containsNormalized(ui.PrintCalls, want) {
+			t.Errorf("PrintCalls missing reference %q; got: %v", want, ui.PrintCalls)
+		}
+	}
+	if containsNormalized(ui.OutCalls, "REFERENCE DIGEST SIZE CREATED") {
+		t.Errorf("column header should be absent in quiet mode; got: %v", ui.OutCalls)
+	}
+}
+
+func TestListImagesFormatJSON(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Images = []sandboxmsb.ImageHandle{
+		&sandboxmsb.MockImageHandle{
+			Reference_:      "agents-sandbox/runner-abc",
+			ManifestDigest_: "sha256-abc",
+			SizeBytes_:      int64PtrCLI(1024),
+			CreatedAt_:      time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
+		},
+	}
+	cmd, ui := setupCommandFixtures(t, cmdImage, cmdList, "--format", "json")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	var got []struct {
+		Reference string `json:"reference"`
+		Digest    string `json:"digest"`
+		Size      string `json:"size"`
+		Created   string `json:"created"`
+	}
+	if err := json.Unmarshal([]byte(joined), &got); err != nil {
+		t.Fatalf("json.Unmarshal: %v; output: %q", err, joined)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 image in JSON, got %d: %q", len(got), joined)
+	}
+	if got[0].Reference != "agents-sandbox/runner-abc" || got[0].Digest != "sha256-abc" ||
+		got[0].Size != "1 KiB" || got[0].Created != "2026-08-17 10:00:00" {
+		t.Errorf("unexpected JSON fields: %+v", got[0])
+	}
+}
+
+func TestListImagesFormatJSONEmpty(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	cmd, ui := setupCommandFixtures(t, cmdImage, cmdList, "--format", "json")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.TrimSpace(strings.Join(ui.OutCalls, "\n"))
+	if joined != "[]" {
+		t.Errorf("empty image list JSON = %q, want %q", joined, "[]")
+	}
+}
+
+func TestListVolumesQuiet(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Volumes = []sandboxmsb.VolumeHandle{
+		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-aaa", Kind_: msb.VolumeKindDir},
+		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-bbb", Kind_: msb.VolumeKindDir},
+	}
+	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdList, "--quiet")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"agents-sandbox-home-aaa", "agents-sandbox-home-bbb"} {
+		if !containsNormalized(ui.PrintCalls, want) {
+			t.Errorf("PrintCalls missing name %q; got: %v", want, ui.PrintCalls)
+		}
+	}
+	if containsNormalized(ui.OutCalls, "NAME KIND SIZE CREATED") {
+		t.Errorf("column header should be absent in quiet mode; got: %v", ui.OutCalls)
+	}
+}
+
+func TestListVolumesFormatJSON(t *testing.T) {
+	capacity := uint64(1024 * 1024 * 1024)
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Volumes = []sandboxmsb.VolumeHandle{
+		&sandboxmsb.MockVolumeHandle{
+			Name_:          "agents-sandbox-home-proj",
+			Kind_:          msb.VolumeKindDisk,
+			CapacityBytes_: &capacity,
+			CreatedAt_:     time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
+		},
+	}
+	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdList, "--format", "json")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	var got []struct {
+		Name      string `json:"name"`
+		Kind      string `json:"kind"`
+		Size      string `json:"size"`
+		CreatedAt string `json:"created"`
+	}
+	if err := json.Unmarshal([]byte(joined), &got); err != nil {
+		t.Fatalf("json.Unmarshal: %v; output: %q", err, joined)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 volume in JSON, got %d: %q", len(got), joined)
+	}
+	if got[0].Name != "agents-sandbox-home-proj" || got[0].Kind != "disk" ||
+		got[0].Size != "1 GiB" || got[0].CreatedAt != "2026-08-17 10:00:00" {
+		t.Errorf("unexpected JSON fields: %+v", got[0])
+	}
+}
+
+func TestListVolumesFormatJSONEmpty(t *testing.T) {
+	mock := &sandboxmsb.MockMsbClient{}
+	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdList, "--format", "json")
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.TrimSpace(strings.Join(ui.OutCalls, "\n"))
+	if joined != "[]" {
+		t.Errorf("empty volume list JSON = %q, want %q", joined, "[]")
+	}
+}
+
 func TestTruncateDigest(t *testing.T) {
 	full := "sha256:c9b7a85bcbd83f0eab313d091efe933c1608e952a082def11eb038841cb66375"
 	got := truncateDigest(full)
