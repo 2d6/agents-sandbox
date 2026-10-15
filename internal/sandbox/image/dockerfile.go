@@ -28,16 +28,17 @@ const (
 // (never uuid/hash-suffixed) because dockerfile-id is a content hash of the
 // rendered Dockerfile. A project Dockerfile declaring one is a hard error.
 const (
-	baseStageAlias   = "agents-sandbox-base"
-	nodeStageAlias   = "agents-sandbox-node"
-	agentStageAlias  = "agents-sandbox-agent"
-	dockerStageAlias = "agents-sandbox-docker"
-	runnerStageAlias = "agents-sandbox-runner"
+	baseStageAlias     = "agents-sandbox-base"
+	toolbaseStageAlias = "agents-sandbox-toolbase"
+	nodeStageAlias     = "agents-sandbox-node"
+	agentStageAlias    = "agents-sandbox-agent"
+	dockerStageAlias   = "agents-sandbox-docker"
+	runnerStageAlias   = "agents-sandbox-runner"
 )
 
 // reservedStageAliases is the set of stage aliases the renderer owns.
 var reservedStageAliases = []string{
-	baseStageAlias, nodeStageAlias, agentStageAlias, dockerStageAlias, runnerStageAlias,
+	baseStageAlias, toolbaseStageAlias, nodeStageAlias, agentStageAlias, dockerStageAlias, runnerStageAlias,
 }
 
 // Tool artifact contract: every tool lands under toolDir and is exposed through
@@ -168,9 +169,12 @@ func effectiveDocker(projectDockerfile []byte, docker bool) bool {
 }
 
 // RenderDockerfile composes the per-project runner Dockerfile from per-tool
-// multistage stages. Tool-owned layers cache independently of the user body,
-// the base, and each other; the runner stage merges the tool trees with COPY
-// after the user body.
+// multistage stages. The node/agent/docker stages build on a tool-owned
+// agents-sandbox-toolbase (pinned debian:trixie-slim plus curl, ca-certificates,
+// and tar), not on the user's base, so a custom base needs neither curl nor tar
+// and the tool layers cache across bases. Tool-owned layers cache independently
+// of the user body, the base, and each other; the runner stage builds on the
+// base stage and merges the tool trees with COPY after the user body.
 //
 // agentVersion is the resolved agent release baked into the agent stage's
 // install ARG default. Every tool stage (node, agent, docker) states its pinned
@@ -198,18 +202,18 @@ func RenderDockerfile(a agent.Agent, agentVersion string, projectDockerfile []by
 
 	body, dockerInjected := injectDockerBlock(body, docker)
 
-	blocks := make([]string, 0, 6)
-	blocks = append(blocks, earlier, baseStage)
-	agentParent := baseAlias
+	blocks := make([]string, 0, 7)
+	blocks = append(blocks, earlier, toolbaseStage())
+	agentParent := toolbaseStageAlias
 	if a.ImageSpec().RequiresNode {
-		blocks = append(blocks, nodeStage(baseAlias))
+		blocks = append(blocks, nodeStage())
 		agentParent = nodeStageAlias
 	}
 	blocks = append(blocks, agentStage(a, agentParent, agentVersion))
 	if docker {
-		blocks = append(blocks, dockerStage(baseAlias))
+		blocks = append(blocks, dockerStage())
 	}
-	blocks = append(blocks, runnerStage(a, baseAlias, body, docker, dockerInjected))
+	blocks = append(blocks, baseStage, runnerStage(a, baseAlias, body, docker, dockerInjected))
 	return []byte(joinBlocks(blocks...)), nil
 }
 
@@ -287,37 +291,49 @@ func customBaseStage(fromLine string) (string, string) {
 	return line + "\n", alias
 }
 
-// nodeStage renders the Node.js tool stage. It installs Node into toolDir only
-// when the base does not already provide it. The pinned version is the ARG
-// default so a bump changes the rendered content and invalidates this stage.
-func nodeStage(baseAlias string) string {
+// toolbaseStage renders the tool-owned stage the node/agent/docker stages build
+// on. It carries only what the tool downloads need (curl, ca-certificates, tar)
+// and is never part of the runner's lineage, so a custom base needs neither
+// binary and the tool layers cache across bases. It shares the debian:trixie-slim
+// layer with the managed base block.
+func toolbaseStage() string {
+	return fmt.Sprintf(`FROM debian:trixie-slim AS %s
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl tar && \
+    rm -rf /var/lib/apt/lists/*
+`, toolbaseStageAlias)
+}
+
+// nodeStage renders the Node.js tool stage on the tool base. It installs Node
+// into toolDir unconditionally: the fixed tool base never carries node, and a
+// base-provided node is handled by the runner's PATH precedence and recorded by
+// adoption. The pinned version is the ARG default so a bump changes the rendered
+// content and invalidates this stage.
+func nodeStage() string {
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
 ARG NODE_VERSION=%s
 RUN mkdir -p %s && \
-    if command -v node >/dev/null 2>&1; then \
-      :; \
-    else \
-      case "$(uname -m)" in \
-        x86_64) NODE_ARCH=x64 ;; \
-        aarch64) NODE_ARCH=arm64 ;; \
-        *) echo "error: unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
-      esac; \
-      curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" \
-        | tar -xz -C %s --strip-components=1; \
-    fi
+    case "$(uname -m)" in \
+      x86_64) NODE_ARCH=x64 ;; \
+      aarch64) NODE_ARCH=arm64 ;; \
+      *) echo "error: unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" \
+      | tar -xz -C %s --strip-components=1
 ENV PATH="%s:${PATH}"
-`, baseAlias, nodeStageAlias, nodeVersion, toolBin, toolDir, toolBin)
+`, toolbaseStageAlias, nodeStageAlias, nodeVersion, toolDir, toolDir, toolBin)
 }
 
-// agentStage renders the agent tool stage. It installs the agent into toolDir
-// only when the base does not already provide its binary. The stage starts from
-// parentAlias: the node stage when the agent needs node (so its install can use
-// whichever npm is on PATH), otherwise the base stage. It creates toolBin
-// itself so the runner's COPY source exists without the node stage. The agent
-// ENV and label are not set here: this stage is not in the final image's FROM
-// lineage, so Docker would drop them. They are emitted by agentImageConfigBlock
-// in the runner stage instead.
+// agentStage renders the agent tool stage on parentAlias (the node stage when
+// the agent needs node, otherwise the tool base). It installs the agent into
+// toolDir unconditionally: the fixed parent never carries the agent, and a
+// base-provided agent is handled by the runner's PATH precedence and recorded by
+// adoption. It creates toolBin itself so the runner's COPY source exists without
+// the node stage. The agent ENV and label are not set here: this stage is not in
+// the final image's FROM lineage, so Docker would drop them. They are emitted by
+// agentImageConfigBlock in the runner stage instead.
 //
 // The resolved version is the install ARG's default, so a version bump changes
 // the rendered content and invalidates the install layer even when the builder
@@ -332,38 +348,30 @@ func agentStage(a agent.Agent, parentAlias, agentVersion string) string {
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
 %s
-RUN mkdir -p %s && if command -v %s >/dev/null 2>&1; then \
-      :; \
-    else \
-      %s; \
-    fi
+RUN mkdir -p %s && %s
 `,
 		parentAlias, agentStageAlias,
 		versionArg,
 		toolBin,
-		agentBinary(a),
 		spec.InstallCommand,
 	)
 }
 
-// dockerStage renders the optional Docker tool stage. It installs the static
-// Docker binaries into toolBin only when the base does not already provide
-// dockerd. It does not check the runtime prerequisites (iptables, git, ps, xz,
-// curl, tar): the stage starts from the raw base, before the user body, so a
-// body that installs them is not yet visible. The check runs in the final stage
-// instead (dockerAdoptionBlock), after the body.
-func dockerStage(baseAlias string) string {
+// dockerStage renders the optional Docker tool stage on the tool base. It
+// installs the static Docker binaries into toolBin unconditionally: the fixed
+// tool base never carries dockerd, and a base-provided engine is handled by the
+// runner's PATH precedence and recorded by adoption. It does not check the
+// runtime prerequisites (iptables, git, ps, xz): the check runs in the final
+// stage instead (dockerAdoptionBlock), after the user body, so a body that
+// installs them is accepted.
+func dockerStage() string {
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
 ARG DOCKER_VERSION=%s
 RUN set -e; mkdir -p %s && \
-    if command -v dockerd >/dev/null 2>&1; then \
-      :; \
-    else \
-      curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" \
-        | tar -xz -C %s --strip-components=1; \
-    fi
-`, baseAlias, dockerStageAlias, dockerVersion, toolBin, toolBin)
+    curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" \
+      | tar -xz -C %s --strip-components=1
+`, toolbaseStageAlias, dockerStageAlias, dockerVersion, toolBin, toolBin)
 }
 
 // runnerStage renders the final image stage: it creates the dev user, runs the
@@ -419,7 +427,8 @@ func dockerMergeBlock() string {
 // the final stage after the user body so a base that installs the prerequisites
 // in the body is accepted. PATH prefers base binaries, so a base-provided
 // dockerd resolves outside toolDir; a base that ships its own engine is not
-// required to carry the static-tarball prerequisites.
+// required to carry the static-tarball prerequisites. The download's curl/tar
+// are not checked: the docker install runs on the tool base, which carries them.
 func dockerAdoptionBlock() string {
 	return fmt.Sprintf(`USER root
 RUN set -e; mkdir -p /etc/agents-sandbox; \
@@ -427,7 +436,7 @@ RUN set -e; mkdir -p /etc/agents-sandbox; \
     case "$bin" in %s/*) echo tool ;; *) echo user ;; esac \
       > /etc/agents-sandbox/docker-source; \
     if [ "$(cat /etc/agents-sandbox/docker-source)" = tool ]; then \
-      for p in iptables git ps xz curl tar; do \
+      for p in iptables git ps xz; do \
         command -v "$p" >/dev/null 2>&1 || \
           { echo "error: docker prerequisite missing: $p" >&2; exit 1; }; \
       done; \
