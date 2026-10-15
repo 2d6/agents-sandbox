@@ -31,6 +31,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ### `image/` — Runner image build, Dockerfile, fetch, inspect, tags
 
 - `build.go`, `dockerfile.go`, `fetch.go`, `format.go`, `image.go`, `inspect.go`, `list.go`, `tags.go`, `embed.go` — image pipeline
+- `references.go` — `InUseImageReferences`: the fail-closed in-use runner-image guard, unioning the project-state scan with kept sandbox image refs (Slice 1 of the runtime-management epic)
 - `render_integration_test.go` — `//go:build integration` docker-build tests for `RenderDockerfile` composition (no Dockerfile / managed base / custom Fedora base, each ± dind). Run via `make test-integration`; wired into CI as a selective job (main/release/manual). **Cannot run inside the agents-sandbox VM** — microsandbox's egress-inspection CA makes in-image downloads (apt/dnf/node) fail; must run on a host with a normal docker daemon.
 - Custom-base requirements (shadow-utils, POSIX shell bash→zsh→sh, curl+tar, dind prereqs) and unsupported bases (Alpine/distroless/scratch) are documented in `docs/runner-image.md`.
 
@@ -70,9 +71,10 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 - `run.go`, `reaper.go`
 
-### `state/` — State locking (flock, clientlock, claims)
+### `state/` — State locking (flock, clientlock, claims) and project state
 
-- `claim.go`, `clientlock.go`, `flock.go`, `state.go`
+- `claim.go`, `clientlock.go`, `flock.go`, `state.go`, `root.go`, `fingerprint.go`
+- `references.go` — fail-closed project-state reference scan: `HomeVolumeReferences` and `ImageReferences` (the image analogue), both built on the shared `projectStateReferences` walk
 
 ### `vm/` — VM lifecycle and orchestration (largest)
 

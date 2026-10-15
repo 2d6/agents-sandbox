@@ -7,12 +7,13 @@ read_if: Adding or reviewing volume/image/sandbox inspection and removal command
 
 Date: 2026-10-15
 
-Status: **design; Slice 0 implemented** (PR #174, branch
-`issue-168-runtime-management-slice-0`, pending merge). Tracked as issue #165;
-delivered as sub-issues #168 (Slice 0, implemented), #169 (Slice 1),
-#170 (Slice 2), #171 (Slice 3), #172 (Slice 4), and #155 (Slice 5). Slice 6 is
-dropped. Builds on `specs/runtime-home-decoupling.md` (the private `$MSB_HOME`
-home) and the reference in `guides/microsandbox-release-notes.md`.
+Status: **design; Slices 0–1 implemented** (Slice 0 merged in PR #174; Slice 1
+on branch `issue-169-runtime-management-slice-1`, PR pending). Tracked as issue
+#165; delivered as sub-issues #168 (Slice 0, implemented), #169 (Slice 1,
+implemented), #170 (Slice 2), #171 (Slice 3), #172 (Slice 4), and #155
+(Slice 5). Slice 6 is dropped. Builds on `specs/runtime-home-decoupling.md`
+(the private `$MSB_HOME` home) and the reference in
+`guides/microsandbox-release-notes.md`.
 
 ## Intent
 
@@ -122,6 +123,17 @@ references its reference — the union of the project-state scan (the
 computed for image pruning. Project state is the source of truth for ownership;
 the live sandbox refs catch a digest-pinned VM whose tag is no longer the
 per-agent `-latest`.
+
+Implemented shape: the walk behind `state.HomeVolumeReferences` is generalized
+into an unexported `state.projectStateReferences(extract)` with the same
+fail-closed semantics (a missing state root is empty; an unreadable directory or
+unreadable/corrupt state file is an error). `state.ImageReferences` reuses it,
+mapping each state to the per-agent runner ref its slug and agent derive
+(`naming.RunnerImageRef`, now the single builder behind `image.runnerTag`); a
+legacy agent-less key owns none, since runner images are per-agent.
+`image.InUseImageReferences(keptSandboxes)` unions that scan with the image refs of
+the given kept sandboxes, attributing each to the key parsed from the sandbox
+name and de-duplicating.
 
 ### Slice 2 — Home layout accounting seam (groundwork)
 

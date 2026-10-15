@@ -5,5 +5,5 @@ import (
 )
 
 func runnerTag(projectSlug, agentName string) string {
-	return naming.ImagePrefix + projectSlug + ":" + agentName + "-latest"
+	return naming.RunnerImageRef(projectSlug, agentName)
 }
