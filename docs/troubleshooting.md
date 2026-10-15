@@ -154,7 +154,7 @@ agents-sandbox list
 
 # Remove old resources
 agents-sandbox prune --dry-run    # preview
-agents-sandbox prune --force      # remove
+agents-sandbox prune --yes        # remove (skips the confirmation prompt)
 ```
 
 ### Stop a specific VM

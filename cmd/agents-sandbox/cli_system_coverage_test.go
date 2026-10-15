@@ -102,7 +102,7 @@ func TestBuildDockerfileStdOutError(t *testing.T) {
 }
 
 func TestImagePruneInvalidAge(t *testing.T) {
-	cmd, _ := setupCommandFixtures(t, "image", "prune", "--age", "bogus")
+	cmd, _ := setupCommandFixtures(t, "image", "prune", "--age", "bogus", "--yes")
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "invalid age") {
 		t.Fatalf("expected invalid age error, got %v", err)
@@ -110,7 +110,7 @@ func TestImagePruneInvalidAge(t *testing.T) {
 }
 
 func TestSandboxPruneInvalidAge(t *testing.T) {
-	cmd, _ := setupCommandFixtures(t, "sandbox", "prune", "--age", "bogus")
+	cmd, _ := setupCommandFixtures(t, "sandbox", "prune", "--age", "bogus", "--yes")
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "invalid age") {
 		t.Fatalf("expected invalid age error, got %v", err)

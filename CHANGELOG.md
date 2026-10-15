@@ -43,6 +43,11 @@ command reports the bare version (e.g. `0.1.0`).
   `volume remove` for manual cleanup.
 - `volume remove <name>...` (alias `rm`) removes home volumes by name. It never prompts and refuses when a project's
   state still references a volume, unless `--force` is given.
+- CLI: `sandbox list`, `volume list`, and `image list` accept `--format json` (structured output on stdout) and the
+  global `-q`/`--quiet` (identifiers only — sandbox/volume names or image references), in addition to the default human
+  table; the two are mutually exclusive.
+- CLI: `prune` and the `image`/`volume`/`sandbox` `prune` subcommands accept `--format json` (a structured report on
+  stdout) and `--older-than` (canonical age flag, human-duration syntax such as `7d`/`2w`).
 
 ### Fixed
 
@@ -75,6 +80,9 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- CLI: `prune` and its `image`/`volume`/`sandbox` subcommands now ask for confirmation before removing anything,
+  defaulting to no. Pass the global `--yes` to skip the prompt — required in non-interactive contexts, which otherwise
+  fail fast rather than block; `--dry-run` only previews and never prompts.
 - Runtime: agents-sandbox now provisions and uses its own private microsandbox runtime home at
   `$XDG_DATA_HOME/agents-sandbox/msb` (default `~/.local/share/agents-sandbox/msb`), selected via `MSB_HOME` at startup and
   fully decoupled from any user-installed microsandbox. The user's `~/.microsandbox` is never read or written by normal
@@ -128,6 +136,13 @@ command reports the bare version (e.g. `0.1.0`).
   `ci/test-check-docs.sh`); root-level files link into the docs with rendered HTML links and `docs/` pages link with Jekyll
   `{% link %}` tags.
 - Internal: collapse run/shell option resolution into `viperconfig.Resolver.BuildRunOptions` (no behavior change).
+
+### Deprecated
+
+- CLI: `sandbox list --names` is deprecated in favour of the global `-q`/`--quiet` (identifiers only). It is hidden and
+  still honored, but warns when used.
+- CLI: `prune --age` (and its `-a` short form) is deprecated in favour of `--older-than`. It is hidden and still
+  honored, but warns when used; setting both flags together is an error.
 
 ### Fixed
 

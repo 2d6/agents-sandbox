@@ -143,8 +143,8 @@ func TestImageBuildNounFormExists(t *testing.T) {
 
 func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 	for _, args := range [][]string{
-		{"prune", "--age", "1m", "--log-level", "verbose"},
-		{"prune", "--age", "1m", "-l", "verbose"},
+		{"prune", "--age", "1m", "--log-level", "verbose", "--yes"},
+		{"prune", "--age", "1m", "-l", "verbose", "--yes"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
@@ -186,8 +186,8 @@ func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
 
 func TestCLIQuietFlagSetsQuiet(t *testing.T) {
 	for _, args := range [][]string{
-		{"prune", "--age", "1m", "--quiet"},
-		{"prune", "--age", "1m", "-q"},
+		{"prune", "--age", "1m", "--quiet", "--yes"},
+		{"prune", "--age", "1m", "-q", "--yes"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
@@ -217,7 +217,7 @@ func TestCLIQuietFlagFalseByDefault(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
-	root.SetArgs([]string{"prune", "--age", "1m"})
+	root.SetArgs([]string{"prune", "--age", "1m", "--yes"})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)

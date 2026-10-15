@@ -3,6 +3,7 @@ package pruning
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,31 @@ func stoppedHandle(name string) *msb.MockSandboxHandle {
 		Name_:      name,
 		Status_:    msbSdk.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
+	}
+}
+
+func TestRenderSandboxReport(t *testing.T) {
+	ui := &termio.Mock{}
+	RenderSandboxReport(ui, SandboxReport{
+		VMsPruned: 1,
+		Details: []StaleEntry{
+			{Type: StaleTypeVM, Name: "agents-sandbox-vm-proj-1mjusbm3wikhb0", Slug: "proj-1mjusbm3wikhb0"},
+		},
+	}, false)
+	if len(ui.OutCalls) != 1 || ui.OutCalls[0] != "Pruned 1 sandbox(es)" {
+		t.Errorf("OutCalls = %v, want the summary", ui.OutCalls)
+	}
+	if len(ui.VerboseCalls) != 1 || !strings.Contains(ui.VerboseCalls[0], "agents-sandbox-vm-proj-1mjusbm3wikhb0") {
+		t.Errorf("VerboseCalls = %v, want the detail line", ui.VerboseCalls)
+	}
+
+	empty := &termio.Mock{}
+	RenderSandboxReport(empty, SandboxReport{}, true)
+	if len(empty.OutCalls) != 1 || empty.OutCalls[0] != "dry-run: Would prune 0 sandbox(es)" {
+		t.Errorf("OutCalls = %v, want the dry-run summary", empty.OutCalls)
+	}
+	if len(empty.VerboseCalls) != 0 {
+		t.Errorf("VerboseCalls = %v, want none without details", empty.VerboseCalls)
 	}
 }
 

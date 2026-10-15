@@ -28,11 +28,11 @@ func InvokePruneFunc[R any](
 	age time.Duration,
 	dryRun bool,
 	ui termio.UI,
-) error {
+) (R, error) {
 	pruneState, err := buildPruneState(context, age)
 	if err != nil {
-		return err
+		var zero R
+		return zero, err
 	}
-	_, pruneErr := pruneLambda(context, pruneState, dryRun, ui)
-	return pruneErr
+	return pruneLambda(context, pruneState, dryRun, ui)
 }

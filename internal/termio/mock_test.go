@@ -50,6 +50,14 @@ func TestMockErrorStoresMessageAndError(t *testing.T) {
 	}
 }
 
+func TestMockPrintRecordsDataLine(t *testing.T) {
+	m := &Mock{}
+	m.Print("agent-1")
+	if len(m.PrintCalls) != 1 || m.PrintCalls[0] != "agent-1" {
+		t.Errorf("PrintCalls = %v, want [agent-1]", m.PrintCalls)
+	}
+}
+
 func TestMockSpinnerIsNoOp(t *testing.T) {
 	m := &Mock{}
 	spin := m.Spinner("work")
@@ -71,6 +79,60 @@ func TestMockPromptDefaults(t *testing.T) {
 	value, err := m.Input("prompt", "default")
 	if err != nil || value != "default" {
 		t.Errorf("expected default input, got %q, %v", value, err)
+	}
+}
+
+func TestMockConfirmRecordsPromptAndReturnsConfigured(t *testing.T) {
+	m := &Mock{IsInteractiveResult: true, ConfirmResult: true}
+	got, err := m.Confirm("Remove it?", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got {
+		t.Error("expected configured ConfirmResult true")
+	}
+	if len(m.ConfirmCalls) != 1 || m.ConfirmCalls[0] != "Remove it?" {
+		t.Errorf("expected recorded prompt, got %v", m.ConfirmCalls)
+	}
+
+	boom := errors.New("boom")
+	m = &Mock{IsInteractiveResult: true, ConfirmErr: boom}
+	got, err = m.Confirm("Remove it?", true)
+	if !errors.Is(err, boom) {
+		t.Errorf("expected configured error, got %v", err)
+	}
+	if got {
+		t.Error("expected false result alongside error")
+	}
+}
+
+func TestMockConfirmNonInteractiveRequiresConfirmation(t *testing.T) {
+	m := &Mock{ConfirmResult: true}
+	got, err := m.Confirm("Remove it?", false)
+	if !errors.Is(err, ErrConfirmationRequired) {
+		t.Fatalf("expected ErrConfirmationRequired, got %v", err)
+	}
+	if got {
+		t.Error("expected false when confirmation is required")
+	}
+	if len(m.ConfirmCalls) != 0 {
+		t.Errorf("non-interactive confirm must not record a prompt, got: %v", m.ConfirmCalls)
+	}
+}
+
+func TestMockConfirmReturnsTrueWithoutRecordingWhenAssumeYes(t *testing.T) {
+	m := &Mock{ConfirmResult: false}
+	m.SetAssumeYes(true)
+
+	got, err := m.Confirm("Remove it?", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got {
+		t.Error("expected true under assume-yes")
+	}
+	if len(m.ConfirmCalls) != 0 {
+		t.Errorf("expected no recorded prompt under assume-yes, got: %v", m.ConfirmCalls)
 	}
 }
 

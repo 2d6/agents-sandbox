@@ -103,6 +103,12 @@ func (p *printer) Out(msg string) {
 	p.write(p.stdout, "", msg)
 }
 
+// Print writes a plain data line to stdout regardless of the quiet setting, so
+// list commands can emit identifiers-only output under --quiet.
+func (p *printer) Print(msg string) {
+	p.write(p.stdout, "", msg)
+}
+
 // Header writes a table header line to stdout. When color is enabled the
 // whole line is rendered bold and cyan, matching microsandbox table headers.
 func (p *printer) Header(msg string) {
@@ -134,6 +140,10 @@ func (p *printer) SetAssumeYes(assumeYes bool) {
 
 func (p *printer) SetQuiet(quiet bool) {
 	p.quiet = quiet
+}
+
+func (p *printer) Quiet() bool {
+	return p.quiet
 }
 
 func (p *printer) Spinner(msg string) Spinner {

@@ -1,12 +1,17 @@
 package termio
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"golang.org/x/term"
 )
+
+// ErrConfirmationRequired is returned by Confirm when a destructive action
+// needs authorization in a non-interactive context without --yes.
+var ErrConfirmationRequired = errors.New("confirmation required: pass --yes to proceed non-interactively")
 
 // Level selects the minimum severity shown on the console. Levels are
 // monotonic: showing a level also shows every more severe level, so a higher
@@ -81,6 +86,7 @@ type UI interface {
 	Verbosef(format string, args ...any)
 	Out(msg string)
 	Outf(format string, args ...any)
+	Print(msg string)
 	Header(msg string)
 	NewTable(headers ...string) *Table
 	Spinner(msg string) Spinner
@@ -89,6 +95,7 @@ type UI interface {
 	SetLevel(level Level)
 	SetAssumeYes(assumeYes bool)
 	SetQuiet(quiet bool)
+	Quiet() bool
 
 	StdOut() io.Writer
 	StdErr() io.Writer
@@ -96,6 +103,7 @@ type UI interface {
 	IsInteractive() bool
 	Select(prompt string, choices []Choice, defaultKey string) (string, error)
 	Input(prompt, defaultValue string) (string, error)
+	Confirm(prompt string, defaultYes bool) (bool, error)
 }
 
 // New creates a production ui backed by the given streams.

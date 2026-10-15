@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -77,6 +76,26 @@ func truncateDigest(digest string) string {
 		return digest
 	}
 	return digest[:shortLen]
+}
+
+type jsonVolume struct {
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Size      string `json:"size"`
+	CreatedAt string `json:"created"`
+}
+
+func volumeJSON(infos []volume.VolumeInfo) any {
+	out := make([]jsonVolume, 0, len(infos))
+	for _, v := range infos {
+		out = append(out, jsonVolume{
+			Name:      v.Name,
+			Kind:      v.Kind,
+			Size:      volumeSize(v.Kind, v.QuotaMiB, v.CapacityBytes),
+			CreatedAt: v.CreatedAt,
+		})
+	}
+	return out
 }
 
 func buildVolumeOpsCmd(
@@ -169,11 +188,9 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox list",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if namesOnly && format != "" {
-				return errors.New("--names and --format are mutually exclusive")
-			}
-			if format != "" && format != formatJSON {
-				return fmt.Errorf("unsupported format %q: only %q is supported", format, formatJSON)
+			mode, err := resolveListOutput(format, ui.Quiet() || namesOnly)
+			if err != nil {
+				return err
 			}
 			labels, err := parseLabelFlags(labelsStr)
 			if err != nil {
@@ -193,25 +210,16 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if namesOnly {
-				for _, s := range sandboxes {
-					ui.Out(s.Name)
-				}
-				return nil
-			}
-			if format == formatJSON {
-				return printSandboxesJSON(ui, sandboxes)
-			}
-			printItems(sandboxes, "No sandboxes found.", sandboxListHeaders(), ui,
+			return printList(ui, mode, sandboxes, "No sandboxes found.", sandboxListHeaders(), sandboxJSON,
 				func(s sandbox.Info) string { return s.Name },
 				func(s sandbox.Info) string { return s.Image },
 				func(s sandbox.Info) string { return termio.StyleStatus(s.Status) },
 				func(s sandbox.Info) string { return s.CreatedAt },
 			)
-			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&namesOnly, pFlagNames, false, "Print only sandbox names")
+	_ = cmd.Flags().MarkDeprecated(pFlagNames, "use --quiet")
 	cmd.Flags().
 		StringArrayVar(&labelsStr, flagLabel, nil, "Only show sandboxes carrying this label KEY=VALUE (repeatable, all must match)")
 	cmd.Flags().Uint32Var(&limit, flagLimit, 0, "Limit the number of sandboxes shown")
@@ -242,7 +250,7 @@ type jsonSandbox struct {
 	Labels  map[string]string `json:"labels"`
 }
 
-func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
+func sandboxJSON(infos []sandbox.Info) any {
 	out := make([]jsonSandbox, 0, len(infos))
 	for _, s := range infos {
 		out = append(out, jsonSandbox{
@@ -254,12 +262,7 @@ func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
 			Labels:  s.Labels,
 		})
 	}
-	data, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	ui.Out(string(data))
-	return nil
+	return out
 }
 
 func buildConfigCmd(ui termio.UI) *cobra.Command {
@@ -535,28 +538,54 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 		Args:    cobra.NoArgs,
 		Short:   "Manage runner images",
 	}
-	cmd.AddCommand(&cobra.Command{
+	var format string
+	listCmd := &cobra.Command{
 		Use:     cmdList,
 		Args:    cobra.NoArgs,
 		Aliases: cmdListAliases,
 		Short:   "List cached runner images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			mode, err := resolveListOutput(format, ui.Quiet())
+			if err != nil {
+				return err
+			}
 			images, err := image.ListImages(cmd.Context())
 			if err != nil {
 				return err
 			}
-			printItems(images, "No images found.", imageListHeaders(), ui,
+			return printList(ui, mode, images, "No images found.", imageListHeaders(), imageJSON,
 				func(i image.Info) string { return i.Reference },
 				func(i image.Info) string { return truncateDigest(i.Digest) },
 				func(i image.Info) string { return i.Size },
 				func(i image.Info) string { return i.CreatedAt },
 			)
-			return nil
 		},
-	})
+	}
+	listCmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
+	cmd.AddCommand(listCmd)
 	cmd.AddCommand(buildBuildCmd(ui))
 	cmd.AddCommand(buildImagePruneCmd(ui))
 	return cmd
+}
+
+type jsonImage struct {
+	Reference string `json:"reference"`
+	Digest    string `json:"digest"`
+	Size      string `json:"size"`
+	Created   string `json:"created"`
+}
+
+func imageJSON(infos []image.Info) any {
+	out := make([]jsonImage, 0, len(infos))
+	for _, i := range infos {
+		out = append(out, jsonImage{
+			Reference: i.Reference,
+			Digest:    i.Digest,
+			Size:      i.Size,
+			Created:   i.CreatedAt,
+		})
+	}
+	return out
 }
 
 func buildVolumeCmd(ui termio.UI) *cobra.Command {
@@ -565,25 +594,31 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 		Aliases: cmdVolumeAliases,
 		Short:   "Manage home volumes",
 	}
-	cmd.AddCommand(&cobra.Command{
+	var format string
+	listCmd := &cobra.Command{
 		Use:     cmdList,
 		Aliases: cmdListAliases,
 		Args:    cobra.NoArgs,
 		Short:   "List managed volumes",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			mode, err := resolveListOutput(format, ui.Quiet())
+			if err != nil {
+				return err
+			}
 			volumes, err := volume.ListVolumes(cmd.Context())
 			if err != nil {
 				return err
 			}
-			printItems(volumes, "No volumes found.", volumeListHeaders(), ui,
+			return printList(ui, mode, volumes, "No volumes found.", volumeListHeaders(), volumeJSON,
 				func(v volume.VolumeInfo) string { return v.Name },
 				func(v volume.VolumeInfo) string { return v.Kind },
 				func(v volume.VolumeInfo) string { return volumeSize(v.Kind, v.QuotaMiB, v.CapacityBytes) },
 				func(v volume.VolumeInfo) string { return v.CreatedAt },
 			)
-			return nil
 		},
-	})
+	}
+	listCmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
+	cmd.AddCommand(listCmd)
 
 	var migrateRmOld bool
 	cmd.AddCommand(
@@ -665,6 +700,25 @@ func buildSandboxCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
+// confirmPrune gates a destructive prune behind confirmation. A dry-run only
+// previews, so it is authorized without prompting. The global --yes flag
+// authorizes non-interactively through ui.Confirm's assume-yes path; a
+// non-interactive UI without --yes fails fast via ui.Confirm rather than
+// blocking.
+func confirmPrune(ui termio.UI, dryRun bool) error {
+	if dryRun {
+		return nil
+	}
+	ok, err := ui.Confirm("Prune stale runtime objects?", false)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("prune cancelled")
+	}
+	return nil
+}
+
 func buildPruneCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdPrune,
@@ -675,7 +729,20 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return pruning.Prune(cmd.Context(), age, dryRun, ui)
+			mode, err := resolvePruneOutputMode(cmd, ui)
+			if err != nil {
+				return err
+			}
+			if err = confirmPrune(ui, dryRun); err != nil {
+				return err
+			}
+			report, pruneErr := pruning.Prune(cmd.Context(), age, dryRun, ui)
+			if report != nil {
+				renderPruneReport(ui, mode,
+					func() { pruning.RenderPruneSummary(ui, report, dryRun) },
+					newPruneReportJSON(report, dryRun))
+			}
+			return pruneErr
 		},
 	}
 	setPruneFlags(cmd)
@@ -683,21 +750,58 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 }
 
 // resolvePruneAge returns the effective prune threshold for a manual prune:
-// --age if set, else manual-prune-age from config, else the 7d default.
+// --older-than (or the deprecated --age) if set, else manual-prune-age from
+// config, else the 7d default.
 func resolvePruneAge(cmd *cobra.Command) (time.Duration, error) {
+	olderThanFlag := cmd.Flags().Lookup(flagOlderThan)
 	ageFlag := cmd.Flags().Lookup(flagAge)
-	if !ageFlag.Changed {
+	if olderThanFlag.Changed && ageFlag.Changed {
+		return 0, fmt.Errorf("use either --%s or --%s, not both", flagOlderThan, flagAge)
+	}
+	if !olderThanFlag.Changed && !ageFlag.Changed {
 		if r := resolverFromContext(cmd.Context()); r != nil && r.ManualPruneAge() > 0 {
 			return r.ManualPruneAge(), nil
 		}
 		return 7 * 24 * time.Hour, nil
 	}
-	ageStr := ageFlag.Value.String()
+	ageStr := olderThanFlag.Value.String()
+	if ageFlag.Changed {
+		ageStr = ageFlag.Value.String()
+	}
 	d, ok := viperconfig.ParseHumanDuration(ageStr)
 	if !ok {
 		return 0, fmt.Errorf("invalid age %q: use a Go duration or suffix d/w (e.g. 7d, 2w)", ageStr)
 	}
 	return d, nil
+}
+
+// runGroupPrune runs one group pruner behind the shared prune flag handling:
+// output mode and confirmation are resolved (so bad flags fail fast), then the
+// report is rendered even when the pruner returns an error, so a partial run
+// still reports what it removed before the error surfaces.
+func runGroupPrune[R any](
+	cmd *cobra.Command,
+	ui termio.UI,
+	pruneLambda func(context.Context, pruning.PruneState, bool, termio.UI) (R, error),
+	render func(report R, dryRun bool),
+	jsonValue func(report R, dryRun bool) any,
+) error {
+	age, dryRun, err := resolvePruneFlags(cmd)
+	if err != nil {
+		return err
+	}
+	mode, err := resolvePruneOutputMode(cmd, ui)
+	if err != nil {
+		return err
+	}
+	if err = confirmPrune(ui, dryRun); err != nil {
+		return err
+	}
+	report, pruneErr := pruning.InvokePruneFunc(cmd.Context(), pruneLambda, age, dryRun, ui)
+	renderPruneReport(ui, mode,
+		func() { render(report, dryRun) },
+		jsonValue(report, dryRun))
+	return pruneErr
 }
 
 func buildImagePruneCmd(ui termio.UI) *cobra.Command {
@@ -706,11 +810,9 @@ func buildImagePruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune cached runner images not in use",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, dryRun, err := resolvePruneFlags(cmd)
-			if err != nil {
-				return err
-			}
-			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneImages, age, dryRun, ui)
+			return runGroupPrune(cmd, ui, pruning.PruneImages,
+				func(report pruning.ImageReport, dryRun bool) { pruning.RenderImageReport(ui, report, dryRun) },
+				func(report pruning.ImageReport, dryRun bool) any { return newImageReportJSON(report, dryRun) })
 		},
 	}
 	setPruneFlags(cmd)
@@ -723,11 +825,9 @@ func buildVolumePruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune home volumes no longer referenced by a project VM",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, dryRun, err := resolvePruneFlags(cmd)
-			if err != nil {
-				return err
-			}
-			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneVolumes, age, dryRun, ui)
+			return runGroupPrune(cmd, ui, pruning.PruneVolumes,
+				func(report pruning.VolumeReport, dryRun bool) { pruning.RenderVolumeReport(ui, report, dryRun) },
+				func(report pruning.VolumeReport, dryRun bool) any { return newVolumeReportJSON(report, dryRun) })
 		},
 	}
 	setPruneFlags(cmd)
@@ -749,18 +849,24 @@ func buildSandboxPruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune stale sandboxes and leftover task workers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, dryRun, err := resolvePruneFlags(cmd)
-			if err != nil {
-				return err
-			}
-			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneSandboxes, age, dryRun, ui)
+			return runGroupPrune(cmd, ui, pruning.PruneSandboxes,
+				func(report pruning.SandboxReport, dryRun bool) { pruning.RenderSandboxReport(ui, report, dryRun) },
+				func(report pruning.SandboxReport, dryRun bool) any { return newSandboxReportJSON(report, dryRun) })
 		},
 	}
 	setPruneFlags(cmd)
 	return cmd
 }
 
+func resolvePruneOutputMode(cmd *cobra.Command, ui termio.UI) (listOutput, error) {
+	format, _ := cmd.Flags().GetString(flagFormat)
+	return resolveListOutput(format, ui.Quiet())
+}
+
 func setPruneFlags(cmd *cobra.Command) {
-	cmd.Flags().StringP(flagAge, flagAge[:1], "7d", "Prune threshold (default: manualPruneAge from config)")
+	cmd.Flags().String(flagOlderThan, "7d", "Prune threshold (default: manualPruneAge from config)")
+	cmd.Flags().StringP(flagAge, flagAge[:1], "", "Deprecated alias for --older-than")
+	_ = cmd.Flags().MarkDeprecated(flagAge, "use --older-than")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be pruned without deleting")
+	cmd.Flags().String(flagFormat, "", "Output format (json)")
 }

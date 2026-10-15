@@ -30,7 +30,9 @@ type Mock struct {
 	ErrorCalls   []ErrorCall
 	VerboseCalls []string
 	OutCalls     []string
+	PrintCalls   []string
 	SpinnerCalls []string
+	ConfirmCalls []string
 	StdOutBuffer bytes.Buffer
 	StdErrBuffer bytes.Buffer
 
@@ -38,6 +40,8 @@ type Mock struct {
 	assumeYes           bool
 	quiet               bool
 	IsInteractiveResult bool
+	ConfirmResult       bool
+	ConfirmErr          error
 
 	SelectFn func(prompt string, choices []Choice, defaultKey string) (string, error)
 	InputFn  func(prompt, defaultValue string) (string, error)
@@ -101,6 +105,14 @@ func (m *Mock) Out(msg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.OutCalls = append(m.OutCalls, stripANSICodes(msg))
+}
+
+// Print records a data line written regardless of the quiet setting, mirroring
+// the production printer's Print.
+func (m *Mock) Print(msg string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PrintCalls = append(m.PrintCalls, stripANSICodes(msg))
 }
 
 // Header records a table header line in OutCalls. The mock never applies ANSI
@@ -195,6 +207,19 @@ func (m *Mock) Input(prompt, defaultValue string) (string, error) {
 		return inputFn(prompt, defaultValue)
 	}
 	return defaultValue, nil
+}
+
+func (m *Mock) Confirm(prompt string, defaultYes bool) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.assumeYes {
+		return true, nil
+	}
+	if !m.IsInteractiveResult {
+		return false, ErrConfirmationRequired
+	}
+	m.ConfirmCalls = append(m.ConfirmCalls, prompt)
+	return m.ConfirmResult, m.ConfirmErr
 }
 
 func (m *Mock) StdOut() io.Writer {

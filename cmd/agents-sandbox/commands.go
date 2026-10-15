@@ -75,31 +75,6 @@ func resolveAgentFlag(cmd *cobra.Command) (agent.Agent, error) {
 	return resolveAgent(name)
 }
 
-// printItems renders a list of items as an aligned table with a styled header
-// row. It uses the termio.Table renderer, which sizes each column to the
-// widest cell and matches microsandbox's table output.
-func printItems[T any](
-	items []T,
-	emptyMsg string,
-	headers []string,
-	ui termio.UI,
-	funcs ...func(T) string,
-) {
-	if len(items) == 0 {
-		ui.Info(emptyMsg)
-		return
-	}
-	tbl := ui.NewTable(headers...)
-	for _, item := range items {
-		cells := make([]string, len(funcs))
-		for i, f := range funcs {
-			cells[i] = f(item)
-		}
-		tbl.AddRow(cells...)
-	}
-	tbl.Print()
-}
-
 func buildMinimalRootFlagsCmd() *cobra.Command {
 	rootFlagsCmd := &cobra.Command{
 		Use:   naming.Prefix,
@@ -109,7 +84,8 @@ func buildMinimalRootFlagsCmd() *cobra.Command {
 	}
 
 	rootFlagsCmd.PersistentFlags().BoolP(pFlagYes, pFlagYes[:1], false, "Assume yes to all prompts")
-	rootFlagsCmd.PersistentFlags().BoolP(pFlagQuiet, pFlagQuiet[:1], false, "Suppress stdout output")
+	rootFlagsCmd.PersistentFlags().
+		BoolP(pFlagQuiet, pFlagQuiet[:1], false, "Suppress stdout; on list commands print identifiers only")
 	rootFlagsCmd.PersistentFlags().
 		StringP(pFlagLogLevel, pFlagLogLevel[:1], "info", "Minimum log level to show (error, warning, info, verbose)")
 

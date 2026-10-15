@@ -12,20 +12,19 @@ import (
 // MsbClient is a type alias for msb.Client, matching the original sandbox-level alias.
 type MsbClient = msb.Client
 
-// Prune orchestrates all three pruners against one shared snapshot and prints a
-// merged summary. Task sandboxes count into PrunedVMs.
+// Prune orchestrates all three pruners against one shared snapshot and returns a
+// merged report. Task sandboxes count into PrunedVMs.
 //
 // The keep-set comes from the snapshot taken before pruning runs, so a stale VM's
 // home volumes and images are reclaimed even if the VM's own removal fails.
-func Prune(ctx context.Context, threshold time.Duration, dryRun bool, ui termio.UI) error {
+func Prune(ctx context.Context, threshold time.Duration, dryRun bool, ui termio.UI) (*StaleReport, error) {
 	pruneState, err := buildPruneState(ctx, threshold)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	outToVerboseUI := &termio.OutToVerboseRedirect{UI: ui}
-	vmReport, vmErr := PruneSandboxes(ctx, pruneState, dryRun, outToVerboseUI)
-	volReport, volErr := PruneVolumes(ctx, pruneState, dryRun, outToVerboseUI)
-	imgReport, imgErr := PruneImages(ctx, pruneState, dryRun, outToVerboseUI)
+	vmReport, vmErr := PruneSandboxes(ctx, pruneState, dryRun, ui)
+	volReport, volErr := PruneVolumes(ctx, pruneState, dryRun, ui)
+	imgReport, imgErr := PruneImages(ctx, pruneState, dryRun, ui)
 
 	report := &StaleReport{
 		PrunedSandboxes:     vmReport.VMsPruned,
@@ -34,11 +33,10 @@ func Prune(ctx context.Context, threshold time.Duration, dryRun bool, ui termio.
 		PrunedSandboxImages: imgReport.MSBImagesPruned,
 		Details:             append(append(vmReport.Details, volReport.Details...), imgReport.Details...),
 	}
-	printPruneSummary(ui, report, dryRun)
-	return errors.Join(vmErr, volErr, imgErr)
+	return report, errors.Join(vmErr, volErr, imgErr)
 }
 
-func printPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
+func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 	if report == nil {
 		return
 	}
@@ -54,4 +52,7 @@ func printPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 		report.PrunedDockerImages,
 		report.PrunedSandboxImages,
 	)
+	for _, detail := range report.Details {
+		ui.Verbosef("  %s (%s)", detail.Name, detail.Slug)
+	}
 }

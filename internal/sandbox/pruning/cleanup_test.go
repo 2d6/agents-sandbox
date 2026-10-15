@@ -2,6 +2,9 @@ package pruning
 
 import (
 	"context"
+	"errors"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +35,26 @@ func TestAutoPruneIsIdempotent(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	AutoPrune(context.Background(), time.Hour, true, &testUI)
 	AutoPrune(context.Background(), time.Hour, true, &testUI)
+}
+
+func TestAutoPruneWarnsOnPruneError(t *testing.T) {
+	// autoPruneOnce has no production reset hook, so reset it directly to drive
+	// the single-shot body through the failure branch.
+	autoPruneOnce = sync.Once{}
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
+			return nil, errors.New("boom")
+		},
+	})
+	docker.WithNoopDockerMock(t)
+	testUI := termio.NewTestMock(t)
+	AutoPrune(context.Background(), time.Hour, false, &testUI)
+	if len(testUI.WarnCalls) != 1 {
+		t.Fatalf("WarnCalls = %v, want one auto-prune failure warning", testUI.WarnCalls)
+	}
+	if !strings.Contains(testUI.WarnCalls[0], "auto-prune failed") {
+		t.Errorf("WarnCalls = %v, want the auto-prune failure message", testUI.WarnCalls)
+	}
 }
 
 func TestAutoPruneDefaultsToSevenDays(t *testing.T) {

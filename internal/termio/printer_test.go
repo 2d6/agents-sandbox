@@ -282,6 +282,32 @@ func TestQuietSuppressesOut(t *testing.T) {
 	}
 }
 
+func TestQuietReportsSetValue(t *testing.T) {
+	ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+	if ui.Quiet() {
+		t.Error("Quiet() = true before SetQuiet(true)")
+	}
+	ui.SetQuiet(true)
+	if !ui.Quiet() {
+		t.Error("Quiet() = false after SetQuiet(true)")
+	}
+}
+
+func TestPrintBypassesQuiet(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelInfo, false, false)
+	ui.SetQuiet(true)
+	ui.Print("row")
+	if stdout.String() != "row\n" {
+		t.Errorf("Print should bypass quiet and write to stdout, got %q", stdout.String())
+	}
+	stdout.Reset()
+	ui.Out("row")
+	if stdout.String() != "" {
+		t.Errorf("Out should still be suppressed by quiet, got %q", stdout.String())
+	}
+}
+
 func TestQuietSuppressesOutf(t *testing.T) {
 	var stdout bytes.Buffer
 	ui := New(nil, &stdout, &bytes.Buffer{}, false, LevelInfo, true, false)

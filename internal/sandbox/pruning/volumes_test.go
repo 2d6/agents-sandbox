@@ -191,6 +191,35 @@ func TestPruneVolumes(t *testing.T) {
 	})
 }
 
+func TestRenderVolumeReport(t *testing.T) {
+	ui := &termio.Mock{}
+	RenderVolumeReport(ui, VolumeReport{
+		VolumesPruned: 1,
+		Details: []StaleEntry{
+			{
+				Type: StaleTypeVolume,
+				Name: "agents-sandbox-home-proj-1mjusbm3wikhb0-20260806T143022",
+				Slug: "proj-1mjusbm3wikhb0",
+			},
+		},
+	}, false)
+	if len(ui.OutCalls) != 1 || ui.OutCalls[0] != "Pruned 1 home volume(s)" {
+		t.Errorf("OutCalls = %v, want the summary", ui.OutCalls)
+	}
+	if len(ui.VerboseCalls) != 1 || !strings.Contains(ui.VerboseCalls[0], "proj-1mjusbm3wikhb0") {
+		t.Errorf("VerboseCalls = %v, want the detail line", ui.VerboseCalls)
+	}
+
+	empty := &termio.Mock{}
+	RenderVolumeReport(empty, VolumeReport{}, true)
+	if len(empty.OutCalls) != 1 || empty.OutCalls[0] != "dry-run: Would prune 0 home volume(s)" {
+		t.Errorf("OutCalls = %v, want the dry-run summary", empty.OutCalls)
+	}
+	if len(empty.VerboseCalls) != 0 {
+		t.Errorf("VerboseCalls = %v, want none without details", empty.VerboseCalls)
+	}
+}
+
 func TestRemoveStateForGoneKeysWarnsOnRemoveError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "prunewarn-a"}
