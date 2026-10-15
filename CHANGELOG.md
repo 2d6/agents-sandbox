@@ -58,6 +58,10 @@ command reports the bare version (e.g. `0.1.0`).
   table; the two are mutually exclusive.
 - CLI: `prune` and the `image`/`volume`/`sandbox` `prune` subcommands accept `--format json` (a structured report on
   stdout) and `--older-than` (canonical age flag, human-duration syntax such as `7d`/`2w`).
+- CLI: `volume inspect <name>`, `image inspect <ref>`, and `sandbox inspect <name>` show the full detail of a home
+  volume, a cached runner image, or a sandbox VM (identity, storage/image configuration, mounts, resources). Each
+  supports `--format json` (structured output on stdout) and the global `-q`/`--quiet` (the identifier only). Slice 3 of
+  the runtime-management epic (#165).
 
 ### Fixed
 

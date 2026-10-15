@@ -34,6 +34,17 @@ func resolveListOutput(format string, quiet bool) (listOutput, error) {
 	}
 }
 
+// writeJSON writes value as indented JSON on stdout. It is the shared
+// structured-output path for both list and single-object inspection renderers.
+func writeJSON(ui termio.UI, value any) error {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	ui.Out(string(data))
+	return nil
+}
+
 // printList renders items in the selected mode: identifiers (cells[0] per
 // item), JSON via jsonValue, or the default aligned table built from cells.
 func printList[T any](
@@ -51,11 +62,7 @@ func printList[T any](
 			ui.Print(cells[0](item))
 		}
 	case listOutputJSON:
-		data, err := json.MarshalIndent(jsonValue(items), "", "  ")
-		if err != nil {
-			return err
-		}
-		ui.Out(string(data))
+		return writeJSON(ui, jsonValue(items))
 	case listOutputTable:
 		if len(items) == 0 {
 			ui.Info(emptyMsg)

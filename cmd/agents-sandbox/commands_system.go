@@ -563,6 +563,7 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 	}
 	listCmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
 	cmd.AddCommand(listCmd)
+	cmd.AddCommand(buildImageInspectCmd(ui))
 	cmd.AddCommand(buildBuildCmd(ui))
 	cmd.AddCommand(buildImagePruneCmd(ui))
 	return cmd
@@ -619,6 +620,7 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 	}
 	listCmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
 	cmd.AddCommand(listCmd)
+	cmd.AddCommand(buildVolumeInspectCmd(ui))
 
 	var migrateRmOld bool
 	cmd.AddCommand(
@@ -696,6 +698,7 @@ func buildSandboxCmd(ui termio.UI) *cobra.Command {
 	cmd.AddCommand(buildRunCmd(ui))
 	cmd.AddCommand(buildStopCmd(ui))
 	cmd.AddCommand(buildKillCmd(ui))
+	cmd.AddCommand(buildSandboxInspectCmd(ui))
 	cmd.AddCommand(buildSandboxPruneCmd(ui))
 	return cmd
 }

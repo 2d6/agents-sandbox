@@ -392,6 +392,24 @@ The default output is the human table. Pass `-q`/`--quiet` to print references
 only (one per line), or `--format json` for structured output (a top-level array
 on stdout). The two are mutually exclusive.
 
+#### image inspect
+
+Show the full detail of a cached runner image: its reference, manifest digest,
+architecture, OS, size, creation time, the parsed OCI config (env, cmd,
+entrypoint, working dir, user, labels, stop signal), and every layer (diff ID,
+blob digest, media type, compressed and erofs sizes).
+
+```console
+agents-sandbox image inspect agents-sandbox/runner-myproj-aBc1234D:latest
+agents-sandbox image inspect <ref> --format json   # structured output
+agents-sandbox image inspect <ref> --quiet         # reference only
+```
+
+- **Args:** `ref` — the image reference
+- **Flags:**
+  - `--format json` — structured output on stdout
+  - `-q`/`--quiet` — print the reference only
+
 #### image build
 
 Build or rebuild the runner image. Equivalent to the top-level `build` command.
@@ -404,7 +422,7 @@ agents-sandbox image build
 
 ### sandbox
 
-Parent command that groups sandbox-related subcommands. Individual commands (`run`, `shell`, `stop`, `kill`, `list`) are also available at the top level.
+Parent command that groups sandbox-related subcommands. Most (`run`, `shell`, `stop`, `kill`, `list`) are also available at the top level; `sandbox inspect` lives only under this group.
 
 ```console
 agents-sandbox sandbox run
@@ -412,9 +430,27 @@ agents-sandbox sandbox list
 agents-sandbox sandbox shell
 agents-sandbox sandbox stop
 agents-sandbox sandbox kill
+agents-sandbox sandbox inspect agents-sandbox-vm-aBc1234D
 ```
 
 **Aliases:** `sb`
+
+#### sandbox inspect
+
+Show the full detail of a sandbox VM: its name, stable ID, status, image,
+backend kind, creation and update times, labels, mounts (guest path, kind, and
+source), and resources (memory and CPUs).
+
+```console
+agents-sandbox sandbox inspect agents-sandbox-vm-aBc1234D
+agents-sandbox sandbox inspect <name> --format json   # structured output
+agents-sandbox sandbox inspect <name> --quiet         # name only
+```
+
+- **Args:** `name` — the sandbox name
+- **Flags:**
+  - `--format json` — structured output on stdout
+  - `-q`/`--quiet` — print the name only
 
 ---
 
@@ -488,6 +524,22 @@ The default output is the human table. Pass `-q`/`--quiet` to print names only
 stdout). The two are mutually exclusive.
 
 **Aliases:** `volume ls`
+
+#### `agents-sandbox volume inspect <name>`
+
+Show the full detail of a home volume: its name, kind, host path, quota, used
+bytes, capacity, disk format, disk fstype, labels, and creation time.
+
+```console
+agents-sandbox volume inspect agents-sandbox-home-myproj-aBc1234D-opencode-20260812T123456
+agents-sandbox volume inspect <name> --format json   # structured output
+agents-sandbox volume inspect <name> --quiet         # name only
+```
+
+- **Args:** `name` — the volume name
+- **Flags:**
+  - `--format json` — structured output on stdout
+  - `-q`/`--quiet` — print the name only
 
 #### `agents-sandbox volume migrate [volume-name]`
 

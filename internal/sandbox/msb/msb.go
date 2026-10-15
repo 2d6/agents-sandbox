@@ -57,12 +57,14 @@ type Client interface {
 	ImageRemove(ctx context.Context, ref string, force bool) error
 	ImageLoad(ctx context.Context, ref string, r io.Reader) error
 	ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error)
 	StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error)
 }
 
 // SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
 type SandboxHandle interface {
 	Name() string
+	ID() string
 	Status() msbSdk.SandboxStatus
 	UpdatedAt() time.Time
 	CreatedAt() time.Time
@@ -148,6 +150,22 @@ type ImageHandle interface {
 	LastUsedAt() time.Time
 	SizeBytes() *int64
 	CreatedAt() time.Time
+}
+
+// ImageDetail is the inspected detail of a cached image: its manifest identity
+// plus the parsed OCI config and layer list. It mirrors the useful fields of
+// microsandbox's ImageDetail without exposing the SDK handle.
+//
+//exhaustruct:ignore
+type ImageDetail struct {
+	Reference      string
+	ManifestDigest string
+	Architecture   string
+	OS             string
+	SizeBytes      *int64
+	CreatedAt      time.Time
+	Config         msbSdk.ImageConfig
+	Layers         []msbSdk.ImageLayer
 }
 
 // SandboxFS is the subset of the sandbox filesystem operations used by the launcher.
@@ -385,6 +403,26 @@ func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.Imag
 	return detail.Config, nil
 }
 
+func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error) {
+	detail, err := realImageInspect(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	out := &ImageDetail{Layers: detail.Layers}
+	if detail.ImageHandle != nil {
+		out.Reference = detail.Reference()
+		out.ManifestDigest = detail.ManifestDigest()
+		out.Architecture = detail.Architecture()
+		out.OS = detail.OS()
+		out.SizeBytes = detail.SizeBytes()
+		out.CreatedAt = detail.CreatedAt()
+	}
+	if detail.Config != nil {
+		out.Config = *detail.Config
+	}
+	return out, nil
+}
+
 func (realMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
 	return msbSdk.StorageUsage(ctx)
 }
@@ -484,6 +522,10 @@ type realSandboxHandle struct {
 
 func (w realSandboxHandle) Name() string {
 	return w.handle.Name()
+}
+
+func (w realSandboxHandle) ID() string {
+	return w.handle.ID()
 }
 
 func (w realSandboxHandle) Status() msbSdk.SandboxStatus {

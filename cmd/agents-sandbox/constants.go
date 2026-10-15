@@ -35,6 +35,7 @@ const (
 	cmdReset      = "reset"
 	cmdEdit       = "edit"
 	cmdRemove     = "remove"
+	cmdInspect    = "inspect"
 
 	flagRemove = "rm"
 

@@ -32,21 +32,22 @@ type MockMsbClient struct {
 	mu sync.Mutex
 
 	// Callback-style fields (granular control). Nil = no-op/succeed.
-	EnsureInstalledFn func(ctx context.Context) error
-	GetSandboxFn      func(ctx context.Context, name string) (SandboxHandle, error)
-	CreateSandboxFn   func(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
-	ListSandboxesFn   func(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
-	GetVolumeFn       func(ctx context.Context, name string) (VolumeHandle, error)
-	CreateVolumeFn    func(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
-	ListVolumesFn     func(ctx context.Context) ([]VolumeHandle, error)
-	RemoveVolumeFn    func(ctx context.Context, name string) error
-	ImageGetFn        func(ctx context.Context, ref string) error
-	ImageListFn       func(ctx context.Context) ([]ImageHandle, error)
-	ImagePruneFn      func(ctx context.Context) (*msbSdk.ImagePruneReport, error)
-	ImageRemoveFn     func(ctx context.Context, ref string, force bool) error
-	ImageLoadFn       func(ctx context.Context, ref string, r io.Reader) error
-	ImageInspectFn    func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
-	StorageUsageFn    func(ctx context.Context) (*msbSdk.StorageUsageReport, error)
+	EnsureInstalledFn    func(ctx context.Context) error
+	GetSandboxFn         func(ctx context.Context, name string) (SandboxHandle, error)
+	CreateSandboxFn      func(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
+	ListSandboxesFn      func(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
+	GetVolumeFn          func(ctx context.Context, name string) (VolumeHandle, error)
+	CreateVolumeFn       func(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
+	ListVolumesFn        func(ctx context.Context) ([]VolumeHandle, error)
+	RemoveVolumeFn       func(ctx context.Context, name string) error
+	ImageGetFn           func(ctx context.Context, ref string) error
+	ImageListFn          func(ctx context.Context) ([]ImageHandle, error)
+	ImagePruneFn         func(ctx context.Context) (*msbSdk.ImagePruneReport, error)
+	ImageRemoveFn        func(ctx context.Context, ref string, force bool) error
+	ImageLoadFn          func(ctx context.Context, ref string, r io.Reader) error
+	ImageInspectFn       func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	ImageInspectDetailFn func(ctx context.Context, ref string) (*ImageDetail, error)
+	StorageUsageFn       func(ctx context.Context) (*msbSdk.StorageUsageReport, error)
 
 	// Pre-populated collections — List* methods return these when the callback is nil.
 	// Tests can append to these fields freely.
@@ -273,6 +274,13 @@ func (m *MockMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.I
 	return &msbSdk.ImageConfig{}, nil
 }
 
+func (m *MockMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error) {
+	if m.ImageInspectDetailFn != nil {
+		return m.ImageInspectDetailFn(ctx, ref)
+	}
+	return &ImageDetail{Reference: ref}, nil
+}
+
 // StorageUsage implements Client.
 func (m *MockMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
 	if m.StorageUsageFn != nil {
@@ -331,6 +339,7 @@ func (m *MockMsbClient) SetGetVolumeErr(err error) *MockMsbClient {
 // MockSandboxHandle is a test double for SandboxHandle.
 type MockSandboxHandle struct {
 	Name_           string
+	ID_             string
 	Status_         msbSdk.SandboxStatus
 	UpdatedAt_      time.Time
 	CreatedAt_      time.Time
@@ -356,6 +365,7 @@ type MockSandboxHandle struct {
 }
 
 func (m *MockSandboxHandle) Name() string                    { return m.Name_ }
+func (m *MockSandboxHandle) ID() string                      { return m.ID_ }
 func (m *MockSandboxHandle) Status() msbSdk.SandboxStatus    { return m.Status_ }
 func (m *MockSandboxHandle) UpdatedAt() time.Time            { return m.UpdatedAt_ }
 func (m *MockSandboxHandle) CreatedAt() time.Time            { return m.CreatedAt_ }
@@ -863,6 +873,11 @@ func (f *failFastMsbClient) ImageLoad(_ context.Context, _ string, _ io.Reader) 
 }
 
 func (f *failFastMsbClient) ImageInspect(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+	f.mustMock()
+	return nil, nil
+}
+
+func (f *failFastMsbClient) ImageInspectDetail(_ context.Context, _ string) (*ImageDetail, error) {
 	f.mustMock()
 	return nil, nil
 }
