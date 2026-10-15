@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -41,9 +42,11 @@ func saveMigration(m state.Migration) error {
 // pending records the legacy targets already present in the private home as Kept
 // (dismissed from the migration at the user's choice), so accepting the offer
 // neither discards nor re-copies a home the user already has. A volume-scoped
-// copy failure is recorded in Excluded (with a warning) and the campaign
-// continues; a campaign-scoped failure (the lock, the state read/write, or the
-// home listing) returns the error and leaves the status copying so the next
+// copy failure is recorded in Excluded (with a warning) only once its partial
+// destination is confirmed removed; if the destination cannot be removed the
+// campaign aborts, because completing would let the home resolver adopt the
+// partial. A campaign-scoped failure (the lock, the state read/write, or the home
+// listing) likewise returns the error and leaves the status copying so the next
 // session resumes.
 func CopyVolumes(ctx context.Context, client msb.Client, ui termio.UI) error {
 	release, err := acquireMigrationLock()
@@ -78,7 +81,12 @@ func CopyVolumes(ctx context.Context, client msb.Client, ui termio.UI) error {
 	}
 	for _, name := range names {
 		if err := copyVolume(ctx, client, legacyHome, name); err != nil {
-			removeVolumeBestEffort(ctx, client, name)
+			if removeErr := removeVolume(ctx, client, name); removeErr != nil {
+				// The destination partial could not be removed, so it is still a
+				// usable home under a migration target. Abort as campaign-scoped
+				// rather than record an exclusion that completion would seal in.
+				return fmt.Errorf("copy volume %q: %w", name, removeErr)
+			}
 			m.Excluded = append(m.Excluded, name)
 			if serr := saveMigration(m); serr != nil {
 				return serr
@@ -92,7 +100,7 @@ func CopyVolumes(ctx context.Context, client msb.Client, ui termio.UI) error {
 		}
 		ui.Infof("copied legacy home volume %q", name)
 	}
-	return saveMigration(state.Migration{Status: state.MigrationCompleted})
+	return finalizeMigration(m, ui)
 }
 
 // startCampaign opens the migration campaign, recording the legacy targets
@@ -107,10 +115,25 @@ func startCampaign(legacyHome string) (state.Migration, error) {
 	return m, saveMigration(m)
 }
 
+// finalizeMigration warns about the volumes the campaign could not copy (their
+// legacy data was left behind) and records the terminal completed status. The
+// transient Copied/Kept/Excluded lists are dropped by the terminal write.
+func finalizeMigration(m state.Migration, ui termio.UI) error {
+	if len(m.Excluded) > 0 {
+		ui.Warnf(
+			"%d legacy home volume(s) could not be copied and were left behind: %s",
+			len(m.Excluded),
+			strings.Join(m.Excluded, ", "),
+		)
+	}
+	return saveMigration(state.Migration{Status: state.MigrationCompleted})
+}
+
 // copyVolume removes any leftover partial under the target name, creates the
 // destination volume, and copies the legacy tree into it host-side. Completion
 // is recorded by the caller in the host-owned migration registry, never as a
-// file inside the guest-writable volume.
+// file inside the guest-writable volume. A failure leaves any partial
+// destination for the caller to remove before it can exclude the volume.
 func copyVolume(ctx context.Context, client msb.Client, legacyHome, name string) error {
 	if err := removeVolume(ctx, client, name); err != nil {
 		return err
@@ -140,12 +163,6 @@ func removeVolume(ctx context.Context, client msb.Client, name string) error {
 		return fmt.Errorf("remove volume %q: %w", name, err)
 	}
 	return nil
-}
-
-// removeVolumeBestEffort discards a partially copied volume so it does not
-// linger as a half-populated volume that necessity would treat as complete.
-func removeVolumeBestEffort(ctx context.Context, client msb.Client, name string) {
-	_ = client.RemoveVolume(ctx, name)
 }
 
 // copyTree recursively copies the tree rooted at src into dst, preserving file

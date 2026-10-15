@@ -193,6 +193,38 @@ func TestCopyVolumesCopiesIntoCreatedVolume(t *testing.T) {
 	assertFileWithMode(t, filepath.Join(target, "config", "settings.json"), "{}", 0o600)
 }
 
+// TestCopyVolumesAbortsWhenFailedCopyLeavesDestination pins the "no usable
+// partial" invariant: a copy failure is only safe to exclude once its partial
+// destination is confirmed removed. When removal fails, completing would let the
+// home resolver adopt the leftover partial under the project's recorded name, so
+// the campaign must abort and leave the status copying for a retry.
+func TestCopyVolumesAbortsWhenFailedCopyLeavesDestination(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	name := naming.HomePrefix + "legacy"
+	addVolumeDir(t, legacy, name)
+
+	removeErr := errors.New("remove boom")
+	client := &msb.MockMsbClient{
+		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+		},
+		RemoveVolumeFn: func(_ context.Context, _ string) error { return removeErr },
+		CreateVolumeFn: func(_ context.Context, volumeName string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+		},
+	}
+
+	ui := termio.NewTestMock(t)
+	if err := CopyVolumes(context.Background(), client, &ui); err == nil {
+		t.Fatal("CopyVolumes() error = nil, want a campaign-scoped abort when the partial cannot be removed")
+	}
+	root, _ := state.ReadRootState()
+	if m, _ := root.Migration(MigrationName); m.Status != state.MigrationCopying {
+		t.Fatalf("status = %q, want copying (campaign left open for a retry)", m.Status)
+	}
+}
+
 // TestCopyVolumesStartListingErrorAborts pins that a failure to derive the
 // already-present targets (here, the legacy volumes directory is unlistable)
 // aborts before the campaign records a copying status.
@@ -402,6 +434,37 @@ func TestCopyVolumesDoesNotFollowCopiedSymlink(t *testing.T) {
 	}
 }
 
+// TestCopyVolumesExcludesCopyTreeFailureAndCompletes pins that a volume-scoped
+// failure whose destination is successfully cleaned up is excluded while the
+// campaign still completes.
+func TestCopyVolumesExcludesCopyTreeFailureAndCompletes(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	name := naming.HomePrefix + "legacy"
+	addVolumeDir(t, legacy, name)
+	writeFileWithMode(t, filepath.Join(legacy, "volumes", name, "f.txt"), "x", 0o600)
+
+	// A regular file at the destination path makes the tree copy fail.
+	dst := filepath.Join(t.TempDir(), "not-a-dir")
+	writeFileWithMode(t, dst, "x", 0o600)
+	client := &msb.MockMsbClient{
+		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			return &msb.MockVolumeHandle{Name_: n, Path_: dst}, nil
+		},
+	}
+	ui := termio.NewTestMock(t)
+	if err := CopyVolumes(context.Background(), client, &ui); err != nil {
+		t.Fatalf("CopyVolumes: %v", err)
+	}
+	root, _ := state.ReadRootState()
+	if m, _ := root.Migration(MigrationName); m.Status != state.MigrationCompleted {
+		t.Fatalf("status = %q, want completed", m.Status)
+	}
+	if len(ui.WarnCalls) == 0 {
+		t.Error("no warning for the excluded volume")
+	}
+}
+
 // TestCopyVolumesLockFailureAborts pins that a failure to acquire the migration
 // lock aborts the campaign. A regular file occupying $MSB_HOME/.agents-sandbox
 // makes the lock directory creation fail.
@@ -491,6 +554,30 @@ func TestCopyVolumesCopiedSaveErrorAborts(t *testing.T) {
 	client := &msb.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+		},
+	}
+	ui := termio.NewTestMock(t)
+	if err := CopyVolumes(context.Background(), client, &ui); err == nil {
+		t.Fatal("CopyVolumes() error = nil, want a save failure to abort")
+	}
+}
+
+// TestCopyVolumesExclusionSaveErrorAborts pins that a failure to persist an
+// exclusion aborts the campaign-scoped run.
+func TestCopyVolumesExclusionSaveErrorAborts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	legacy := installLegacyHome(t)
+	addVolumeDir(t, legacy, naming.HomePrefix+"legacy")
+	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+		MigrationName: {Status: state.MigrationCopying},
+	}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	blockRootState(t)
+
+	client := &msb.MockMsbClient{
+		CreateVolumeFn: func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			return nil, errors.New("volume boom")
 		},
 	}
 	ui := termio.NewTestMock(t)

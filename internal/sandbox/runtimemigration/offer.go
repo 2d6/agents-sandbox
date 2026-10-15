@@ -80,7 +80,7 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 
 	if len(names) == 0 && len(unclear) == 0 {
 		if migration.Status == state.MigrationCopying {
-			return finalizeCompletedCampaign()
+			return finalizeCompletedCampaign(ui)
 		}
 		return nil
 	}
@@ -159,7 +159,7 @@ func withMigrationLock(fn func() error) error {
 // copy (it crashed after copying everything but before recording completion). It
 // re-reads state under the lock and only writes completed while the entry is
 // still copying, so it never clobbers a concurrent terminal write.
-func finalizeCompletedCampaign() error {
+func finalizeCompletedCampaign(ui termio.UI) error {
 	return withMigrationLock(func() error {
 		root, err := state.ReadRootState()
 		if err != nil {
@@ -169,7 +169,7 @@ func finalizeCompletedCampaign() error {
 		if m.Status != state.MigrationCopying {
 			return nil
 		}
-		return saveMigration(state.Migration{Status: state.MigrationCompleted})
+		return finalizeMigration(m, ui)
 	})
 }
 

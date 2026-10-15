@@ -523,6 +523,34 @@ func TestOfferStartFreshRemovalFailureAborts(t *testing.T) {
 	}
 }
 
+// TestFinalizeCompletedCampaignTerminalIsNoOp pins that closing out a campaign
+// never clobbers a terminal write another session already made.
+func TestFinalizeCompletedCampaignTerminalIsNoOp(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := state.WriteRootState(state.RootState{Migrations: map[string]state.Migration{
+		MigrationName: {Status: state.MigrationCompleted},
+	}}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	ui := termio.NewTestMock(t)
+	if err := finalizeCompletedCampaign(&ui); err != nil {
+		t.Fatalf("finalizeCompletedCampaign: %v", err)
+	}
+	root, _ := state.ReadRootState()
+	if m, _ := root.Migration(MigrationName); m.Status != state.MigrationCompleted {
+		t.Fatalf("status = %q, want completed", m.Status)
+	}
+}
+
+func TestFinalizeCompletedCampaignStateReadError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	writeCorruptRootState(t)
+	ui := termio.NewTestMock(t)
+	if err := finalizeCompletedCampaign(&ui); err == nil {
+		t.Fatal("finalizeCompletedCampaign() error = nil, want a state read error")
+	}
+}
+
 func TestDismissMigrationStateReadError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	writeCorruptRootState(t)
@@ -713,6 +741,24 @@ func TestOfferPromptIncludesUnclearNotice(t *testing.T) {
 		if !strings.Contains(noted, want) {
 			t.Errorf("prompt %q missing %q", noted, want)
 		}
+	}
+}
+
+// TestFinalizeMigrationWarnsExcluded pins that finalization warns about the
+// volumes the campaign could not copy, then records completed.
+func TestFinalizeMigrationWarnsExcluded(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	m := state.Migration{Status: state.MigrationCopying, Excluded: []string{naming.HomePrefix + "bad"}}
+	if err := finalizeMigration(m, &ui); err != nil {
+		t.Fatalf("finalizeMigration: %v", err)
+	}
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("WarnCalls = %v, want one warning about the uncopied volumes", ui.WarnCalls)
+	}
+	root, _ := state.ReadRootState()
+	if got, _ := root.Migration(MigrationName); got.Status != state.MigrationCompleted {
+		t.Fatalf("status = %q, want completed", got.Status)
 	}
 }
 
