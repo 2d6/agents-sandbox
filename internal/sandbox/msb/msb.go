@@ -57,6 +57,7 @@ type Client interface {
 	ImageRemove(ctx context.Context, ref string, force bool) error
 	ImageLoad(ctx context.Context, ref string, r io.Reader) error
 	ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error)
 }
 
 // SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
@@ -223,6 +224,14 @@ func IsReplaced(err error) bool {
 	return msbSdk.IsKind(err, msbSdk.ErrSandboxReplaced)
 }
 
+// IsUnsupportedOperation reports whether err indicates the selected backend or
+// native library cannot observe storage (cloud backends and older native
+// libraries), unwrapping any wrapped errors. Callers degrade the affected
+// categories to unknown rather than reporting zero.
+func IsUnsupportedOperation(err error) bool {
+	return msbSdk.IsKind(err, msbSdk.ErrUnsupportedOperation)
+}
+
 // realMsbClient delegates to the actual microsandbox SDK.
 type realMsbClient struct{}
 
@@ -370,6 +379,10 @@ func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.Imag
 		return nil, err
 	}
 	return detail.Config, nil
+}
+
+func (realMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
+	return msbSdk.StorageUsage(ctx)
 }
 
 // realVolumeHandle adapts *msbSdk.Volume or *msbSdk.VolumeHandle to VolumeHandle.
