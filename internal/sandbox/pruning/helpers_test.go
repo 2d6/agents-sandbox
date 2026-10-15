@@ -13,6 +13,15 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+func TestPruneReportPrefix(t *testing.T) {
+	if got := pruneReportPrefix(true); got != "dry-run: Would prune" {
+		t.Errorf("pruneReportPrefix(true) = %q, want %q", got, "dry-run: Would prune")
+	}
+	if got := pruneReportPrefix(false); got != "Pruned" {
+		t.Errorf("pruneReportPrefix(false) = %q, want %q", got, "Pruned")
+	}
+}
+
 func TestInvokePruneFunc(t *testing.T) {
 	t.Run("builds state and invokes the pruner", func(t *testing.T) {
 		client := &msb.MockMsbClient{

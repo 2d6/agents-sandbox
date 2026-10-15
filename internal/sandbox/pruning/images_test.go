@@ -205,6 +205,80 @@ func TestPruneImages(t *testing.T) {
 	})
 }
 
+func TestPruneImagesSkipsNonRunnerReferences(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: "other/namespace:latest"},
+			&msb.MockImageHandle{Reference_: ""},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	ui := &termio.Mock{}
+	r, err := PruneImages(context.Background(), PruneState{}, false, ui)
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if r.MSBImagesPruned != 0 {
+		t.Errorf("MSBImagesPruned = %d, want 0 (non-runner refs skipped)", r.MSBImagesPruned)
+	}
+	if len(client.RemovedImages) != 0 {
+		t.Errorf("RemovedImages = %v, want none", client.RemovedImages)
+	}
+}
+
+func TestKeepImageNotReferencedWhenKeyAlsoPruned(t *testing.T) {
+	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
+	pruneState := PruneState{
+		ToKeep:  map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}},
+		ToPrune: map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}},
+	}
+	handle := &msb.MockImageHandle{Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest"}
+	if keepImage(handle, pruneState, nil) {
+		t.Error("expected a key present in both ToKeep and ToPrune to be treated as not referenced")
+	}
+}
+
+func TestRenderImageReport(t *testing.T) {
+	ui := &termio.Mock{}
+	RenderImageReport(ui, ImageReport{
+		MSBImagesPruned:    2,
+		DockerImagesPruned: 1,
+		Details: []StaleEntry{
+			{
+				Type: StaleTypeMsbImage,
+				Name: "agents-sandbox/runner-proj-1mjusbm3wikhb0:old",
+				Slug: "proj-1mjusbm3wikhb0",
+			},
+			{
+				Type: StaleTypeMsbImage,
+				Name: "agents-sandbox/runner-live-1mjusbm3wikhb0:old",
+				Slug: "live-1mjusbm3wikhb0",
+			},
+		},
+	}, true)
+	if len(ui.OutCalls) != 1 ||
+		!strings.Contains(ui.OutCalls[0], "dry-run: Would prune 2 runner image(s), 1 dangling docker image(s)") {
+		t.Errorf("OutCalls = %v, want the dry-run summary", ui.OutCalls)
+	}
+	if len(ui.VerboseCalls) != 2 {
+		t.Fatalf("VerboseCalls = %v, want one line per detail", ui.VerboseCalls)
+	}
+	if !strings.Contains(ui.VerboseCalls[0], "agents-sandbox/runner-proj-1mjusbm3wikhb0:old") {
+		t.Errorf("verbose detail missing image name: %q", ui.VerboseCalls[0])
+	}
+
+	empty := &termio.Mock{}
+	RenderImageReport(empty, ImageReport{}, false)
+	if len(empty.OutCalls) != 1 || empty.OutCalls[0] != "Pruned 0 runner image(s), 0 dangling docker image(s)" {
+		t.Errorf("OutCalls = %v, want the empty summary", empty.OutCalls)
+	}
+	if len(empty.VerboseCalls) != 0 {
+		t.Errorf("VerboseCalls = %v, want none without details", empty.VerboseCalls)
+	}
+}
+
 func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 	t.Run("normal prune", func(t *testing.T) {
 		events := make([]string, 0, 2)
