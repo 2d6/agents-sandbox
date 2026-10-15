@@ -254,6 +254,50 @@ func TestMockImageInspectDetail(t *testing.T) {
 	}
 }
 
+// TestRealMsbClientImageInspectDetailHandleAndError covers the ImageHandle
+// branch (metadata copied off the handle) and the inspect-error branch of the
+// ImageInspectDetail adapter.
+func TestRealMsbClientImageInspectDetailHandleAndError(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{
+			ImageHandle: &msbSdk.ImageHandle{},
+			Config:      &msbSdk.ImageConfig{Digest: "sha256:abc"},
+		}, nil
+	}
+	detail, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil || detail == nil {
+		t.Fatalf("ImageInspectDetail() = %v, %v", detail, err)
+	}
+	if detail.Reference != "" || detail.ManifestDigest != "" || detail.Architecture != "" ||
+		detail.OS != "" || detail.SizeBytes != nil || !detail.CreatedAt.IsZero() {
+		t.Errorf("ImageInspectDetail() from empty handle = %+v, want zero metadata", detail)
+	}
+	if detail.Config.Digest != "sha256:abc" {
+		t.Errorf("ImageInspectDetail() config = %+v, want digest sha256:abc", detail.Config)
+	}
+
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return nil, errors.New("inspect boom")
+	}
+	if _, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref"); err == nil {
+		t.Fatal("ImageInspectDetail() with a failing inspect = nil error, want error")
+	}
+}
+
+// TestFailFastImageInspectDetailPanics covers the fail-fast ImageInspectDetail.
+func TestFailFastImageInspectDetailPanics(t *testing.T) {
+	f := &failFastMsbClient{}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic from fail-fast ImageInspectDetail")
+		}
+	}()
+	_, _ = f.ImageInspectDetail(context.Background(), "ref")
+}
+
 // TestMockSandboxHandleID covers the mock handle's stable-identity accessor.
 func TestMockSandboxHandleID(t *testing.T) {
 	h := &MockSandboxHandle{ID_: "sbx-123"}

@@ -125,6 +125,9 @@ func TestRealSandboxHandleAccessors(t *testing.T) {
 	if got := h.Name(); got != "" {
 		t.Errorf("Name() = %q, want empty", got)
 	}
+	if got := h.ID(); got != "" {
+		t.Errorf("ID() = %q, want empty", got)
+	}
 	if got := h.Status(); got != msbSdk.SandboxStatus("") {
 		t.Errorf("Status() = %q, want empty", got)
 	}

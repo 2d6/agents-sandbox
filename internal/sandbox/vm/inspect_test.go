@@ -89,6 +89,26 @@ func TestInspectSandboxMissing(t *testing.T) {
 	}
 }
 
+func TestMountSource(t *testing.T) {
+	cases := []struct {
+		name  string
+		mount msbSdk.MountConfig
+		want  string
+	}{
+		{"bind", msbSdk.Mount.Bind("/host/workspace", msbSdk.MountOptions{}), "/host/workspace"},
+		{"named", msbSdk.Mount.Named("vol-name", msbSdk.MountOptions{}), "vol-name"},
+		{"disk", msbSdk.Mount.Disk("/host/data.img", msbSdk.DiskOptions{}), "/host/data.img"},
+		{"owned", msbSdk.Mount.Owned(msbSdk.OwnedVolumeOptions{}), string(msbSdk.VolumeKindDir)},
+		{"tmpfs", msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{}), ""},
+		{"unknown", msbSdk.MountConfig{}, ""},
+	}
+	for _, tc := range cases {
+		if got := mountSource(tc.mount); got != tc.want {
+			t.Errorf("mountSource(%s) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestMountKindString(t *testing.T) {
 	cases := map[msbSdk.MountKind]string{
 		msbSdk.MountKindBind:   "bind",

@@ -168,8 +168,8 @@ func printImageInspect(ui termio.UI, detail image.ImageDetail) {
 	if len(detail.Layers) > 0 {
 		ui.Outf("layers (%d):", len(detail.Layers))
 		for _, layer := range detail.Layers {
-			ui.Outf("  %d  %s  %s  erofs %s  %s",
-				layer.Position, layer.DiffID, layer.CompressedSize, layer.ErofsSize, layer.MediaType)
+			ui.Outf("  %d  %s  %s  %s  erofs %s  %s",
+				layer.Position, layer.DiffID, layer.BlobDigest, layer.CompressedSize, layer.ErofsSize, layer.MediaType)
 		}
 	}
 }

@@ -110,6 +110,19 @@ func TestVolumeInspectQuiet(t *testing.T) {
 	}
 }
 
+func TestJoinLabels(t *testing.T) {
+	if got := joinLabels(nil); got != "-" {
+		t.Errorf("joinLabels(nil) = %q, want %q", got, "-")
+	}
+	if got := joinLabels(map[string]string{}); got != "-" {
+		t.Errorf("joinLabels(empty) = %q, want %q", got, "-")
+	}
+	got := joinLabels(map[string]string{"b": "2", "a": "1"})
+	if got != "a=1, b=2" {
+		t.Errorf("joinLabels = %q, want sorted %q", got, "a=1, b=2")
+	}
+}
+
 func TestVolumeInspectRequiredArgs(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, cmdVolume, cmdInspect)
 	if err := cmd.Execute(); err == nil {
@@ -182,7 +195,7 @@ func TestImageInspect(t *testing.T) {
 		"env: A=1, B=2",
 		"entrypoint: /entry",
 		"layers (1):",
-		"0 sha256:layer0 1 KiB erofs unknown application/vnd.oci.image.layer.v1.tar+gzip",
+		"0 sha256:layer0 sha256:blob0 1 KiB erofs unknown application/vnd.oci.image.layer.v1.tar+gzip",
 	} {
 		if !containsNormalized(ui.OutCalls, want) {
 			t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
@@ -281,7 +294,7 @@ func TestSandboxInspect(t *testing.T) {
 				MaxCPUs:      8,
 				Labels:       map[string]string{"project": "proj"},
 				Volumes: map[string]msbSdk.MountConfig{
-					"/workspace": msbSdk.Mount.Bind("/host/workspace", msbSdk.MountOptions{}),
+					"/workspace": msbSdk.Mount.Bind("/host/workspace", msbSdk.MountOptions{Readonly: true}),
 					"/home/dev":  msbSdk.Mount.Named("agents-sandbox-home-proj", msbSdk.MountOptions{}),
 				},
 			},
@@ -307,7 +320,7 @@ func TestSandboxInspect(t *testing.T) {
 		"labels: project=proj",
 		"mounts (2):",
 		"/home/dev named agents-sandbox-home-proj",
-		"/workspace bind /host/workspace",
+		"/workspace bind /host/workspace  (read-only)",
 	} {
 		if !containsNormalized(ui.OutCalls, want) {
 			t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
