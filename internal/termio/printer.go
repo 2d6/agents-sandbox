@@ -142,6 +142,10 @@ func (p *printer) SetQuiet(quiet bool) {
 	p.quiet = quiet
 }
 
+func (p *printer) Quiet() bool {
+	return p.quiet
+}
+
 func (p *printer) Spinner(msg string) Spinner {
 	return newSpinner(p.stderr, p.color, p.level, msg)
 }

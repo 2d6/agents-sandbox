@@ -42,6 +42,17 @@ func TestResolveListOutput(t *testing.T) {
 	}
 }
 
+func TestPrintListJSONMarshalError(t *testing.T) {
+	ui := &termio.Mock{}
+	err := printList(ui, listOutputJSON, []string{"x"}, "none", []string{"VALUE"},
+		func([]string) any { return func() {} },
+		func(s string) string { return s },
+	)
+	if err == nil {
+		t.Fatal("expected a marshal error for a non-marshalable JSON value")
+	}
+}
+
 func TestPrintListJSONEmpty(t *testing.T) {
 	ui := &termio.Mock{}
 	items := []string{}

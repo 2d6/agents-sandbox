@@ -530,3 +530,20 @@ func TestRenderPruneSummary_NilReport(t *testing.T) {
 		t.Errorf("RenderPruneSummary with nil report must not emit output, got %v", ui.OutCalls)
 	}
 }
+
+func TestRenderPruneSummaryVerboseDetails(t *testing.T) {
+	ui := &termio.Mock{}
+	report := &StaleReport{
+		PrunedSandboxes: 1,
+		Details: []StaleEntry{
+			{Type: StaleTypeVM, Name: "agents-sandbox-vm-proj-1mjusbm3wikhb0", Slug: "proj-1mjusbm3wikhb0"},
+		},
+	}
+	RenderPruneSummary(ui, report, false)
+	if len(ui.VerboseCalls) != 1 {
+		t.Fatalf("expected one verbose detail line, got %v", ui.VerboseCalls)
+	}
+	if !strings.Contains(ui.VerboseCalls[0], "agents-sandbox-vm-proj-1mjusbm3wikhb0") {
+		t.Errorf("verbose detail missing entry name: %q", ui.VerboseCalls[0])
+	}
+}

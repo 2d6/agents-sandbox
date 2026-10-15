@@ -50,6 +50,14 @@ func TestMockErrorStoresMessageAndError(t *testing.T) {
 	}
 }
 
+func TestMockPrintRecordsDataLine(t *testing.T) {
+	m := &Mock{}
+	m.Print("agent-1")
+	if len(m.PrintCalls) != 1 || m.PrintCalls[0] != "agent-1" {
+		t.Errorf("PrintCalls = %v, want [agent-1]", m.PrintCalls)
+	}
+}
+
 func TestMockSpinnerIsNoOp(t *testing.T) {
 	m := &Mock{}
 	spin := m.Spinner("work")

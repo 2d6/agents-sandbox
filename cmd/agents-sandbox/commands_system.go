@@ -188,8 +188,7 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox list",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			quiet, _ := cmd.Flags().GetBool(pFlagQuiet)
-			mode, err := resolveListOutput(format, quiet || namesOnly)
+			mode, err := resolveListOutput(format, ui.Quiet() || namesOnly)
 			if err != nil {
 				return err
 			}
@@ -546,8 +545,7 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 		Aliases: cmdListAliases,
 		Short:   "List cached runner images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			quiet, _ := cmd.Flags().GetBool(pFlagQuiet)
-			mode, err := resolveListOutput(format, quiet)
+			mode, err := resolveListOutput(format, ui.Quiet())
 			if err != nil {
 				return err
 			}
@@ -603,8 +601,7 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 		Args:    cobra.NoArgs,
 		Short:   "List managed volumes",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			quiet, _ := cmd.Flags().GetBool(pFlagQuiet)
-			mode, err := resolveListOutput(format, quiet)
+			mode, err := resolveListOutput(format, ui.Quiet())
 			if err != nil {
 				return err
 			}
@@ -732,7 +729,7 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			mode, err := resolvePruneOutputMode(cmd)
+			mode, err := resolvePruneOutputMode(cmd, ui)
 			if err != nil {
 				return err
 			}
@@ -741,11 +738,9 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			}
 			report, pruneErr := pruning.Prune(cmd.Context(), age, dryRun, ui)
 			if report != nil {
-				if renderErr := renderPruneReport(ui, mode,
+				renderPruneReport(ui, mode,
 					func() { pruning.RenderPruneSummary(ui, report, dryRun) },
-					newPruneReportJSON(report, dryRun)); renderErr != nil {
-					return errors.Join(pruneErr, renderErr)
-				}
+					newPruneReportJSON(report, dryRun))
 			}
 			return pruneErr
 		},
@@ -795,7 +790,7 @@ func runGroupPrune[R any](
 	if err != nil {
 		return err
 	}
-	mode, err := resolvePruneOutputMode(cmd)
+	mode, err := resolvePruneOutputMode(cmd, ui)
 	if err != nil {
 		return err
 	}
@@ -803,11 +798,9 @@ func runGroupPrune[R any](
 		return err
 	}
 	report, pruneErr := pruning.InvokePruneFunc(cmd.Context(), pruneLambda, age, dryRun, ui)
-	if renderErr := renderPruneReport(ui, mode,
+	renderPruneReport(ui, mode,
 		func() { render(report, dryRun) },
-		jsonValue(report, dryRun)); renderErr != nil {
-		return errors.Join(pruneErr, renderErr)
-	}
+		jsonValue(report, dryRun))
 	return pruneErr
 }
 
@@ -865,10 +858,9 @@ func buildSandboxPruneCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-func resolvePruneOutputMode(cmd *cobra.Command) (listOutput, error) {
+func resolvePruneOutputMode(cmd *cobra.Command, ui termio.UI) (listOutput, error) {
 	format, _ := cmd.Flags().GetString(flagFormat)
-	quiet, _ := cmd.Flags().GetBool(pFlagQuiet)
-	return resolveListOutput(format, quiet)
+	return resolveListOutput(format, ui.Quiet())
 }
 
 func setPruneFlags(cmd *cobra.Command) {

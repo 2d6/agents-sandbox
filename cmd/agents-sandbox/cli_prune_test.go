@@ -407,6 +407,24 @@ func TestPruneQuietSuppressesOutput(t *testing.T) {
 	}
 }
 
+// TestPruneEnvQuietSuppressesOutput proves an env/config-driven quiet (no
+// --quiet flag) still suppresses prune stdout, since the handler keys off the
+// effective UI quiet rather than the raw flag.
+func TestPruneEnvQuietSuppressesOutput(t *testing.T) {
+	t.Setenv("AGENTS_SANDBOX_QUIET", "true")
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
+	sandboxmsb.WithMsbMock(t, m)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("env quiet prune should write no stdout, got: %v", ui.OutCalls)
+	}
+}
+
 // TestPrunePartialErrorRendersReport proves a prune whose per-group errors are
 // joined still renders the summary of what was removed before the error is
 // returned.

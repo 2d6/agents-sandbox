@@ -409,6 +409,31 @@ func TestListSandboxesQuiet(t *testing.T) {
 	}
 }
 
+// TestListSandboxesEnvQuiet proves an env/config-driven quiet (no --quiet flag)
+// still selects identifiers-only output, since the handlers key off the
+// effective UI quiet rather than the raw flag.
+func TestListSandboxesEnvQuiet(t *testing.T) {
+	t.Setenv("AGENTS_SANDBOX_QUIET", "true")
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Sandboxes = []sandboxmsb.SandboxHandle{
+		projectSandbox("agents-sandbox-vm-alpha", nil),
+		projectSandbox("agents-sandbox-vm-beta", nil),
+	}
+	cmd, ui := setupCommandFixtures(t, cmdList)
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"agents-sandbox-vm-alpha", "agents-sandbox-vm-beta"} {
+		if !containsNormalized(ui.PrintCalls, want) {
+			t.Errorf("PrintCalls missing name %q; got: %v", want, ui.PrintCalls)
+		}
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("env quiet list should not write table output, got: %v", ui.OutCalls)
+	}
+}
+
 func TestListSandboxesFormatJSON(t *testing.T) {
 	mock := &sandboxmsb.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
@@ -583,6 +608,33 @@ func TestListImagesQuiet(t *testing.T) {
 	}
 }
 
+func TestListImagesEnvQuiet(t *testing.T) {
+	t.Setenv("AGENTS_SANDBOX_QUIET", "true")
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Images = []sandboxmsb.ImageHandle{
+		&sandboxmsb.MockImageHandle{Reference_: "agents-sandbox/runner-aaa", ManifestDigest_: "sha256-aaa"},
+		&sandboxmsb.MockImageHandle{Reference_: "agents-sandbox/runner-bbb", ManifestDigest_: "sha256-bbb"},
+	}
+	cmd, ui := setupCommandFixtures(t, cmdImage, cmdList)
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"agents-sandbox/runner-aaa", "agents-sandbox/runner-bbb"} {
+		if !containsNormalized(ui.PrintCalls, want) {
+			t.Errorf("PrintCalls missing reference %q; got: %v", want, ui.PrintCalls)
+		}
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("env quiet image list should not write table output, got: %v", ui.OutCalls)
+	}
+}
+
+func TestListImagesFormatUnknown(t *testing.T) {
+	runListCmdTest(t, []string{cmdImage, cmdList, "--format", "yaml"},
+		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "unsupported format")
+}
+
 func TestListImagesFormatJSON(t *testing.T) {
 	mock := &sandboxmsb.MockMsbClient{}
 	mock.Images = []sandboxmsb.ImageHandle{
@@ -697,6 +749,33 @@ func TestListVolumesFormatJSONEmpty(t *testing.T) {
 	if joined != "[]" {
 		t.Errorf("empty volume list JSON = %q, want %q", joined, "[]")
 	}
+}
+
+func TestListVolumesEnvQuiet(t *testing.T) {
+	t.Setenv("AGENTS_SANDBOX_QUIET", "true")
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.Volumes = []sandboxmsb.VolumeHandle{
+		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-aaa", Kind_: msb.VolumeKindDir},
+		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-bbb", Kind_: msb.VolumeKindDir},
+	}
+	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdList)
+	sandboxmsb.WithMsbMock(t, mock)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"agents-sandbox-home-aaa", "agents-sandbox-home-bbb"} {
+		if !containsNormalized(ui.PrintCalls, want) {
+			t.Errorf("PrintCalls missing name %q; got: %v", want, ui.PrintCalls)
+		}
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("env quiet volume list should not write table output, got: %v", ui.OutCalls)
+	}
+}
+
+func TestListVolumesFormatUnknown(t *testing.T) {
+	runListCmdTest(t, []string{cmdVolume, cmdList, "--format", "yaml"},
+		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "unsupported format")
 }
 
 func TestTruncateDigest(t *testing.T) {

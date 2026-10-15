@@ -91,6 +91,10 @@ func TestImagePrune(t *testing.T) {
 	})
 }
 
+func TestImagePruneFormatUnknown(t *testing.T) {
+	runPruneTestError(t, []string{"image", "prune", "--format", "yaml"}, "unsupported format")
+}
+
 func TestImagePruneFormatJSON(t *testing.T) {
 	m := &sandboxmsb.MockMsbClient{
 		Sandboxes: []sandboxmsb.SandboxHandle{

@@ -95,21 +95,15 @@ func newPruneDetailsJSON(entries []pruning.StaleEntry) []pruneDetailJSON {
 
 // renderPruneReport writes the JSON value under --format json, or calls the
 // human renderer by default. Quiet suppresses stdout entirely (prune has no
-// identifiers-only mode).
-func renderPruneReport(ui termio.UI, mode listOutput, human func(), jsonValue any) error {
-	switch mode {
-	case listOutputIdentifiers:
-		return nil
-	case listOutputJSON:
-		data, err := json.MarshalIndent(jsonValue, "", "  ")
-		if err != nil {
-			return err
-		}
+// identifiers-only mode). The values passed by callers are concrete report
+// DTOs, so the JSON marshal cannot fail.
+func renderPruneReport(ui termio.UI, mode listOutput, human func(), jsonValue any) {
+	if mode == listOutputJSON {
+		data, _ := json.MarshalIndent(jsonValue, "", "  ")
 		ui.Out(string(data))
-		return nil
-	case listOutputTable:
-		human()
-		return nil
+		return
 	}
-	return nil
+	if mode == listOutputTable {
+		human()
+	}
 }

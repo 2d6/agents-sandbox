@@ -95,6 +95,7 @@ type UI interface {
 	SetLevel(level Level)
 	SetAssumeYes(assumeYes bool)
 	SetQuiet(quiet bool)
+	Quiet() bool
 
 	StdOut() io.Writer
 	StdErr() io.Writer
