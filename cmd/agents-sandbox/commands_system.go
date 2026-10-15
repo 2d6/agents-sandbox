@@ -564,8 +564,29 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 	listCmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
 	cmd.AddCommand(listCmd)
 	cmd.AddCommand(buildImageInspectCmd(ui))
+	cmd.AddCommand(buildImageRemoveCmd(ui))
 	cmd.AddCommand(buildBuildCmd(ui))
 	cmd.AddCommand(buildImagePruneCmd(ui))
+	return cmd
+}
+
+// buildImageRemoveCmd builds `image remove <ref>...`, which deletes cached
+// runner images by reference. It refuses when an image is still in use unless
+// --force is set, and prompts unless --yes is set.
+func buildImageRemoveCmd(ui termio.UI) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:     cmdRemove + " <ref>...",
+		Aliases: cmdRemoveAliases,
+		Args:    cobra.MinimumNArgs(1),
+		Short:   "Remove cached runner images by reference",
+		Long: "Remove the named cached runner images. Refuses when an image is still in use by a " +
+			"project's state or a live sandbox; pass --force to remove it anyway. Prompts unless --yes is set.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return image.RemoveImages(cmd.Context(), args, force, ui)
+		},
+	}
+	cmd.Flags().BoolVar(&force, flagForce, false, "Remove even when a project or sandbox still references the image")
 	return cmd
 }
 
