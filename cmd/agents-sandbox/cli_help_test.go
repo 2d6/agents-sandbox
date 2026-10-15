@@ -70,13 +70,16 @@ func TestEveryLeafCommandHelpRenders(t *testing.T) {
 		{"config", "show"},
 		{"config", "home"},
 		{"image", "list"},
+		{"image", "inspect"},
 		{"image", "build"},
 		{"volume", "list"},
+		{"volume", "inspect"},
 		{"volume", "migrate"},
 		{"volume", "reset"},
 		{"volume", "edit"},
 		{"volume", "remove"},
 		{"sandbox", "list"},
+		{"sandbox", "inspect"},
 		{"sandbox", "shell"},
 		{"sandbox", "run"},
 		{"sandbox", "stop"},
@@ -98,9 +101,9 @@ func TestGroupCommandHelpListsSubcommands(t *testing.T) {
 		subs []string
 	}{
 		{path: []string{"config"}, subs: []string{"show", "home"}},
-		{path: []string{"image"}, subs: []string{"list", "build"}},
-		{path: []string{"volume"}, subs: []string{"list", "migrate", "reset", "edit", "remove"}},
-		{path: []string{"sandbox"}, subs: []string{"list", "shell", "run", "stop", "kill"}},
+		{path: []string{"image"}, subs: []string{"list", "inspect", "build"}},
+		{path: []string{"volume"}, subs: []string{"list", "inspect", "migrate", "reset", "edit", "remove"}},
+		{path: []string{"sandbox"}, subs: []string{"list", "inspect", "shell", "run", "stop", "kill"}},
 	} {
 		t.Run(strings.Join(tc.path, "_"), func(t *testing.T) {
 			out := commandOut(t, append(tc.path, "--help")...)
