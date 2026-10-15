@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -20,6 +21,13 @@ func HomeVolumeReferences() (map[string][]Key, error) {
 	references := map[string][]Key{}
 	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
+			// A missing state root means there are no project references to
+			// protect, so a deletion of the launcher state must not force
+			// --force on an otherwise unreferenced volume. An unreadable
+			// directory or file still fails closed.
+			if path == root && errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
 			return err
 		}
 		if entry.IsDir() || entry.Name() != "state.yaml" {

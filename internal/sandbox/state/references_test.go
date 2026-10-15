@@ -51,8 +51,24 @@ func TestHomeVolumeReferencesIgnoresRootState(t *testing.T) {
 	}
 }
 
+// missingStatePaths overrides only UserStateDir so the state root is genuinely
+// absent: the shared mock recreates the directory on every UserStateDir call, so
+// it cannot exercise the "user deleted launcher state" path on its own.
+type missingStatePaths struct {
+	configpaths.ConfigPaths
+
+	stateDir string
+}
+
+func (m missingStatePaths) UserStateDir() string { return m.stateDir }
+
 func TestHomeVolumeReferencesEmptyWhenNoStateDir(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	base := configpaths.Get()
+	configpaths.Get = func() configpaths.ConfigPaths {
+		return missingStatePaths{ConfigPaths: base, stateDir: filepath.Join(t.TempDir(), "absent")}
+	}
+
 	references, err := HomeVolumeReferences()
 	if err != nil {
 		t.Fatalf("HomeVolumeReferences: %v", err)
