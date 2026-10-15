@@ -23,9 +23,8 @@ func TestSandboxPruneNonInteractiveRequiresYes(t *testing.T) {
 	m := &msb.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 
-	cmd, ui := setupCommandFixtures(t, "sandbox", "prune")
+	cmd, _ := setupCommandFixtures(t, "sandbox", "prune")
 	msb.WithMsbMock(t, m)
-	ui.ConfirmErr = termio.ErrConfirmationRequired
 
 	err := cmd.Execute()
 	if !errors.Is(err, termio.ErrConfirmationRequired) {

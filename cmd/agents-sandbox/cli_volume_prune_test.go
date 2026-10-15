@@ -22,9 +22,8 @@ func TestVolumePruneNonInteractiveRequiresYes(t *testing.T) {
 		CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 	})
 
-	cmd, ui := setupCommandFixtures(t, "volume", "prune")
+	cmd, _ := setupCommandFixtures(t, "volume", "prune")
 	msb.WithMsbMock(t, m)
-	ui.ConfirmErr = termio.ErrConfirmationRequired
 
 	err := cmd.Execute()
 	if !errors.Is(err, termio.ErrConfirmationRequired) {

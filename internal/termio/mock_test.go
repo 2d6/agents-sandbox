@@ -75,7 +75,7 @@ func TestMockPromptDefaults(t *testing.T) {
 }
 
 func TestMockConfirmRecordsPromptAndReturnsConfigured(t *testing.T) {
-	m := &Mock{ConfirmResult: true}
+	m := &Mock{IsInteractiveResult: true, ConfirmResult: true}
 	got, err := m.Confirm("Remove it?", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -88,13 +88,27 @@ func TestMockConfirmRecordsPromptAndReturnsConfigured(t *testing.T) {
 	}
 
 	boom := errors.New("boom")
-	m = &Mock{ConfirmErr: boom}
+	m = &Mock{IsInteractiveResult: true, ConfirmErr: boom}
 	got, err = m.Confirm("Remove it?", true)
 	if !errors.Is(err, boom) {
 		t.Errorf("expected configured error, got %v", err)
 	}
 	if got {
 		t.Error("expected false result alongside error")
+	}
+}
+
+func TestMockConfirmNonInteractiveRequiresConfirmation(t *testing.T) {
+	m := &Mock{ConfirmResult: true}
+	got, err := m.Confirm("Remove it?", false)
+	if !errors.Is(err, ErrConfirmationRequired) {
+		t.Fatalf("expected ErrConfirmationRequired, got %v", err)
+	}
+	if got {
+		t.Error("expected false when confirmation is required")
+	}
+	if len(m.ConfirmCalls) != 0 {
+		t.Errorf("non-interactive confirm must not record a prompt, got: %v", m.ConfirmCalls)
 	}
 }
 

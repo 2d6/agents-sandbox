@@ -18,10 +18,11 @@ func AutoPrune(ctx context.Context, threshold time.Duration, dryRun bool, ui ter
 	}
 	autoPruneOnce.Do(func() {
 		report, err := Prune(ctx, threshold, dryRun, ui)
+		if report != nil {
+			RenderPruneSummary(ui, report, dryRun)
+		}
 		if err != nil {
 			ui.Warnf("auto-prune failed: %s", err)
-			return
 		}
-		RenderPruneSummary(ui, report, dryRun)
 	})
 }

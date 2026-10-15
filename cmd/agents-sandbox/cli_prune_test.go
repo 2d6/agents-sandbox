@@ -259,9 +259,8 @@ func TestPruneNonInteractiveRequiresYes(t *testing.T) {
 	m := &sandboxmsb.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 
-	cmd, ui := setupCommandFixtures(t, "prune")
+	cmd, _ := setupCommandFixtures(t, "prune")
 	sandboxmsb.WithMsbMock(t, m)
-	ui.ConfirmErr = termio.ErrConfirmationRequired
 
 	err := cmd.Execute()
 	if !errors.Is(err, termio.ErrConfirmationRequired) {
@@ -360,6 +359,29 @@ func TestPruneFormatJSON(t *testing.T) {
 		if detail.Type == "" || detail.Name == "" || detail.Slug == "" {
 			t.Errorf("detail missing fields: %+v", detail)
 		}
+		if detail.Type == "volume" {
+			want := int64((30 * 24 * time.Hour).Seconds())
+			if detail.StaleForSeconds < want-int64(time.Hour.Seconds()) ||
+				detail.StaleForSeconds > want+int64(time.Hour.Seconds()) {
+				t.Errorf("volume stale_for_seconds = %d, want ~%d", detail.StaleForSeconds, want)
+			}
+		}
+	}
+}
+
+func TestPruneVerboseShowsDetails(t *testing.T) {
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
+	sandboxmsb.WithMsbMock(t, m)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.ContainsFunc(ui.VerboseCalls, func(s string) bool {
+		return strings.Contains(s, "agents-sandbox-vm-projectname-1mjusbm3wikhb0")
+	}) {
+		t.Errorf("expected per-entry verbose detail, got: %v", ui.VerboseCalls)
 	}
 }
 
@@ -382,6 +404,44 @@ func TestPruneQuietSuppressesOutput(t *testing.T) {
 	}
 	if len(ui.OutCalls) != 0 {
 		t.Errorf("quiet prune should write no stdout, got: %v", ui.OutCalls)
+	}
+}
+
+// TestPrunePartialErrorRendersReport proves a prune whose per-group errors are
+// joined still renders the summary of what was removed before the error is
+// returned.
+func TestPrunePartialErrorRendersReport(t *testing.T) {
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
+	m.ListImagesErr = errBoom
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
+	sandboxmsb.WithMsbMock(t, m)
+
+	err := cmd.Execute()
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("expected joined prune error, got: %v", err)
+	}
+	if !slices.Contains(ui.OutCalls, staleSummary("Pruned", 1, 0, 0)) {
+		t.Errorf("expected partial summary despite error, got: %v", ui.OutCalls)
+	}
+}
+
+func TestPrunePartialErrorRendersJSON(t *testing.T) {
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
+	m.ListImagesErr = errBoom
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
+	sandboxmsb.WithMsbMock(t, m)
+
+	err := cmd.Execute()
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("expected joined prune error, got: %v", err)
+	}
+	got := unmarshalPruneJSON(t, ui.OutCalls)
+	if got.Sandboxes != 1 {
+		t.Errorf("expected the removed sandbox in the report, got: %+v", got)
 	}
 }
 

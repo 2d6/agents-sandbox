@@ -52,4 +52,7 @@ func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 		report.PrunedDockerImages,
 		report.PrunedSandboxImages,
 	)
+	for _, detail := range report.Details {
+		ui.Verbosef("  %s (%s)", detail.Name, detail.Slug)
+	}
 }

@@ -22,9 +22,8 @@ func TestImagePruneNonInteractiveRequiresYes(t *testing.T) {
 		LastUsedAt_: time.Now().Add(-30 * 24 * time.Hour),
 	})
 
-	cmd, ui := setupCommandFixtures(t, "image", "prune")
+	cmd, _ := setupCommandFixtures(t, "image", "prune")
 	sandboxmsb.WithMsbMock(t, m)
-	ui.ConfirmErr = termio.ErrConfirmationRequired
 
 	err := cmd.Execute()
 	if !errors.Is(err, termio.ErrConfirmationRequired) {

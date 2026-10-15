@@ -215,6 +215,9 @@ func (m *Mock) Confirm(prompt string, defaultYes bool) (bool, error) {
 	if m.assumeYes {
 		return true, nil
 	}
+	if !m.IsInteractiveResult {
+		return false, ErrConfirmationRequired
+	}
 	m.ConfirmCalls = append(m.ConfirmCalls, prompt)
 	return m.ConfirmResult, m.ConfirmErr
 }

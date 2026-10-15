@@ -732,20 +732,22 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err = confirmPrune(ui, dryRun); err != nil {
-				return err
-			}
 			mode, err := resolvePruneOutputMode(cmd)
 			if err != nil {
 				return err
 			}
-			report, err := pruning.Prune(cmd.Context(), age, dryRun, ui)
-			if err != nil {
+			if err = confirmPrune(ui, dryRun); err != nil {
 				return err
 			}
-			return renderPruneReport(ui, mode,
-				func() { pruning.RenderPruneSummary(ui, report, dryRun) },
-				newPruneReportJSON(report, dryRun))
+			report, pruneErr := pruning.Prune(cmd.Context(), age, dryRun, ui)
+			if report != nil {
+				if renderErr := renderPruneReport(ui, mode,
+					func() { pruning.RenderPruneSummary(ui, report, dryRun) },
+					newPruneReportJSON(report, dryRun)); renderErr != nil {
+					return errors.Join(pruneErr, renderErr)
+				}
+			}
+			return pruneErr
 		},
 	}
 	setPruneFlags(cmd)
@@ -778,30 +780,46 @@ func resolvePruneAge(cmd *cobra.Command) (time.Duration, error) {
 	return d, nil
 }
 
+// runGroupPrune runs one group pruner behind the shared prune flag handling:
+// output mode and confirmation are resolved (so bad flags fail fast), then the
+// report is rendered even when the pruner returns an error, so a partial run
+// still reports what it removed before the error surfaces.
+func runGroupPrune[R any](
+	cmd *cobra.Command,
+	ui termio.UI,
+	pruneLambda func(context.Context, pruning.PruneState, bool, termio.UI) (R, error),
+	render func(report R, dryRun bool),
+	jsonValue func(report R, dryRun bool) any,
+) error {
+	age, dryRun, err := resolvePruneFlags(cmd)
+	if err != nil {
+		return err
+	}
+	mode, err := resolvePruneOutputMode(cmd)
+	if err != nil {
+		return err
+	}
+	if err = confirmPrune(ui, dryRun); err != nil {
+		return err
+	}
+	report, pruneErr := pruning.InvokePruneFunc(cmd.Context(), pruneLambda, age, dryRun, ui)
+	if renderErr := renderPruneReport(ui, mode,
+		func() { render(report, dryRun) },
+		jsonValue(report, dryRun)); renderErr != nil {
+		return errors.Join(pruneErr, renderErr)
+	}
+	return pruneErr
+}
+
 func buildImagePruneCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdPrune,
 		Args:  cobra.NoArgs,
 		Short: "Prune cached runner images not in use",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, dryRun, err := resolvePruneFlags(cmd)
-			if err != nil {
-				return err
-			}
-			if err = confirmPrune(ui, dryRun); err != nil {
-				return err
-			}
-			mode, err := resolvePruneOutputMode(cmd)
-			if err != nil {
-				return err
-			}
-			report, err := pruning.InvokePruneFunc(cmd.Context(), pruning.PruneImages, age, dryRun, ui)
-			if err != nil {
-				return err
-			}
-			return renderPruneReport(ui, mode,
-				func() { pruning.RenderImageReport(ui, report, dryRun) },
-				newImageReportJSON(report, dryRun))
+			return runGroupPrune(cmd, ui, pruning.PruneImages,
+				func(report pruning.ImageReport, dryRun bool) { pruning.RenderImageReport(ui, report, dryRun) },
+				func(report pruning.ImageReport, dryRun bool) any { return newImageReportJSON(report, dryRun) })
 		},
 	}
 	setPruneFlags(cmd)
@@ -814,24 +832,9 @@ func buildVolumePruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune home volumes no longer referenced by a project VM",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, dryRun, err := resolvePruneFlags(cmd)
-			if err != nil {
-				return err
-			}
-			if err = confirmPrune(ui, dryRun); err != nil {
-				return err
-			}
-			mode, err := resolvePruneOutputMode(cmd)
-			if err != nil {
-				return err
-			}
-			report, err := pruning.InvokePruneFunc(cmd.Context(), pruning.PruneVolumes, age, dryRun, ui)
-			if err != nil {
-				return err
-			}
-			return renderPruneReport(ui, mode,
-				func() { pruning.RenderVolumeReport(ui, report, dryRun) },
-				newVolumeReportJSON(report, dryRun))
+			return runGroupPrune(cmd, ui, pruning.PruneVolumes,
+				func(report pruning.VolumeReport, dryRun bool) { pruning.RenderVolumeReport(ui, report, dryRun) },
+				func(report pruning.VolumeReport, dryRun bool) any { return newVolumeReportJSON(report, dryRun) })
 		},
 	}
 	setPruneFlags(cmd)
@@ -853,24 +856,9 @@ func buildSandboxPruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune stale sandboxes and leftover task workers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, dryRun, err := resolvePruneFlags(cmd)
-			if err != nil {
-				return err
-			}
-			if err = confirmPrune(ui, dryRun); err != nil {
-				return err
-			}
-			mode, err := resolvePruneOutputMode(cmd)
-			if err != nil {
-				return err
-			}
-			report, err := pruning.InvokePruneFunc(cmd.Context(), pruning.PruneSandboxes, age, dryRun, ui)
-			if err != nil {
-				return err
-			}
-			return renderPruneReport(ui, mode,
-				func() { pruning.RenderSandboxReport(ui, report, dryRun) },
-				newSandboxReportJSON(report, dryRun))
+			return runGroupPrune(cmd, ui, pruning.PruneSandboxes,
+				func(report pruning.SandboxReport, dryRun bool) { pruning.RenderSandboxReport(ui, report, dryRun) },
+				func(report pruning.SandboxReport, dryRun bool) any { return newSandboxReportJSON(report, dryRun) })
 		},
 	}
 	setPruneFlags(cmd)
