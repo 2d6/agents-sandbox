@@ -169,6 +169,11 @@ func TestBuildMountsKeepsManagedMounts(t *testing.T) {
 	if tmp, ok := built[tmpMountPath]; !ok || tmp.Kind() != msbSdk.MountKindTmpfs {
 		t.Errorf("managed tmp mount altered: %+v", built[tmpMountPath])
 	}
+	for _, target := range []string{mounts.VMHomeDir, tmpMountPath} {
+		if got := built[target].HostPermissions; got != msbSdk.HostPermissionsDefault {
+			t.Errorf("mount %q should keep the private host-permissions default, got %q", target, got)
+		}
+	}
 }
 
 func TestSetUpSandboxProvisionsConfigOnFreshSetup(t *testing.T) {

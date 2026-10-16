@@ -24,6 +24,16 @@ read_if: Changing the /workspace bind mount options in buildMounts, diagnosing h
   (`HostPermissions` unset → `private`), and the home volume and `/tmp` are unaffected.
 - `stat_virtualization` stays `strict`; identity virtualization (the isolation claim) is unchanged.
 
+## Consequences
+
+- The guest can widen group/other `rwx` bits on host files in `/workspace` (the owner floor only prevents narrowing), so
+  on a shared host the mount is no longer privacy-preserving for mode bits.
+- The guest can mark files executable on the host, including `.git/hooks/*`, which the host's git executes. `.git` is
+  guest-writable by design (hiding is blocked upstream, microsandbox #1448); this raises the bar for running an
+  untrusted agent against a repo whose `.git` is not trusted (see issue #39).
+- Mirroring `chmod`s the real host inode. An in-VM permission change on a host file the launcher process does not own now
+  fails (EPERM) instead of being virtualized.
+
 ## Migration caveat
 
 The change applies to newly created project VMs. Existing VMs were created with `private` and are **not** recreated by
