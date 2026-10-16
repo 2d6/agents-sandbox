@@ -29,7 +29,8 @@ release to receive fixes. See [Releases](https://github.com/inoio/agents-sandbox
   the VM; see the [agent configuration documentation](https://inoio.github.io/agents-sandbox/configuration/agent.html).
 - The served opencode port is bound to the host loopback only and never exposed on the LAN.
 - The project directory is mounted as `/workspace` inside the VM; treat anything the VM writes as affecting your
-  project tree.
+  project tree. The `/workspace` bind mirrors ordinary `rwx` bits set inside the VM onto the host files (ownership and
+  setuid/setgid are never propagated), so the VM can mark a file in your project executable on the host.
 - **Known limitation:** `.env(rc)` secrets located in the project directory are not yet hidden from the VM. Avoid
   placing secrets in `.env` files inside a project you run through the sandbox.
 

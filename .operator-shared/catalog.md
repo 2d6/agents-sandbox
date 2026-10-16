@@ -59,6 +59,9 @@
 - `deprecation-policy.md`
   - Description: Durable deprecation policy (0.x, high UX bar): works-warns-hides, replacement precedence, minimum one-minor lifetime, removal condition stated up front, clean-break-vs-shim rule (incl. the 0.6.0 accepted `prune` confirmation break and the pending `volume … --rebuild` no-op restoration), the current deprecation register with replacement and removal targets (0.8.0 / 0.7.0), and the regression-test enforcement.
   - Read If: Deprecating or removing a CLI flag, config key, env var, or command; deciding whether a change needs a shim or a clean break; or enforcing the deprecation register in tests (#202/#205/#206).
+- `workspace-bind-permissions.md`
+  - Description: Contract for the `/workspace` bind's host-permission policy: it sets `host-permissions=mirror` so guest rwx bits reach the real host inode (keeping host git trees consistent, fixing silent exec-bit loss), while ownership/setuid are never propagated and configured mounts keep the `private` default; records the migration caveat (existing VMs keep `private` until recreated; a `cfg.Volumes` comparison never fires).
+  - Read If: Changing the `/workspace` bind options in `buildMounts`, diagnosing host-vs-VM permission/exec-bit divergence or dirty host git trees, or deciding whether a mount-permission change needs a VM-recreate fingerprint.
 
 ### `plans/` - TDD implementation plans
 

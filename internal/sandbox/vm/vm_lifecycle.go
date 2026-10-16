@@ -524,6 +524,13 @@ func createProjectVM(
 // tmpMountPath is the mount point used for the sandbox tmpfs.
 const tmpMountPath = mounts.TmpMountPath
 
+// workspaceHostPermissions propagates guest rwx bits onto the real host
+// /workspace inodes. The microsandbox default ("private") keeps guest chmod
+// virtualized, so an in-VM git write drops the host file's exec bit while the
+// guest still reports the tree clean. Mirror keeps host git working trees in
+// sync; setuid/setgid and uid/gid are never propagated.
+const workspaceHostPermissions = msbSdk.HostPermissionsMirror
+
 func buildMounts(
 	homeVol, repoPath string,
 	tmpSizeMiB, workspaceQuotaMiB uint32,
@@ -532,7 +539,8 @@ func buildMounts(
 	built := map[string]msbSdk.MountConfig{
 		mounts.VMHomeDir: msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
 		defaultTargetDir: msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{
-			QuotaMiB: workspaceQuotaMiB,
+			QuotaMiB:        workspaceQuotaMiB,
+			HostPermissions: workspaceHostPermissions,
 		}),
 		tmpMountPath: msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
 			SizeMiB:  tmpSizeMiB,
