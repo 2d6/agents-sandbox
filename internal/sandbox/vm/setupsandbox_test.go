@@ -241,7 +241,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 	if !containsSubstring(joined.String(), opencodeProvider(t).DaemonKillCmd()) {
 		t.Errorf("expected serve kill command, got %q", joined.String())
 	}
-	if containsSubstring(joined.String(), dockerdRestartCmd) {
+	if containsSubstring(joined.String(), dockerdCleanupCmd) {
 		t.Errorf(
 			"restartDaemons must NOT restart dockerd (env/secret changes go through the recreate path), got %q",
 			joined.String(),
