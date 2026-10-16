@@ -218,6 +218,9 @@ command reports the bare version (e.g. `0.1.0`).
   interval (previously 2s) before the first check, cutting the delay before a healthy daemon is detected.
 - CI: the `release` job now depends on the `integration` job, so tagged releases wait for the full-image integration
   tests before publishing.
+- CI: the docs deployment now runs on the release tag push and reports that tag in the site footer. Previously it relied
+  on the `release: published` event, which the release-creation step's `GITHUB_TOKEN` suppresses, so the docs only
+  redeployed on a manual dispatch and the footer read `main`.
 - Runner image: the composed `PATH` is now restored in login shells. The image records its composed `PATH` in
   `AGENTS_SANDBOX_IMAGE_PATH` and installs `/etc/profile.d/agents-sandbox-path.sh`, which `/etc/profile` sources after its
   `PATH` reset and uses to re-append missing entries. This supersedes the `/usr/local/bin` symlink stopgap; a custom
