@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/Masterminds/semver/v3"
 
@@ -201,7 +202,8 @@ func prepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) e
 	}
 	inspection.AgentsSandboxVersion = launcherVersion
 	ui.Verbosef(
-		"microsandbox runtime: required=%s installed=%s path=%s home=%s",
+		"microsandbox runtime: launcher=%s required=%s installed=%s path=%s home=%s",
+		inspection.AgentsSandboxVersion,
 		inspection.RequiredVersion,
 		valueOr(inspection.InstalledVersion, "missing"),
 		inspection.MSBPath,
@@ -227,7 +229,7 @@ func prepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) e
 		runtimeState.prepared = true
 		return nil
 	case RuntimeNewer, RuntimeOlder, RuntimeUnknown, RuntimeIncomplete:
-		if err := repairRuntime(ctx, inspection); err != nil {
+		if err := repairRuntime(ctx); err != nil {
 			return err
 		}
 		sandboxmsb.SkipRuntimeInstall()
@@ -244,9 +246,27 @@ func prepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) e
 // different SDK — never from the user — and is repaired silently. The installer
 // replaces a complete pair under Force but refuses to repair an incomplete one,
 // so any stray file from a partial install is removed first.
-func repairRuntime(ctx context.Context, inspection Inspection) error {
-	if inspection.Relation == RuntimeIncomplete {
-		if err := removeRuntimeFiles(inspection); err != nil {
+//
+// Repair is serialized across processes by a host-only flock, and the runtime is
+// re-inspected under it: a concurrent session may have repaired the pair between
+// our first inspection and acquiring the lock, and acting on that stale
+// inspection could delete the pair it just installed.
+func repairRuntime(ctx context.Context) error {
+	release, err := acquireRuntimeLock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	current, err := inspectRuntimeFunc(msbSdk.SDKVersion())
+	if err != nil {
+		return err
+	}
+	if current.Relation == RuntimeEqual {
+		return validateRuntime(ctx)
+	}
+	if current.Relation == RuntimeIncomplete {
+		if err := removeRuntimeFiles(current); err != nil {
 			return fmt.Errorf("remove incomplete msb runtime: %w", err)
 		}
 	}
@@ -265,6 +285,34 @@ func removeRuntimeFiles(inspection Inspection) error {
 		}
 	}
 	return nil
+}
+
+// flockExclusive takes an exclusive advisory flock. It is a seam so tests can
+// exercise the failure path, which a real file cannot trigger. It mirrors
+// state.FlockExclusive rather than importing it: the runtime package cannot
+// depend on state because that edge (runtime -> state -> naming) would close an
+// import cycle through the naming package's test dependencies.
+var flockExclusive = func(f *os.File) error {
+	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+}
+
+// acquireRuntimeLock takes the host-only advisory lock that serializes runtime
+// repair across processes. The flock auto-releases on process exit, so a crashed
+// holder never pins it. The returned function releases the lock.
+func acquireRuntimeLock() (func(), error) {
+	dir := filepath.Join(PrivateHome(), ".agents-sandbox")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("create runtime lock dir: %w", err)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "runtime.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open runtime lock: %w", err)
+	}
+	if err := flockExclusive(f); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("flock runtime lock: %w", err)
+	}
+	return func() { _ = f.Close() }, nil
 }
 
 func runtimeMismatchError(inspection Inspection, reason string) error {

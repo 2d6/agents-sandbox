@@ -135,6 +135,12 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   not either), so a stray file from a partial install is removed before the
   force-install. Removing the partial first is safe: it is unusable, and the
   installer publishes the replacement pair atomically.
+- Repair is serialized across processes by a host-only advisory lock
+  (`state.FlockExclusive`, `$MSB_HOME/.agents-sandbox/runtime.lock`), and the
+  runtime is re-inspected under it before any removal or install. Without the
+  lock, a second session acting on a stale inspection could delete the pair a
+  concurrent session just repaired. The flock auto-releases on process exit, so a
+  crashed holder never pins repair.
 - This is the one surviving piece of version handling, and it is a repair, not a
   recovery flow: no prompt, no choice, no error under normal conditions.
 
