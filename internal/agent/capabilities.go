@@ -23,10 +23,6 @@ type DaemonCommand struct {
 // DaemonProvider runs a long-lived server that clients attach to (opencode).
 type DaemonProvider interface {
 	DaemonCommand(serveOnly bool) DaemonCommand
-	// DaemonStartCmd and DaemonKillCmd are retained until the launcher's
-	// shell-backgrounding path is removed; they no longer launch the daemon.
-	DaemonStartCmd(serveOnly bool) string
-	DaemonKillCmd() string
 	DaemonHealthCmd() string
 	DaemonHealthParse(stdout string) (bool, error)
 }
