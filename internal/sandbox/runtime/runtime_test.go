@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -230,6 +231,95 @@ func TestDefaultEnsureRuntimeSeamFailsDeterministically(t *testing.T) {
 	}
 }
 
+func TestDefaultInstallRuntimeSeamFailsDeterministically(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MSB_HOME", home)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := installRuntime(ctx); err == nil {
+		t.Fatal("installRuntime() error = nil, want canceled setup error")
+	}
+}
+
+func TestAcquireRuntimeLockBlocksSecondHolder(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	release, err := acquireRuntimeLock()
+	if err != nil {
+		t.Fatalf("acquireRuntimeLock: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		r, _ := acquireRuntimeLock()
+		if r != nil {
+			r()
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("second acquire returned while the first held the lock")
+	case <-time.After(200 * time.Millisecond):
+	}
+	release()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second acquire did not proceed after release")
+	}
+}
+
+// TestAcquireRuntimeLockMkdirError covers the MkdirAll failure: a file
+// occupying the lock directory path makes the mkdir fail.
+func TestAcquireRuntimeLockMkdirError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := os.MkdirAll(PrivateHome(), 0o700); err != nil {
+		t.Fatalf("mkdir private home: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(PrivateHome(), ".agents-sandbox"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("write file at lock dir path: %v", err)
+	}
+	if _, err := acquireRuntimeLock(); err == nil {
+		t.Fatal("acquireRuntimeLock() error = nil, want a mkdir failure")
+	}
+}
+
+// TestAcquireRuntimeLockOpenError covers the OpenFile failure: a directory
+// occupying the lock file path makes the open fail with EISDIR.
+func TestAcquireRuntimeLockOpenError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	lockPath := filepath.Join(PrivateHome(), ".agents-sandbox", "runtime.lock")
+	if err := os.MkdirAll(lockPath, 0o700); err != nil {
+		t.Fatalf("mkdir at lock path: %v", err)
+	}
+	if _, err := acquireRuntimeLock(); err == nil {
+		t.Fatal("acquireRuntimeLock() error = nil, want an open failure")
+	}
+}
+
+// TestAcquireRuntimeLockFlockError covers the FlockExclusive failure via the
+// seam, which a real file cannot trigger.
+func TestAcquireRuntimeLockFlockError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("flock boom")
+	orig := flockExclusive
+	flockExclusive = func(*os.File) error { return wantErr }
+	t.Cleanup(func() { flockExclusive = orig })
+	if _, err := acquireRuntimeLock(); !errors.Is(err, wantErr) {
+		t.Fatalf("acquireRuntimeLock() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestDefaultFlockExclusiveLocksFile(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := flockExclusive(f); err != nil {
+		t.Fatalf("flockExclusive() error = %v", err)
+	}
+}
+
 func TestPrepareRuntimePublicGateSkipsMockClient(t *testing.T) {
 	oldReal := runtimeClientIsReal
 	runtimeClientIsReal = func() bool { return false }
@@ -355,25 +445,223 @@ func TestPrepareRuntimeRejectsUnknownFutureRelation(t *testing.T) {
 	}
 }
 
-func TestPrepareRuntimeMismatchIsPlainError(t *testing.T) {
+func TestPrepareRuntimeMismatchRepairsByForceInstalling(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		version string
+	}{
+		{name: "older", version: olderMSBVersion(t)},
+		{name: "newer", version: newerMSBVersion(t)},
+		{name: "unknown", version: "not-a-version"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetRuntimeState(t)
+			home := writeRuntimeFixture(t, test.version, true)
+			t.Setenv("HOME", home)
+			unsetEnv(t, "MSB_HOME")
+			unsetEnv(t, "MSB_PATH")
+
+			oldInstall, oldValidate := installRuntime, validateRuntime
+			installCalls, validateCalls := 0, 0
+			installRuntime = func(context.Context) error {
+				installCalls++
+				writeRuntimeFiles(t, home, currentMSBVersion())
+				return nil
+			}
+			validateRuntime = func(context.Context) error {
+				validateCalls++
+				return nil
+			}
+			t.Cleanup(func() {
+				installRuntime = oldInstall
+				validateRuntime = oldValidate
+			})
+
+			if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+				t.Fatalf("prepareRuntime() error = %v", err)
+			}
+			if installCalls != 1 || validateCalls != 1 {
+				t.Fatalf(
+					"installRuntime calls = %d, validateRuntime calls = %d; want 1 each",
+					installCalls,
+					validateCalls,
+				)
+			}
+		})
+	}
+}
+
+func TestPrepareRuntimeIncompleteRepairsAfterRemovingStrayFile(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, currentMSBVersion(), false)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInstall, oldValidate := installRuntime, validateRuntime
+	installRuntime = func(context.Context) error {
+		if _, err := os.Stat(filepath.Join(home, "bin", "msb")); !os.IsNotExist(err) {
+			t.Fatalf("stray runtime file not removed before install: err = %v", err)
+		}
+		writeRuntimeFiles(t, home, currentMSBVersion())
+		return nil
+	}
+	validateRuntime = func(context.Context) error { return nil }
+	t.Cleanup(func() {
+		installRuntime = oldInstall
+		validateRuntime = oldValidate
+	})
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+		t.Fatalf("prepareRuntime() error = %v", err)
+	}
+}
+
+func TestPrepareRuntimeRepairLockFails(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 
-	ui := &termio.Mock{IsInteractiveResult: true}
-	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
-		t.Fatal("runtime mismatch must not open an interactive menu")
-		return "", nil
+	wantErr := errors.New("flock boom")
+	orig := flockExclusive
+	flockExclusive = func(*os.File) error { return wantErr }
+	t.Cleanup(func() { flockExclusive = orig })
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); !errors.Is(err, wantErr) {
+		t.Fatalf("prepareRuntime() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestPrepareRuntimeRepairReinspectFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInspect := inspectRuntimeFunc
+	inspectionCalls := 0
+	inspectRuntimeFunc = func(string) (Inspection, error) {
+		inspectionCalls++
+		if inspectionCalls == 1 {
+			return Inspection{Relation: RuntimeOlder}, nil
+		}
+		return Inspection{}, errors.New("inspect failed")
+	}
+	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want re-inspection error")
+	}
+}
+
+func TestPrepareRuntimeIncompleteRemovalFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, currentMSBVersion(), true)
+	binMSB := filepath.Join(home, "bin", "msb")
+	if err := os.Remove(binMSB); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(binMSB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binMSB, "keep"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	err := prepareRuntime(context.Background(), ui, "0.2.0")
-	if err == nil {
-		t.Fatal("prepareRuntime() error = nil, want plain mismatch error")
+	oldInstall := installRuntime
+	installRuntime = func(context.Context) error {
+		t.Fatal("installRuntime must not run when the incomplete runtime cannot be removed")
+		return nil
 	}
-	if !strings.Contains(err.Error(), "not the SDK-pinned version") {
-		t.Fatalf("error = %v, want SDK-pinned wording", err)
+	t.Cleanup(func() { installRuntime = oldInstall })
+
+	err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0")
+	if err == nil {
+		t.Fatal("prepareRuntime() error = nil, want incomplete runtime removal error")
+	}
+	if !strings.Contains(err.Error(), "remove incomplete msb runtime") {
+		t.Fatalf("error = %v, want incomplete runtime removal error", err)
+	}
+}
+
+func TestPrepareRuntimeRepairSeesConcurrentRepair(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInspect, oldInstall, oldValidate := inspectRuntimeFunc, installRuntime, validateRuntime
+	inspectionCalls := 0
+	inspectRuntimeFunc = func(string) (Inspection, error) {
+		inspectionCalls++
+		if inspectionCalls == 1 {
+			return Inspection{Relation: RuntimeOlder}, nil
+		}
+		return Inspection{Relation: RuntimeEqual}, nil
+	}
+	installRuntime = func(context.Context) error {
+		t.Fatal("installRuntime must not run when the runtime was repaired concurrently")
+		return nil
+	}
+	validated := false
+	validateRuntime = func(context.Context) error {
+		validated = true
+		return nil
+	}
+	t.Cleanup(func() {
+		inspectRuntimeFunc = oldInspect
+		installRuntime = oldInstall
+		validateRuntime = oldValidate
+	})
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+		t.Fatalf("prepareRuntime() error = %v", err)
+	}
+	if !validated {
+		t.Fatal("expected validation of the concurrently repaired runtime")
+	}
+}
+
+func TestPrepareRuntimeRepairValidationFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInstall, oldValidate := installRuntime, validateRuntime
+	installRuntime = func(context.Context) error {
+		writeRuntimeFiles(t, home, currentMSBVersion())
+		return nil
+	}
+	validateRuntime = func(context.Context) error { return errors.New("validation failed") }
+	t.Cleanup(func() {
+		installRuntime = oldInstall
+		validateRuntime = oldValidate
+	})
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want post-repair validation error")
+	}
+}
+
+func TestPrepareRuntimeRepairInstallFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInstall := installRuntime
+	installRuntime = func(context.Context) error { return errors.New("install failed") }
+	t.Cleanup(func() { installRuntime = oldInstall })
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want repair install error")
 	}
 }
 

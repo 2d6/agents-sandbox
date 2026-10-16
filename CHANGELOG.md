@@ -116,9 +116,11 @@ command reports the bare version (e.g. `0.1.0`).
 - Runtime: agents-sandbox now provisions and uses its own private microsandbox runtime home at
   `$XDG_DATA_HOME/agents-sandbox/msb` (default `~/.local/share/agents-sandbox/msb`), selected via `MSB_HOME` at startup and
   fully decoupled from any user-installed microsandbox. The user's `~/.microsandbox` is never read or written by normal
-  operation; no user-facing `msb` is installed or advertised; and the runtime version-mismatch recovery menu is retired
-  (a mismatch is now a plain error). A project whose recorded home volume is absent from the private home starts a fresh
-  home volume automatically, so existing users keep working without migrating.
+  operation; no user-facing `msb` is installed or advertised; and the runtime version-mismatch recovery menu is retired.
+  When the private home holds a runtime other than the SDK-pinned one — for example an older runtime left by a previous
+  agents-sandbox release — agents-sandbox silently reinstalls the pinned runtime instead of prompting or erroring. A
+  project whose recorded home volume is absent from the private home starts a fresh home volume automatically, so
+  existing users keep working without migrating.
 - Runner image: `opencode`, `opencode2`, and `claude-code` images are now node-free. The `agents-sandbox-node` stage is
   emitted only for agents that need node (today only `pi`, an npm-installed node bundle), and opencode2 and claude-code
   install from their upstream native installers instead of npm. This cuts image size and cold-build time; version pinning,
