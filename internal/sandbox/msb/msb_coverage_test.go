@@ -10,6 +10,8 @@ import (
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 func TestRealSandboxFS(t *testing.T) {
@@ -53,10 +55,56 @@ func TestValidateInstalledUsesSDKResolve(t *testing.T) {
 	// The real SDK installer is deliberately not exercised here. This test
 	// covers the production adapter's validation seam without downloading a
 	// runtime into the test environment.
+	configpaths.WithMockConfigPaths(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("MSB_HOME", "")
 	if err := ValidateInstalled(context.Background()); err == nil {
 		t.Fatal("ValidateInstalled() error = nil, want missing runtime error")
+	}
+}
+
+// TestValidateInstalledPassesPrivateHome asserts the resolve call names the
+// private home explicitly instead of relying on the process-global MSB_HOME.
+func TestValidateInstalledPassesPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantHome := configpaths.MSBHome()
+
+	orig := resolveRuntime
+	resolveRuntime = func(config msbSdk.RuntimeConfig) (msbSdk.ResolvedRuntime, error) {
+		if config.Home != wantHome {
+			t.Errorf("RuntimeConfig.Home = %q, want %q", config.Home, wantHome)
+		}
+		return msbSdk.ResolvedRuntime{}, errors.New("stop after capture")
+	}
+	t.Cleanup(func() { resolveRuntime = orig })
+
+	if err := ValidateInstalled(context.Background()); err == nil {
+		t.Fatal("ValidateInstalled() error = nil, want captured seam error")
+	}
+}
+
+// TestRealClientEnsureInstalledPassesPrivateHome asserts the ensure call names
+// the private home explicitly.
+func TestRealClientEnsureInstalledPassesPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	previous := skipRuntimeInstall
+	skipRuntimeInstall = false
+	t.Cleanup(func() { skipRuntimeInstall = previous })
+
+	wantHome := configpaths.MSBHome()
+	orig := ensureRuntime
+	ensureRuntime = func(
+		_ context.Context, config msbSdk.RuntimeConfig, _ msbSdk.InstallOptions,
+	) (msbSdk.ResolvedRuntime, error) {
+		if config.Home != wantHome {
+			t.Errorf("RuntimeConfig.Home = %q, want %q", config.Home, wantHome)
+		}
+		return msbSdk.ResolvedRuntime{}, nil
+	}
+	t.Cleanup(func() { ensureRuntime = orig })
+
+	if err := (&realMsbClient{}).EnsureInstalled(context.Background()); err != nil {
+		t.Fatalf("EnsureInstalled() error = %v", err)
 	}
 }
 

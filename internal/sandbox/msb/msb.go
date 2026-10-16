@@ -8,6 +8,8 @@ import (
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 // Get is the factory clients can use to get an Client.
@@ -28,11 +30,23 @@ func IsRealClient() bool {
 // replacement-capable installer after runtime preparation has made a decision.
 func SkipRuntimeInstall() { skipRuntimeInstall = true }
 
+// resolveRuntime/ensureRuntime wrap the SDK setup calls so tests can observe the
+// RuntimeConfig passed to them. Both name the private home explicitly so
+// resolution does not depend on whether ApplyHome already set MSB_HOME.
+var (
+	resolveRuntime = msbSdk.ResolveRuntime
+	ensureRuntime  = msbSdk.EnsureRuntime
+)
+
+// runtimeConfig names agents-sandbox's private runtime home explicitly. MSB_HOME
+// still governs the FFI cache and all non-setup SDK operations.
+func runtimeConfig() msbSdk.RuntimeConfig {
+	return msbSdk.RuntimeConfig{Home: configpaths.MSBHome()}
+}
+
 // ValidateInstalled checks the SDK-managed runtime without downloading it.
 func ValidateInstalled(_ context.Context) error {
-	_, err := msbSdk.ResolveRuntime(
-		msbSdk.RuntimeConfig{},
-	)
+	_, err := resolveRuntime(runtimeConfig())
 	return err
 }
 
@@ -257,11 +271,7 @@ func (realMsbClient) EnsureInstalled(ctx context.Context) error {
 	if skipRuntimeInstall {
 		return nil
 	}
-	_, err := msbSdk.EnsureRuntime(
-		ctx,
-		msbSdk.RuntimeConfig{},
-		msbSdk.InstallOptions{},
-	)
+	_, err := ensureRuntime(ctx, runtimeConfig(), msbSdk.InstallOptions{})
 	return err
 }
 
