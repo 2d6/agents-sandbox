@@ -32,11 +32,7 @@ func WithMockConfigPaths(t *testing.T) {
 	// developer's real home. This is what keeps host-home writes (e.g. the
 	// agent's own ~/.config/opencode) from leaking into the real home. Do not
 	// mark such tests t.Parallel: t.Setenv forbids it.
-	home := filepath.Join(tempDir, "home")
-	if err := os.MkdirAll(home, 0o750); err != nil {
-		t.Fatalf("create mock home: %v", err)
-	}
-	t.Setenv("HOME", home)
+	t.Setenv("HOME", ensureMockConfigDirectory(filepath.Join(tempDir, "home")))
 	Get = func() ConfigPaths { return &mockConfigPaths{baseDir: tempDir} }
 	t.Cleanup(func() { Get = orig })
 }
@@ -48,6 +44,9 @@ func WithMockConfigPathsHomeError(t *testing.T, err error) {
 	t.Helper()
 	orig := Get
 	tempDir := t.TempDir()
+	// Redirect $HOME like WithMockConfigPaths so a resolver that bypasses the
+	// seam still cannot read the developer's real home.
+	t.Setenv("HOME", ensureMockConfigDirectory(filepath.Join(tempDir, "home")))
 	Get = func() ConfigPaths { return &mockConfigPaths{baseDir: tempDir, homeErr: err} }
 	t.Cleanup(func() { Get = orig })
 }

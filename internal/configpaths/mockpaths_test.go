@@ -2,6 +2,7 @@ package configpaths
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -36,6 +37,9 @@ func TestMockConfigPaths(t *testing.T) {
 	}
 	if home != filepath.Join(base, "home") {
 		t.Errorf("UserHomeDir() = %q, want %q", home, filepath.Join(base, "home"))
+	}
+	if got := os.Getenv("HOME"); got != filepath.Join(base, "home") {
+		t.Errorf("$HOME = %q, want %q (WithMockConfigPaths must redirect HOME)", got, filepath.Join(base, "home"))
 	}
 	if got := cfgPaths.ProjectConfigDir(); got != filepath.Join(base, "projectconfig") {
 		t.Errorf("ProjectConfigDir() = %q, want %q", got, filepath.Join(base, "projectconfig"))

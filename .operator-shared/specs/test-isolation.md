@@ -11,7 +11,8 @@ Tests must never read or write real host state. The tool dispatches all side-eff
 under tests each seam defaults to a **fail-fast** implementation that panics on first use, so a test that reaches real
 resolution fails loudly instead of silently touching the host.
 
-Every package that has tests installs the fail-fast defaults in `TestMain`. The normal call is
+Every test package installs the fail-fast defaults in `TestMain`, except `agent` and `filewalk` (see below). The normal
+call is
 `termio.InitFailFastMocks(m)` (`internal/testutil/mocks`), which installs all four seam families:
 
 - `configpaths.InstallFailFastConfigPaths()`
