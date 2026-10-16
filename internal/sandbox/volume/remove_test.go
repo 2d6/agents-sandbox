@@ -11,6 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestRemoveVolumesRefusesReferenced(t *testing.T) {
@@ -25,7 +26,7 @@ func TestRemoveVolumesRefusesReferenced(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
-	err := RemoveVolumes(context.Background(), []string{name}, false)
+	err := RemoveVolumes(context.Background(), []string{name}, false, &termio.Mock{})
 	if err == nil {
 		t.Fatal("RemoveVolumes() error = nil, want a refusal for a referenced volume")
 	}
@@ -49,7 +50,9 @@ func TestRemoveVolumesForceBypassesReference(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
-	if err := RemoveVolumes(context.Background(), []string{name}, true); err != nil {
+	ui := &termio.Mock{}
+	ui.SetAssumeYes(true)
+	if err := RemoveVolumes(context.Background(), []string{name}, true, ui); err != nil {
 		t.Fatalf("RemoveVolumes(force): %v", err)
 	}
 	if len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != name {
@@ -63,21 +66,13 @@ func TestRemoveVolumesRemovesSeveral(t *testing.T) {
 	msb.WithMsbMock(t, client)
 
 	names := []string{"agents-sandbox-home-a-20260812T123456", "agents-sandbox-home-b-20260812T123457"}
-	if err := RemoveVolumes(context.Background(), names, false); err != nil {
+	ui := &termio.Mock{}
+	ui.SetAssumeYes(true)
+	if err := RemoveVolumes(context.Background(), names, false, ui); err != nil {
 		t.Fatalf("RemoveVolumes: %v", err)
 	}
 	if len(client.RemovedVolumes) != 2 {
 		t.Fatalf("RemovedVolumes = %v, want both", client.RemovedVolumes)
-	}
-}
-
-func TestFormatKeys(t *testing.T) {
-	got := formatKeys([]state.Key{
-		{Slug: "legacy-aBc1234D"},
-		{Slug: "proj-aBc1234D", Agent: "opencode"},
-	})
-	if got != "legacy-aBc1234D, proj-aBc1234D/opencode" {
-		t.Fatalf("formatKeys = %q, want %q", got, "legacy-aBc1234D, proj-aBc1234D/opencode")
 	}
 }
 
@@ -89,7 +84,14 @@ func TestRemoveVolumesPropagatesRemoveError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 
-	if err := RemoveVolumes(context.Background(), []string{"agents-sandbox-home-a-20260812T123456"}, false); !errors.Is(
+	ui := &termio.Mock{}
+	ui.SetAssumeYes(true)
+	if err := RemoveVolumes(
+		context.Background(),
+		[]string{"agents-sandbox-home-a-20260812T123456"},
+		false,
+		ui,
+	); !errors.Is(
 		err, wantErr,
 	) {
 		t.Fatalf("RemoveVolumes() error = %v, want %v", err, wantErr)
@@ -112,8 +114,28 @@ func TestRemoveVolumesFailsClosedOnReferenceScanError(t *testing.T) {
 		context.Background(),
 		[]string{"agents-sandbox-home-a-20260812T123456"},
 		false,
+		&termio.Mock{},
 	); err == nil {
 		t.Fatal("RemoveVolumes() error = nil, want a fail-closed reference scan error")
+	}
+	if len(client.RemovedVolumes) != 0 {
+		t.Errorf("RemovedVolumes = %v, want none removed", client.RemovedVolumes)
+	}
+}
+
+func TestRemoveVolumesNonInteractiveRequiresConfirmation(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, client)
+
+	err := RemoveVolumes(
+		context.Background(),
+		[]string{"agents-sandbox-home-a-20260812T123456"},
+		false,
+		&termio.Mock{},
+	)
+	if !errors.Is(err, termio.ErrConfirmationRequired) {
+		t.Fatalf("RemoveVolumes(non-interactive) = %v, want ErrConfirmationRequired", err)
 	}
 	if len(client.RemovedVolumes) != 0 {
 		t.Errorf("RemovedVolumes = %v, want none removed", client.RemovedVolumes)

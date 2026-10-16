@@ -7,13 +7,13 @@ read_if: Adding or reviewing volume/image/sandbox inspection and removal command
 
 Date: 2026-10-15
 
-Status: **design; Slices 0–3 implemented** (Slices 0–2 merged in PRs #174/#176/
-#177; Slice 3 on branch `issue-171-runtime-management-slice-3`, PR pending).
+Status: **design; Slices 0–4 implemented** (Slices 0–3 merged; Slice 4 on
+branch `issue-172-runtime-management-slice-4`, PR pending).
 Tracked as issue #165; delivered as sub-issues #168 (Slice 0, implemented),
 #169 (Slice 1, implemented), #170 (Slice 2, implemented), #171 (Slice 3,
-implemented), #172 (Slice 4), and #155 (Slice 5). Slice 6 is dropped. Builds on
-`specs/runtime-home-decoupling.md` (the private `$MSB_HOME` home) and the
-reference in `guides/microsandbox-release-notes.md`.
+implemented), #172 (Slice 4, implemented), and #155 (Slice 5). Slice 6 is
+dropped. Builds on `specs/runtime-home-decoupling.md` (the private `$MSB_HOME`
+home) and the reference in `guides/microsandbox-release-notes.md`.
 
 ## Intent
 
@@ -190,11 +190,33 @@ the existing `ImageInspect` config-only method untouched) and `SandboxHandle.ID`
 
 - `image remove <ref>...` (`rm`) — by-reference deletion with `-f/--force` and
   the Slice 1 image-reference guard (refuses an in-use runner image, naming the
-  referencing projects).
-- `sandbox remove <name>` (`rm`) — remove a project VM by name; `--force` to
-  also drop persisted state.
+  referencing projects). Only runner references are accepted; a non-runner
+  reference is a hard ownership refusal that `--force` does not override.
+- `sandbox remove <name>` (`rm`) — remove an agents-sandbox project VM by name;
+  `--force` permits removing a running VM (stopping it first). It does **not**
+  drop the persisted state.
 
 Depends on: Slice 0 (confirmation/force conventions), Slice 1 (image guard).
+
+Implemented (issue #172): both removal commands run **guard → confirm → mutate**
+and expose `-f/--force`. `image.RemoveImages` first hard-refuses any reference
+that is not an `agents-sandbox/runner-*` image (`refuseNonRunnerRefs`, not
+overridable by `--force`), then, unless forced, guards with the Slice 1 seam:
+`inUseImageReferences` unions the project-state scan with the image refs held by
+live launcher sandboxes (`naming.IsLauncherSandbox`), and
+`refuseReferencedImages` names every referencing project; `--force` skips the
+in-use guard and is passed through to `ImageRemove`. `vm.RemoveSandbox` accepts
+only `agents-sandbox-vm-*` names (a hard refusal), refuses a VM that is not
+stopped unless `--force` (the refusal reads "is not stopped" so an
+unknown/unfetchable status is not mislabelled "running"), and stops a forced
+running VM only after the confirmation succeeds, immediately before removal. It
+never touches `state.yaml`, so the recorded home volume survives and the next
+run recreates the VM against it. Both commands, and the retrofitted
+`volume remove`, confirm through `termio.ConfirmAction` unless the global `--yes`
+is set; a refusal runs before the prompt, so it fails fast without prompting.
+Declining returns the `termio.ErrCancelled` sentinel. Ownership/scope guards are
+hard (VMPrefix / ImagePrefix); only the in-use and running-state guards are
+`--force`-overridable.
 
 ### Slice 5 — Storage accounting
 
@@ -223,7 +245,8 @@ The full per-group contract, as the slices deliver it.
 - `volume list` — table default; `-q/--quiet` (names only), `--format json`.
 - `volume inspect <name>` — Slice 3 fields above.
 - `volume remove <name>...` (`rm`) **exists** — by-name deletion with the
-  fail-closed project-reference guard and `--force`. Unchanged.
+  fail-closed project-reference guard and `-f/--force`; now also confirms under
+  `--yes` (Slice 4 retrofit).
 - `volume prune` **exists** — unreferenced home volumes above `--age`. Gains the
   Slice 0 flags.
 - `volume create` **excluded** — home volumes come from the runner image via
@@ -233,7 +256,8 @@ The full per-group contract, as the slices deliver it.
 
 - `image list` — table default; `-q/--quiet` (references only), `--format json`.
 - `image inspect <ref>` — Slice 3.
-- `image remove <ref>...` (`rm`) — Slice 4, guarded.
+- `image remove <ref>...` (`rm`) — Slice 4; hard-refuses non-runner references,
+  in-use guard overridable by `-f/--force`.
 - `image prune` **exists** (extended) — keeps per-agent `-latest` tags and
   in-use images. Gains `--yes`, `--format json`, and `-q`.
 - `image pull`/`load`/`save` **excluded** — runner images are built, not moved.
@@ -242,7 +266,8 @@ The full per-group contract, as the slices deliver it.
 
 - `sandbox list`, `sandbox run`, `sandbox shell`, `sandbox stop`,
   `sandbox kill` **exist**. Unchanged (list gains the Slice 0 flags).
-- `sandbox remove <name>` (`rm`) — Slice 4.
+- `sandbox remove <name>` (`rm`) — Slice 4; project VMs only, refuses a running
+  VM unless `-f/--force` (stops it first), leaves persisted state intact.
 - `sandbox inspect <name>` — Slice 3.
 - `sandbox copy`/`cp` — Slice 6 (optional).
 - `sandbox start`/`restart`/`exec`/`logs`/`metrics`/`pause`/`resume`/`wait`
@@ -266,9 +291,14 @@ docker images, and msb images, but not runtime RAM.
 - **Listing**: every list supports `-q/--quiet` and `--format json`; human tables
   remain the default.
 - **Destructive**: every removal/prune supports `--yes` to authorize
-  non-interactively, and removal supports `--force` to override a
-  reference/ownership guard. `--force` overrides a guard; `--yes` skips a
-  confirmation prompt — distinct, and they may coexist.
+  non-interactively, and every removal exposes `-f/--force` to override its
+  reference/in-use/running-state guard. `--force` overrides those guards;
+  ownership/scope guards (only agents-sandbox project VMs / runner images) are
+  hard and not `--force`-overridable. `--yes` skips a confirmation prompt —
+  distinct from `--force`, and they may coexist. Every removal command prompts
+  (Slice 4 retrofitted `volume remove`, which previously never did), and the guard
+  runs before the prompt so a refusal fails fast. A declined prompt returns the
+  `termio.ErrCancelled` sentinel.
 - **Age threshold**: `--older-than` is the canonical flag (msb's spelling);
   `--age` is deprecated (hidden, warns, still honored; both set together is an
   error).

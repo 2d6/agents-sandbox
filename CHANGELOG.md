@@ -10,6 +10,11 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- CLI: `image remove <ref>...` (`rm`) deletes cached runner images by reference and `sandbox remove <name>` (`rm`)
+  removes a project VM. `image remove` accepts only `agents-sandbox/runner-*` references and refuses an in-use image
+  unless `-f`/`--force` (naming the referencing projects); `sandbox remove` refuses a running VM unless
+  `-f`/`--force` (which stops it first) and leaves the project's persisted state intact so the recorded home volume
+  survives. Both prompt unless the global `--yes` is set. Slice 4 of the runtime-management epic (#165).
 - Runner image: per-tool multistage composition so tool layers (apt tools, Node, agent, Docker) cache independently of
   the user body and each other, reusing the same tool layers across projects on one machine.
 - Runner image: the `agents-sandbox/runner-base-docker` base reference is recognized (alongside the deprecated
@@ -51,8 +56,9 @@ command reports the bare version (e.g. `0.1.0`).
   happen. When a private volume already exists under a legacy name (a prior copy of unclear status), the offer says so
   and lets you copy only the missing volumes (leaving the existing ones untouched) or dismiss; the prompt points at
   `volume remove` for manual cleanup.
-- `volume remove <name>...` (alias `rm`) removes home volumes by name. It never prompts and refuses when a project's
-  state still references a volume, unless `--force` is given.
+- `volume remove <name>...` (alias `rm`) removes home volumes by name. It prompts for confirmation (pass `--yes` to
+  skip it non-interactively) and refuses when a project's state still references a volume, unless `-f`/`--force` is
+  given.
 - CLI: `sandbox list`, `volume list`, and `image list` accept `--format json` (structured output on stdout) and the
   global `-q`/`--quiet` (identifiers only — sandbox/volume names or image references), in addition to the default human
   table; the two are mutually exclusive.

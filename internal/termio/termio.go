@@ -13,6 +13,9 @@ import (
 // needs authorization in a non-interactive context without --yes.
 var ErrConfirmationRequired = errors.New("confirmation required: pass --yes to proceed non-interactively")
 
+// ErrCancelled is returned by ConfirmAction when the user declines a prompt.
+var ErrCancelled = errors.New("cancelled")
+
 // Level selects the minimum severity shown on the console. Levels are
 // monotonic: showing a level also shows every more severe level, so a higher
 // level is never hidden while a lower one is shown.
@@ -31,6 +34,20 @@ const (
 	warningString = "warning"
 	errorString   = "error"
 )
+
+// ConfirmAction prompts for a destructive action and maps the answer to an
+// error: nil on yes, ErrConfirmationRequired when non-interactive without
+// assume-yes (from ui.Confirm), and ErrCancelled when declined.
+func ConfirmAction(ui UI, prompt string) error {
+	ok, err := ui.Confirm(prompt, false)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrCancelled
+	}
+	return nil
+}
 
 // String returns the canonical lower-case name of the level.
 func (l Level) String() string {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -82,6 +83,21 @@ func ImageReferences() (map[string][]Key, error) {
 		}
 		return naming.RunnerImageRef(k.Slug, k.Agent), true
 	})
+}
+
+// FormatKeys renders referencing project keys as "slug/agent" (or "slug" for a
+// legacy agent-less key), sorted for stable output.
+func FormatKeys(keys []Key) string {
+	labels := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if k.Agent == "" {
+			labels = append(labels, k.Slug)
+			continue
+		}
+		labels = append(labels, k.Slug+"/"+k.Agent)
+	}
+	sort.Strings(labels)
+	return strings.Join(labels, ", ")
 }
 
 // keyForStateFile derives the project key for a state.yaml path discovered under
