@@ -3,12 +3,16 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -125,12 +129,119 @@ func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
 	}
 }
 
+func TestLiveHomeVolumeReturnsMountedVolume(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	k := state.Key{Slug: "slug", Agent: "opencode"}
+	mock := &msb.MockMsbClient{
+		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+			return &msb.MockSandboxHandle{
+				Cfg: &msbSdk.SandboxConfig{
+					Volumes: map[string]msbSdk.MountConfig{
+						mounts.VMHomeDir: {Named: "home-vol"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	ui := termio.NewTestMock(t)
+	if got := liveHomeVolume(context.Background(), mock, k, &ui); got != "home-vol" {
+		t.Errorf("liveHomeVolume() = %q, want %q", got, "home-vol")
+	}
+}
+
+func TestLiveHomeVolumeNoVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	k := state.Key{Slug: "slug", Agent: "opencode"}
+	ui := termio.NewTestMock(t)
+	if got := liveHomeVolume(context.Background(), &msb.MockMsbClient{}, k, &ui); got != "" {
+		t.Errorf("liveHomeVolume() = %q, want empty when no VM exists", got)
+	}
+}
+
+func TestLiveHomeVolumeConfigError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	k := state.Key{Slug: "slug", Agent: "opencode"}
+	mock := &msb.MockMsbClient{
+		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+			return &msb.MockSandboxHandle{ConfigErr: errors.New("config boom")}, nil
+		},
+	}
+
+	ui := termio.NewTestMock(t)
+	if got := liveHomeVolume(context.Background(), mock, k, &ui); got != "" {
+		t.Errorf("liveHomeVolume() = %q, want empty on config error", got)
+	}
+}
+
+// TestPrepareHomeVolumeRecoversLostStateFromLiveVM covers issue #219 end to end
+// through the volume-setup entry point: with no state file but a project VM
+// that still mounts a home volume, the existing volume is reused (no duplicate
+// created) and state is rewritten to point at it.
+func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	const recovered = "agents-sandbox-home-slug-20260101T000000"
+	k := state.Key{Slug: "slug", Agent: "opencode"}
+
+	mock := &msb.MockMsbClient{
+		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+			return &msb.MockSandboxHandle{
+				Cfg: &msbSdk.SandboxConfig{
+					Volumes: map[string]msbSdk.MountConfig{
+						mounts.VMHomeDir: {Named: recovered},
+					},
+				},
+			}, nil
+		},
+		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
+			if name == recovered {
+				return &msb.MockVolumeHandle{Name_: name}, nil
+			}
+			return nil, fmt.Errorf("volume %s not found", name)
+		},
+		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			t.Fatalf("CreateVolume must not be called during recovery (got %q)", name)
+			return nil, errors.New("unexpected CreateVolume")
+		},
+	}
+	msb.WithMsbMock(t, mock)
+
+	origOffer := offerRuntimeHomeMigration
+	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error { return nil }
+	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
+
+	ui := termio.NewTestMock(t)
+	_, _, homeVol, _, err := prepareHomeVolume(
+		context.Background(),
+		k,
+		sandboximage.ImageInfo{Digest: "sha256:def"},
+		options.RunOptions{},
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("prepareHomeVolume() error = %v", err)
+	}
+	if homeVol != recovered {
+		t.Errorf("home volume = %q, want recovered %q", homeVol, recovered)
+	}
+	persisted, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("state not rewritten: %v", err)
+	}
+	if persisted.HomeVolume != recovered {
+		t.Errorf("persisted home volume = %q, want %q", persisted.HomeVolume, recovered)
+	}
+}
+
 func TestResolveServeHostPortNotServeOnly(t *testing.T) {
 	if got := resolveServeHostPort(options.RunOptions{}, 0); got != 0 {
 		t.Errorf("resolveServeHostPort(not serve-only) = %d, want 0", got)
 	}
 }
-
 func TestResolveServeHostPortPassthrough(t *testing.T) {
 	if got := resolveServeHostPort(options.RunOptions{ServeOnly: true}, 4096); got != 4096 {
 		t.Errorf("resolveServeHostPort(planned 4096) = %d, want 4096", got)

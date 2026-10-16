@@ -94,6 +94,7 @@ func TestResolveHomeVolumeExistingStateKeepsFingerprints(t *testing.T) {
 		image.ImageInfo{Tag: "img:tag", Digest: "sha256:abc"},
 		true,
 		desired,
+		"",
 		ui,
 	)
 	if err != nil {

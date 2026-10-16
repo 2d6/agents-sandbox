@@ -699,6 +699,7 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 		image.ImageInfo{Tag: "latest", Digest: "sha256:def"},
 		false,
 		state.Fingerprints{},
+		"",
 		mockUI,
 	)
 	if err != nil {
@@ -745,6 +746,7 @@ func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
 		image.ImageInfo{Tag: "latest", Digest: "sha256:def"},
 		false,
 		state.Fingerprints{},
+		"",
 		ui,
 	)
 	if err != nil {

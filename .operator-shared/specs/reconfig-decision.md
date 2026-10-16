@@ -56,10 +56,11 @@ state already matches the desired config by the time any session can observe the
 can never fire spuriously. This closes the concurrent window and the crash route (a process killed before
 `persistConfigHashes` now finds a seeded state).
 
-The deleted-state route is only partly addressed: when `state.yaml` is deleted while a VM and its volume survive,
-`ResolveHomeVolume` sees no state, `EnsureNewHome` mints a **new** volume and seeds it, and `homeVolumeChange` then forces
-a rebuild labelled "home volume" — the old volume is orphaned. The spurious "network policy" attribution is gone, but a
-state-loss rebuild remains; tracked separately as #219.
+The deleted-state route is now handled by home-volume recovery (issue #219): when `state.yaml` is deleted while the VM
+and its volume survive, `ResolveHomeVolume` adopts the volume the VM still mounts and seeds the recovered state with the
+desired fingerprints, so no duplicate volume is minted, the old volume is not orphaned, and `homeVolumeChange` does not
+fire. When a prior state is still readable but its recorded volume is gone, that state's fingerprints are carried
+forward instead. See `specs/home-volume-recovery.md`.
 
 The trade-off: the seed write briefly asserts "applied" before the VM exists. If creation then fails the state overstates
 what is baked in, which is harmless because with no VM `PlanReconfig` short-circuits to no recreate. Recreated VMs (a
