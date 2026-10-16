@@ -593,6 +593,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 		state.Key{Slug: "myproj", Agent: "opencode"},
 		image.ImageInfo{Tag: "", Digest: "sha256:abc"},
 		false,
+		state.Fingerprints{},
 		&termio.Mock{},
 	)
 	if err != nil {
@@ -622,6 +623,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		image.ImageInfo{Tag: "", Digest: "sha256:def"},
 		false,
+		state.Fingerprints{},
 		&termio.Mock{},
 	)
 	if err != nil {
@@ -662,6 +664,7 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 		state.Key{Slug: "corruptproj", Agent: "opencode"},
 		image.ImageInfo{Tag: "", Digest: "sha256:def"},
 		false,
+		state.Fingerprints{},
 		ui,
 	)
 	if err != nil {
@@ -703,6 +706,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		state.Key{Slug: "orphanproj", Agent: "opencode"},
 		image.ImageInfo{Tag: "latest-docker-image", Digest: "sha256:def"},
 		false,
+		state.Fingerprints{},
 		&termio.Mock{},
 	)
 	if err != nil {
@@ -1095,6 +1099,7 @@ func TestEnsureNewHome_PrefillFails(t *testing.T) {
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		image.ImageInfo{Tag: "img-tag", Digest: "sha256:abc"},
 		false,
+		state.Fingerprints{},
 		&termio.Mock{},
 	)
 	if err == nil {
@@ -1117,6 +1122,7 @@ func TestEnsureNewHome_DryRunVM_NoSandbox(t *testing.T) {
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		image.ImageInfo{Tag: "img-tag", Digest: "sha256:abc"},
 		true, // dryRunVM
+		state.Fingerprints{},
 		&termio.Mock{},
 	)
 	if err != nil {

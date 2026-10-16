@@ -440,6 +440,7 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		image.ImageInfo{Tag: "img-tag", Digest: "sha256:abc"},
 		false,
+		state.Fingerprints{},
 		&termio.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "create volume") {

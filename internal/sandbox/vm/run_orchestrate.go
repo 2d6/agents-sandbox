@@ -299,7 +299,9 @@ func prepareHomeVolume(
 	}
 
 	vm := volume.NewManager(ui)
-	homeVol, vs, err := resolveHomeVolume(ctx, vm, client, k, imageInfo, opts.DryRunVM, ui)
+	homeVol, vs, err := resolveHomeVolume(
+		ctx, vm, client, k, imageInfo, opts.DryRunVM, desiredFingerprints(opts, ui), ui,
+	)
 	if err != nil {
 		return nil, nil, "", state.HomeState{}, fmt.Errorf("volume setup failed: %w", err)
 	}
@@ -316,9 +318,24 @@ func resolveHomeVolume(
 	k state.Key,
 	info image.ImageInfo,
 	dryRunVM bool,
+	fingerprints state.Fingerprints,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	return vm.ResolveHomeVolume(ctx, client, k, info, dryRunVM, ui)
+	return vm.ResolveHomeVolume(ctx, client, k, info, dryRunVM, fingerprints, ui)
+}
+
+// desiredFingerprints builds the VM-config fingerprints for the current run.
+// They seed a fresh home volume's state (avoiding a fingerprint-less state
+// beside a VM) and are identical to the ones persistConfigHashes records after
+// a VM is created.
+func desiredFingerprints(opts options.RunOptions, ui termio.UI) state.Fingerprints {
+	env, secrets := envsecret.LoadEnvAndSecrets(ui)
+	return state.Fingerprints{
+		Env:     state.BuildEnvState(env),
+		Secret:  state.BuildSecretState(secrets),
+		Network: state.BuildNetworkState(opts.Network),
+		Mount:   state.BuildMountState(opts.Mounts),
+	}
 }
 
 // persistConfigHashes records the desired env/secret/network/mount
