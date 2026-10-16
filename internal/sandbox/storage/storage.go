@@ -1,7 +1,7 @@
 // Package storage accounts for the private runtime home's storage: the
 // categories microsandbox reports through its storage observation, plus the
-// runtime/FFI artifacts agents-sandbox installs itself. It is groundwork for the
-// later `df`/`storage` report and has no user-facing command.
+// runtime/FFI artifacts agents-sandbox installs itself. It backs the `df`
+// command's report.
 package storage
 
 import (
@@ -14,15 +14,16 @@ import (
 	sandboxruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 )
 
-// Category names. The first six are owned and reported by microsandbox; the
-// runtime category is the host-side runtime/FFI install.
+// Category names. The first six are owned and reported by microsandbox (their
+// spelling matches microsandbox's own report keys); the runtime category is the
+// host-side runtime/FFI install.
 const (
 	CategoryImages         = "images"
 	CategorySnapshots      = "snapshots"
+	CategoryBranchMemory   = "branch_memory"
+	CategorySnapshotMemory = "snapshot_memory"
 	CategorySandboxes      = "sandboxes"
 	CategoryVolumes        = "volumes"
-	CategoryBranchMemory   = "branch-memory"
-	CategorySnapshotMemory = "snapshot-memory"
 	CategoryRuntime        = "runtime"
 )
 
@@ -35,8 +36,13 @@ type Options struct {
 }
 
 // Report is the private runtime home's storage usage, split into categories.
+// Notes are report-level observations, such as a backend that cannot report
+// storage at all.
+//
+//exhaustruct:ignore
 type Report struct {
 	Categories []Category
+	Notes      []string
 }
 
 // Category is one storage category's totals and, when requested, its objects.
@@ -55,6 +61,7 @@ type Category struct {
 //exhaustruct:ignore
 type Totals struct {
 	Count            *uint64
+	InUse            *uint64
 	LogicalBytes     *uint64
 	AllocatedBytes   *uint64
 	ReclaimableBytes *uint64
@@ -86,23 +93,24 @@ var (
 // artifacts are walked from the private home. An unsupported observation marks
 // its categories unknown rather than failing; any other error propagates.
 func Observe(ctx context.Context, opts Options) (*Report, error) {
-	categories := msbCategories()
-	report, err := storageUsageOf(ctx)
+	report := &Report{Categories: msbCategories()}
+	usage, err := storageUsageOf(ctx)
 	switch {
 	case msb.IsUnsupportedOperation(err):
-		markAllUnknown(categories)
+		report.Notes = append(report.Notes, unsupportedStorageNote)
 	case err != nil:
 		return nil, fmt.Errorf("observe microsandbox storage: %w", err)
-	case report != nil:
-		applyMSBUsage(categories, report, opts)
+	case usage != nil:
+		applyMSBUsage(report.Categories, usage, opts)
+		report.Notes = append(report.Notes, usage.Notes...)
 	}
 
 	runtimeCategory, err := observeRuntime(privateHome(), opts)
 	if err != nil {
 		return nil, err
 	}
-	categories = append(categories, runtimeCategory)
-	return &Report{Categories: categories}, nil
+	report.Categories = append(report.Categories, runtimeCategory)
+	return report, nil
 }
 
 // msbCategorySources pairs each microsandbox-owned category name with the
@@ -115,17 +123,17 @@ var msbCategorySources = []msbCategorySource{
 	{name: CategorySnapshots, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
 		return r.Snapshots
 	}},
-	{name: CategorySandboxes, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
-		return r.Sandboxes
-	}},
-	{name: CategoryVolumes, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
-		return r.Volumes
-	}},
 	{name: CategoryBranchMemory, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
 		return r.BranchMemory
 	}},
 	{name: CategorySnapshotMemory, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
 		return r.SnapshotMemory
+	}},
+	{name: CategorySandboxes, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+		return r.Sandboxes
+	}},
+	{name: CategoryVolumes, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+		return r.Volumes
 	}},
 }
 
@@ -147,14 +155,6 @@ func msbCategories() []Category {
 	return categories
 }
 
-// markAllUnknown notes on each category that the backend cannot observe storage,
-// leaving the totals nil (unknown).
-func markAllUnknown(categories []Category) {
-	for i := range categories {
-		categories[i].Notes = append(categories[i].Notes, unsupportedStorageNote)
-	}
-}
-
 // applyMSBUsage fills each category from the microsandbox report, preserving nil
 // counters as unknown and adding per-object rows when requested.
 func applyMSBUsage(categories []Category, report *msbSdk.StorageUsageReport, opts Options) {
@@ -173,6 +173,7 @@ func applyMSBUsage(categories []Category, report *msbSdk.StorageUsageReport, opt
 func totalsFrom(usage msbSdk.StorageCategoryUsage) Totals {
 	return Totals{
 		Count:            usage.Count,
+		InUse:            usage.InUse,
 		LogicalBytes:     usage.LogicalBytes,
 		AllocatedBytes:   usage.AllocatedBytes,
 		ReclaimableBytes: usage.ReclaimableLogicalBytes,

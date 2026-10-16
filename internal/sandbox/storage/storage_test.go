@@ -26,6 +26,7 @@ func reportWithAllCategories() *msbSdk.StorageUsageReport {
 	return &msbSdk.StorageUsageReport{
 		Images: msbSdk.StorageCategoryUsage{
 			Count:          uint64Ptr(2),
+			InUse:          uint64Ptr(1),
 			LogicalBytes:   uint64Ptr(100),
 			AllocatedBytes: uint64Ptr(80),
 		},
@@ -48,8 +49,8 @@ func TestObserveMapsMSBCategoriesInOrder(t *testing.T) {
 		t.Fatalf("Observe() error = %v", err)
 	}
 	if got, want := categoryNames(report), []string{
-		CategoryImages, CategorySnapshots, CategorySandboxes, CategoryVolumes,
-		CategoryBranchMemory, CategorySnapshotMemory, CategoryRuntime,
+		CategoryImages, CategorySnapshots, CategoryBranchMemory, CategorySnapshotMemory,
+		CategorySandboxes, CategoryVolumes, CategoryRuntime,
 	}; !slices.Equal(got, want) {
 		t.Fatalf("category names = %v, want %v", got, want)
 	}
@@ -57,6 +58,9 @@ func TestObserveMapsMSBCategoriesInOrder(t *testing.T) {
 	images := report.Categories[0]
 	if got := images.Totals.Count; got == nil || *got != 2 {
 		t.Errorf("images count = %v, want 2", got)
+	}
+	if got := images.Totals.InUse; got == nil || *got != 1 {
+		t.Errorf("images in use = %v, want 1", got)
 	}
 	if got := images.Totals.LogicalBytes; got == nil || *got != 100 {
 		t.Errorf("images logical bytes = %v, want 100", got)
@@ -104,9 +108,9 @@ func TestObserveUnsupportedDegradesToUnknown(t *testing.T) {
 		if c.Totals.Count != nil {
 			t.Errorf("category %s count = %v, want nil (unknown)", c.Name, c.Totals.Count)
 		}
-		if len(c.Notes) == 0 {
-			t.Errorf("category %s notes = empty, want unsupported note", c.Name)
-		}
+	}
+	if len(report.Notes) == 0 {
+		t.Error("report notes = empty, want an unsupported note")
 	}
 	if report.Categories[6].Name != CategoryRuntime {
 		t.Errorf("last category = %s, want runtime", report.Categories[6].Name)
