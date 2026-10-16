@@ -81,6 +81,9 @@ func TestKillJobsByCommandKillsMatches(t *testing.T) {
 	if !stale.DidKill {
 		t.Error("matching stale job was not killed")
 	}
+	if !stale.DidClose {
+		t.Error("killed job handle was not closed")
+	}
 	if other.DidKill {
 		t.Error("non-matching job was killed")
 	}
@@ -101,6 +104,7 @@ func TestKillJobsByCommandToleratesFailures(t *testing.T) {
 
 func TestKillJobsByCommandToleratesGetAndKillErrors(t *testing.T) {
 	ui := termio.NewTestMock(t)
+	killFailJob := &msb.MockJob{ID_: "b", KillErr: errors.New("kill boom")}
 	sb := &msb.MockSandbox{
 		Jobs: []msbSdk.JobInfo{
 			{ID: "a", Command: []string{"dockerd"}},
@@ -110,7 +114,7 @@ func TestKillJobsByCommandToleratesGetAndKillErrors(t *testing.T) {
 			if id == "a" {
 				return nil, errors.New("get boom")
 			}
-			return &msb.MockJob{ID_: "b", KillErr: errors.New("kill boom")}, nil
+			return killFailJob, nil
 		},
 	}
 	killJobsByCommand(context.Background(), sb, "dockerd", nil, &ui)
@@ -118,6 +122,9 @@ func TestKillJobsByCommandToleratesGetAndKillErrors(t *testing.T) {
 	joined := strings.Join(ui.VerboseCalls, "\n")
 	if !strings.Contains(joined, "resolving job") || !strings.Contains(joined, "killing job") {
 		t.Errorf("expected verbose get/kill failures, got %v", ui.VerboseCalls)
+	}
+	if !killFailJob.DidClose {
+		t.Error("job handle was not closed when Kill failed")
 	}
 }
 

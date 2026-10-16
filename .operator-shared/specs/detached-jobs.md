@@ -25,6 +25,10 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   expected binary+args prefix (`ListJobs(WithAllJobs)` → `GetJob(id)` → `Kill`).
 - **No persisted job state.** Jobs die with the VM, so a stopped/restarted VM re-launches both on the next boot. There
   are no job IDs in `state.yaml` and no cross-boot rediscovery.
+- **Rollout from a pre-jobs runtime.** A VM still running from before this change holds `nohup`-started processes the
+  job matcher cannot see; a config-change restart against such a live VM cannot kill them, so the fresh job fails to bind
+  (`:4096`/the socket) and surfaces a structured failure or timeout. This is accepted rather than mitigated with legacy
+  `pkill` cleanup (the no-fallback rule): VMs are ephemeral, and a stop/start relaunches both as jobs.
 - **dockerd teardown keeps residue cleanup.** Killing the dockerd job does not necessarily reap its `containerd` child,
   so a minimal shell cleanup (`pkill containerd` plus `/run`,`/var/run` pid/socket deletion) still runs before a
   restart. The job kill replaces `pkill dockerd`.

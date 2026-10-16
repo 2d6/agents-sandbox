@@ -83,7 +83,13 @@ func killJobsByCommand(
 			ui.Verbosef("resolving job %s failed: %v", info.ID, getErr)
 			continue
 		}
-		if killErr := job.Kill(ctx); killErr != nil {
+		// Kill terminates the process; Close (handle-only) releases the native
+		// handle regardless of whether the kill succeeded.
+		killErr := job.Kill(ctx)
+		if closeErr := job.Close(); closeErr != nil {
+			ui.Verbosef("closing job %s handle failed: %v", info.ID, closeErr)
+		}
+		if killErr != nil {
 			ui.Verbosef("killing job %s failed: %v", info.ID, killErr)
 			continue
 		}
