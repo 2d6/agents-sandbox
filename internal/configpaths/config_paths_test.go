@@ -205,6 +205,15 @@ func TestFailFastProjectAgentConfigDirPanics(t *testing.T) {
 	})
 }
 
+func TestMSBHomeUnderDataDir(t *testing.T) {
+	WithMockConfigPaths(t)
+	got := MSBHome()
+	want := filepath.Join(Get().UserDataDir(), "msb")
+	if got != want {
+		t.Errorf("MSBHome() = %q, want %q", got, want)
+	}
+}
+
 func agentAgent(t *testing.T) agent.Agent {
 	t.Helper()
 	a, ok := agent.Lookup("opencode")

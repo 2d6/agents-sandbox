@@ -73,24 +73,29 @@ var (
 		}
 		return strings.TrimSpace(string(output)), nil
 	}
-	ensureRuntime = func(ctx context.Context) error {
-		_, err := msbSdk.EnsureRuntime(
-			ctx,
-			msbSdk.RuntimeConfig{},
-			msbSdk.InstallOptions{},
-		)
+	// msbEnsureRuntime/msbInstallRuntime wrap the SDK setup calls so tests can
+	// observe the RuntimeConfig passed to them. Every setup call names the
+	// private home explicitly (see runtimeConfig) rather than relying on the
+	// process-global MSB_HOME.
+	msbEnsureRuntime  = msbSdk.EnsureRuntime
+	msbInstallRuntime = msbSdk.InstallRuntime
+	ensureRuntime     = func(ctx context.Context) error {
+		_, err := msbEnsureRuntime(ctx, runtimeConfig(), msbSdk.InstallOptions{})
 		return err
 	}
 	installRuntime = func(ctx context.Context) error {
-		_, err := msbSdk.InstallRuntime(
-			ctx,
-			msbSdk.RuntimeConfig{},
-			msbSdk.InstallOptions{Force: true},
-		)
+		_, err := msbInstallRuntime(ctx, runtimeConfig(), msbSdk.InstallOptions{Force: true})
 		return err
 	}
 	validateRuntime = sandboxmsb.ValidateInstalled
 )
+
+// runtimeConfig names the private home explicitly so SDK runtime resolution and
+// installation are deterministic and order-independent, not dependent on whether
+// ApplyHome has set the process-global MSB_HOME yet.
+func runtimeConfig() msbSdk.RuntimeConfig {
+	return msbSdk.RuntimeConfig{Home: PrivateHome()}
+}
 
 // runtimeClientIsReal is a seam for testing the public preparation gate while
 // keeping normal command tests on their mocked msb client.

@@ -69,8 +69,9 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 ## Constraints
 
 - Target platforms: Linux (KVM) and macOS (Apple Silicon).
-- The SDK's FFI extraction root and the native runtime resolver both key off
-  `$MSB_HOME`; this is the single lever for relocating the home.
+- The SDK's FFI extraction root and other operations key off `$MSB_HOME`;
+  runtime resolution and installation additionally accept an explicit per-call
+  home via `RuntimeConfig.Home`.
 
 ## Current state (grounding)
 
@@ -79,8 +80,11 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   launcher upgrade, `msb` upgrade/downgrade, brave mode, issue, or quit.
 - `selectRuntime` treats `MSB_HOME` as the managed home and only marks a runtime
   "external" via `MSB_PATH` / `MSB_LIBKRUNFW_PATH` / persisted paths.
-- `internal/sandbox/msb/msb.go` calls `EnsureRuntime` / `InstallRuntime` with an
-  empty `RuntimeConfig{}`, so the SDK falls back to its default home.
+- `internal/sandbox/runtime` and `internal/sandbox/msb` name the private home
+  explicitly when calling `ResolveRuntime` / `EnsureRuntime` / `InstallRuntime`
+  (`RuntimeConfig{Home: configpaths.MSBHome()}`), so host-runtime resolution is
+  deterministic and order-independent rather than depending on `MSB_HOME` having
+  been applied first (issue #160).
 - The SDK's `installDir()` (`setup.go`) and the native resolver both read
   `$MSB_HOME`, defaulting to `~/.microsandbox`.
 - `internal/sandbox/doctor/install.go` prints PATH hints so the user can invoke
@@ -113,6 +117,14 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   `Incomplete` runtime concepts are dropped. This is deliberate — supporting an
   externally configured runtime would reintroduce exactly the coupling this work
   removes. (A future opt-in could revisit it, but not now.)
+- Runtime setup calls pass the private home explicitly through
+  `RuntimeConfig.Home` (`configpaths.MSBHome()`), alongside `ApplyHome()` setting
+  `MSB_HOME`. The explicit config makes resolution/installation deterministic and
+  order-independent; `MSB_HOME` remains the home for the FFI extraction cache and
+  every non-setup SDK operation. `configpaths.MSBHome` is the single source of
+  truth for the private home; `runtime.PrivateHome` delegates to it so the
+  low-level `msb` adapter can resolve the same home without importing the runtime
+  package (issue #160).
 
 ### No user-facing msb
 

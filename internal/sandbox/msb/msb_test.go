@@ -10,6 +10,8 @@ import (
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 func TestMockVolumeHandleImplementsInterface(_ *testing.T) {
@@ -215,6 +217,7 @@ func TestRealMsbClientLists(t *testing.T) {
 }
 
 func TestRealMsbClientEnsureInstalled(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	c := &realMsbClient{}
 	if err := c.EnsureInstalled(context.Background()); err != nil {
 		t.Errorf("EnsureInstalled() error = %v, want nil", err)

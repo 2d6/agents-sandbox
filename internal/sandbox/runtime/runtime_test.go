@@ -222,6 +222,7 @@ func TestDefaultRuntimeCommandSeams(t *testing.T) {
 }
 
 func TestDefaultEnsureRuntimeSeamFailsDeterministically(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	home := t.TempDir()
 	t.Setenv("MSB_HOME", home)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -232,12 +233,53 @@ func TestDefaultEnsureRuntimeSeamFailsDeterministically(t *testing.T) {
 }
 
 func TestDefaultInstallRuntimeSeamFailsDeterministically(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	home := t.TempDir()
 	t.Setenv("MSB_HOME", home)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := installRuntime(ctx); err == nil {
 		t.Fatal("installRuntime() error = nil, want canceled setup error")
+	}
+}
+
+// TestRuntimeSetupSeamsPassPrivateHome asserts both setup seams hand the SDK the
+// private home explicitly, so resolution cannot depend on MSB_HOME having been
+// applied first.
+func TestRuntimeSetupSeamsPassPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantHome := PrivateHome()
+
+	var ensureConfig, installConfig msbSdk.RuntimeConfig
+	origEnsure, origInstall := msbEnsureRuntime, msbInstallRuntime
+	msbEnsureRuntime = func(
+		_ context.Context, config msbSdk.RuntimeConfig, _ msbSdk.InstallOptions,
+	) (msbSdk.ResolvedRuntime, error) {
+		ensureConfig = config
+		return msbSdk.ResolvedRuntime{}, nil
+	}
+	msbInstallRuntime = func(
+		_ context.Context, config msbSdk.RuntimeConfig, opts msbSdk.InstallOptions,
+	) (msbSdk.ResolvedRuntime, error) {
+		installConfig = config
+		if !opts.Force {
+			t.Error("install seam did not force-install")
+		}
+		return msbSdk.ResolvedRuntime{}, nil
+	}
+	t.Cleanup(func() { msbEnsureRuntime = origEnsure; msbInstallRuntime = origInstall })
+
+	if err := ensureRuntime(context.Background()); err != nil {
+		t.Fatalf("ensureRuntime() error = %v", err)
+	}
+	if err := installRuntime(context.Background()); err != nil {
+		t.Fatalf("installRuntime() error = %v", err)
+	}
+	if ensureConfig.Home != wantHome {
+		t.Errorf("ensure RuntimeConfig.Home = %q, want %q", ensureConfig.Home, wantHome)
+	}
+	if installConfig.Home != wantHome {
+		t.Errorf("install RuntimeConfig.Home = %q, want %q", installConfig.Home, wantHome)
 	}
 }
 
