@@ -26,8 +26,8 @@ func TestBuildAttachCommand(t *testing.T) {
 	if !strings.Contains(got, "http://127.0.0.1:4096") {
 		t.Errorf("expected daemon URL in command, got %q", got)
 	}
-	if !strings.Contains(got, "--dir /workspace") {
-		t.Errorf("expected --dir /workspace in command, got %q", got)
+	if !strings.Contains(got, "--dir '/workspace'") {
+		t.Errorf("expected --dir '/workspace' in command, got %q", got)
 	}
 	if strings.Contains(got, "--auto") {
 		t.Errorf("did not expect --auto flag (removed by human), got %q", got)
@@ -40,15 +40,23 @@ func TestBuildAttachCommand(t *testing.T) {
 func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	got := buildAttachCommand(a, "/home/dev/.local/share/opencode/worktree/abc/feat", nil)
-	if !strings.Contains(got, "--dir /home/dev/.local/share/opencode/worktree/abc/feat") {
+	if !strings.Contains(got, "--dir '/home/dev/.local/share/opencode/worktree/abc/feat'") {
 		t.Errorf("expected worktree dir in command, got %q", got)
+	}
+}
+
+func TestBuildAttachCommandQuotesTargetWithSpaces(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	got := buildAttachCommand(a, "/workspace/my notes", nil)
+	if !strings.Contains(got, "--dir '/workspace/my notes'") {
+		t.Errorf("expected the quoted target to keep the space, got %q", got)
 	}
 }
 
 func TestBuildAttachCommandOpencode(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	got := buildAttachCommand(a, "/workspace/x", nil)
-	want := "opencode attach http://127.0.0.1:4096 --dir /workspace/x"
+	want := "opencode attach http://127.0.0.1:4096 --dir '/workspace/x'"
 	if got != want {
 		t.Errorf("attach = %q, want %q", got, want)
 	}

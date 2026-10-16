@@ -61,7 +61,17 @@ func TestOpencode2AttachCommand(t *testing.T) {
 		t.Fatal("opencode2 should implement AttachRunner")
 	}
 	got := runner.AttachCommand("/workspace", []string{"--print-logs"})
-	want := "opencode2 --server http://127.0.0.1:4096 --dir /workspace --print-logs"
+	want := "opencode2 --server http://127.0.0.1:4096 --dir '/workspace' --print-logs"
+	if got != want {
+		t.Errorf("AttachCommand = %q, want %q", got, want)
+	}
+}
+
+func TestOpencode2AttachCommandQuotesTarget(t *testing.T) {
+	a, _ := agent.Lookup("opencode2")
+	runner, _ := agent.AsAttachRunner(a)
+	got := runner.AttachCommand("/workspace/my notes", nil)
+	want := "opencode2 --server http://127.0.0.1:4096 --dir '/workspace/my notes'"
 	if got != want {
 		t.Errorf("AttachCommand = %q, want %q", got, want)
 	}
