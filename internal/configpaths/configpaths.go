@@ -58,6 +58,14 @@ func (c *realConfigPaths) UserDataDir() string {
 	return filepath.Join(xdgBaseDir("XDG_DATA_HOME", ".local/share"), pathPrefix)
 }
 
+// MSBHome returns the microsandbox home agents-sandbox owns: a private "msb"
+// directory under the tool's data dir, never the user's ~/.microsandbox. It is a
+// free function (not a ConfigPaths method) so the low-level sandbox/msb adapter
+// can resolve it without importing the higher-level runtime package.
+func MSBHome() string {
+	return filepath.Join(Get().UserDataDir(), "msb")
+}
+
 // UserAgentConfigDir returns the directory of the active agent's own user
 // config, nested under the tool's user config base.
 func (c *realConfigPaths) UserAgentConfigDir(a agent.Agent) string {
