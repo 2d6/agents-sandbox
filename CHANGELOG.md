@@ -83,6 +83,11 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- `/workspace` bind mount: guest `rwx` permission bits now mirror onto the real host files (`host-permissions=mirror`),
+  so an in-VM operation that rewrites a tracked executable (e.g. `git checkout`/`reset`/`stash`) no longer silently drops
+  the executable bit on the host while the VM reports a clean tree. Ownership and setuid/setgid are never propagated, and
+  configured mounts keep microsandbox's `private` default. The policy is applied when the project VM is created, so an
+  existing VM picks it up on its next recreate.
 - Reconfiguration: a freshly created home volume's state is now seeded with the desired env/secret/network/mount
   fingerprints in the same write that records the volume, so a persisted state is never fingerprint-less while its VM
   exists. This removes the spurious "network policy changed" rebuild/restart prompt — and, via the one-time network

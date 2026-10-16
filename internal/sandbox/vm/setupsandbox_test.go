@@ -68,6 +68,28 @@ func TestBuildMountsSetsWorkspaceQuota(t *testing.T) {
 	}
 }
 
+func TestBuildMountsSetsWorkspaceMirrorHostPermissions(t *testing.T) {
+	mounts := buildMounts(
+		"test-home-vol",
+		"/repo/path",
+		options.DefaultTmpSizeMiB,
+		options.DefaultWorkspaceQuotaMiB,
+		nil,
+	)
+
+	wsMount, ok := mounts[defaultTargetDir]
+	if !ok {
+		t.Fatal("expected /workspace mount, not found in mounts map")
+	}
+	if wsMount.HostPermissions != msbSdk.HostPermissionsMirror {
+		t.Errorf(
+			"expected /workspace host permissions %q, got %q",
+			msbSdk.HostPermissionsMirror,
+			wsMount.HostPermissions,
+		)
+	}
+}
+
 func TestBuildMountsWorkspaceQuotaDefault(t *testing.T) {
 	mounts := buildMounts(
 		"test-home-vol",
@@ -111,6 +133,12 @@ func TestBuildMountsIncludesConfiguredBindMount(t *testing.T) {
 	if m2.Readonly {
 		t.Error("expected .m2 to be writable")
 	}
+	if m2.HostPermissions != msbSdk.HostPermissionsDefault {
+		t.Errorf(
+			"expected configured mounts to keep the private host-permissions default, got %q",
+			m2.HostPermissions,
+		)
+	}
 
 	ref, ok := mounts["/home/dev/ref"]
 	if !ok {
@@ -140,6 +168,11 @@ func TestBuildMountsKeepsManagedMounts(t *testing.T) {
 	}
 	if tmp, ok := built[tmpMountPath]; !ok || tmp.Kind() != msbSdk.MountKindTmpfs {
 		t.Errorf("managed tmp mount altered: %+v", built[tmpMountPath])
+	}
+	for _, target := range []string{mounts.VMHomeDir, tmpMountPath} {
+		if got := built[target].HostPermissions; got != msbSdk.HostPermissionsDefault {
+			t.Errorf("mount %q should keep the private host-permissions default, got %q", target, got)
+		}
 	}
 }
 

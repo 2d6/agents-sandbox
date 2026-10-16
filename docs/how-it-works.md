@@ -35,7 +35,9 @@ are supplied host-side, and one or more clients attach to the server running ins
 
 ![agents-sandbox C4 container diagram]({% link diagrams/c4-container.svg %})
 
-`/workspace` and the host CWD are the same files — edits inside the VM appear on the host and vice-versa. Values supplied through
+`/workspace` and the host CWD are the same files — edits inside the VM appear on the host and vice-versa. Ordinary `rwx`
+permission bits set inside the VM (for example the executable bit restored by an in-VM `git checkout`) are mirrored onto
+the host files, so host git working trees stay consistent with what the VM sees. Values supplied through
 the `env.secret` mechanism do not live in the image or project volume: the guest receives a placeholder and the proxy can
 substitute the real value only for an allowed destination. Credential files copied or provisioned by other means are ordinary
 files in the VM. Multiple clients can attach to the same VM concurrently.
