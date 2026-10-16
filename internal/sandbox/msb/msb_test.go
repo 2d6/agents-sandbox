@@ -167,6 +167,9 @@ func TestRealSandboxHandleOperationsReturnErrors(t *testing.T) {
 	if err := h.Remove(ctx); err == nil {
 		t.Error("Remove() = nil, want error on empty handle")
 	}
+	if err := h.Destroy(ctx); err == nil {
+		t.Error("Destroy() = nil, want error on empty handle")
+	}
 	if plan, err := h.Modify(ctx, msbSdk.ModifyOptions{}); err == nil || plan != nil {
 		t.Errorf("Modify() = %v, %v; want error on empty handle", plan, err)
 	}

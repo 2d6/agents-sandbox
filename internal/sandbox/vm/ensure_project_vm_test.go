@@ -1038,16 +1038,16 @@ func TestEnsureProjectVMCreateError(t *testing.T) {
 	}
 }
 
-// TestEnsureProjectVMRecreateRemoveError covers the remove-failure branch in
-// the recreate path: removing the old VM fails and aborts the recreate.
-func TestEnsureProjectVMRecreateRemoveError(t *testing.T) {
+// TestEnsureProjectVMRecreateDestroyError covers the destroy-failure branch in
+// the recreate path: destroying the old VM fails and aborts the recreate.
+func TestEnsureProjectVMRecreateDestroyError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	oldHandle := &msb.MockSandboxHandle{
-		Name_:     "agents-sandbox-vm-test",
-		Status_:   msbSdk.SandboxStatusRunning,
-		RemoveErr: errors.New("remove failed"),
+		Name_:      "agents-sandbox-vm-test",
+		Status_:    msbSdk.SandboxStatusRunning,
+		DestroyErr: errors.New("destroy failed"),
 	}
 	client := &msb.MockMsbClient{}
 	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
@@ -1071,7 +1071,7 @@ func TestEnsureProjectVMRecreateRemoveError(t *testing.T) {
 		&ui,
 	)
 	if err == nil {
-		t.Fatal("expected error when removing the old VM fails")
+		t.Fatal("expected error when destroying the old VM fails")
 	}
 }
 
@@ -1083,9 +1083,9 @@ func TestEnsureProjectVMRecreateGoneIdentity(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	oldHandle := &msb.MockSandboxHandle{
-		Name_:     "agents-sandbox-vm-test",
-		Status_:   msbSdk.SandboxStatusRunning,
-		RemoveErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"},
+		Name_:      "agents-sandbox-vm-test",
+		Status_:    msbSdk.SandboxStatusRunning,
+		DestroyErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"},
 	}
 	client := &msb.MockMsbClient{}
 	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
@@ -1136,9 +1136,9 @@ func TestEnsureProjectVMRecreateReplacedIdentityFailsClosed(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	oldHandle := &msb.MockSandboxHandle{
-		Name_:     "agents-sandbox-vm-test",
-		Status_:   msbSdk.SandboxStatusRunning,
-		RemoveErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"},
+		Name_:      "agents-sandbox-vm-test",
+		Status_:    msbSdk.SandboxStatusRunning,
+		DestroyErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"},
 	}
 	replacement := &msb.MockSandboxHandle{
 		Name_:   "agents-sandbox-vm-test",

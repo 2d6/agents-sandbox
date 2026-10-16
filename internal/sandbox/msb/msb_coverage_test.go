@@ -384,6 +384,13 @@ func TestMockSandboxHandleMethods(t *testing.T) {
 	if err := h.Remove(context.Background()); err != nil || !h.DidRmv || !h.DidRemove() {
 		t.Fatal("Remove should mark DidRmv")
 	}
+	if err := h.Destroy(context.Background()); err != nil || !h.Destroyed || !h.DidDestroy() {
+		t.Fatal("Destroy should mark Destroyed")
+	}
+	failing := &MockSandboxHandle{DestroyErr: errors.New("destroy failed")}
+	if err := failing.Destroy(context.Background()); err == nil || failing.DidDestroy() {
+		t.Fatal("Destroy should surface DestroyErr without marking Destroyed")
+	}
 	if cfg, err := h.Config(); err != nil || cfg != nil {
 		t.Fatalf("Config = %v, %v", cfg, err)
 	}
