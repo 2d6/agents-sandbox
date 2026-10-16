@@ -15,6 +15,11 @@ command reports the bare version (e.g. `0.1.0`).
   unless `-f`/`--force` (naming the referencing projects); `sandbox remove` refuses a running VM unless
   `-f`/`--force` (which stops it first) and leaves the project's persisted state intact so the recorded home volume
   survives. Both prompt unless the global `--yes` is set. Slice 4 of the runtime-management epic (#165).
+- CLI: `df` reports storage usage of the private runtime home by category — the categories microsandbox reports plus the
+  host runtime install — mirroring `msb df`. `--verbose` adds per-object rows and host paths, `--format json` prints a
+  structured report (unknown counters are `null`, items always present), and the global `-q` prints category names only.
+  The `storage` group aliases the same commands as `storage df` and `storage prune`. Slice 5 of the runtime-management
+  epic (#165).
 - Runner image: per-tool multistage composition so tool layers (apt tools, Node, agent, Docker) cache independently of
   the user body and each other, reusing the same tool layers across projects on one machine.
 - Runner image: the `agents-sandbox/runner-base-docker` base reference is recognized (alongside the deprecated
