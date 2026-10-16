@@ -1,6 +1,7 @@
 package configpaths
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -28,6 +29,13 @@ func TestMockConfigPaths(t *testing.T) {
 	}
 	if got := cfgPaths.UserAgentConfigDir(a); got != filepath.Join(base, "userconfig", a.ConfigDirName()) {
 		t.Errorf("UserAgentConfigDir() = %q, want %q", got, filepath.Join(base, "userconfig", a.ConfigDirName()))
+	}
+	home, err := cfgPaths.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir() error = %v", err)
+	}
+	if home != filepath.Join(base, "home") {
+		t.Errorf("UserHomeDir() = %q, want %q", home, filepath.Join(base, "home"))
 	}
 	if got := cfgPaths.ProjectConfigDir(); got != filepath.Join(base, "projectconfig") {
 		t.Errorf("ProjectConfigDir() = %q, want %q", got, filepath.Join(base, "projectconfig"))
@@ -68,5 +76,18 @@ func TestWithMockConfigPathsInstallsMock(t *testing.T) {
 	WithMockConfigPaths(t)
 	if _, ok := Get().(*mockConfigPaths); !ok {
 		t.Fatal("Get did not install a mockConfigPaths")
+	}
+}
+
+// TestWithMockConfigPathsHomeError verifies the error variant returns the
+// injected home-resolution error while keeping the other paths mocked.
+func TestWithMockConfigPathsHomeError(t *testing.T) {
+	wantErr := errors.New("home unavailable")
+	WithMockConfigPathsHomeError(t, wantErr)
+	if _, err := Get().UserHomeDir(); !errors.Is(err, wantErr) {
+		t.Fatalf("UserHomeDir() error = %v, want %v", err, wantErr)
+	}
+	if got := Get().UserConfigDir(); got == "" {
+		t.Error("UserConfigDir() = empty, want a mocked path")
 	}
 }

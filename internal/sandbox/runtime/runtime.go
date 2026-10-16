@@ -13,6 +13,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 
@@ -100,8 +101,6 @@ func runtimeConfig() msbSdk.RuntimeConfig {
 // runtimeClientIsReal is a seam for testing the public preparation gate while
 // keeping normal command tests on their mocked msb client.
 var runtimeClientIsReal = sandboxmsb.IsRealClient
-
-var userHomeDir = os.UserHomeDir
 
 // InspectRuntime identifies the msb executable selected by the SDK before the
 // SDK itself initializes. It intentionally does not call any SDK operation.
@@ -358,7 +357,7 @@ func sanitizeRuntimePath(path, home string) string {
 			return filepath.Join("$MSB_HOME", relative)
 		}
 	}
-	if userHome, err := userHomeDir(); err == nil {
+	if userHome, err := configpaths.Get().UserHomeDir(); err == nil {
 		if relative, relErr := filepath.Rel(
 			filepath.Clean(userHome),
 			cleanPath,

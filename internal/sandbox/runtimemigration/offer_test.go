@@ -76,8 +76,7 @@ func TestOfferStateReadErrorWarnsAndSkips(t *testing.T) {
 // branch: a failure deriving necessity (here, the home directory cannot be
 // resolved) warns and skips instead of blocking the session.
 func TestOfferNecessaryVolumesErrorWarnsAndSkips(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	t.Setenv("HOME", "")
+	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 
 	var prompted bool
 	ui := interactiveUI(choiceCopy, &prompted)
@@ -592,8 +591,7 @@ func TestRemoveUnclearDestinationsRemovesOnlyUnclear(t *testing.T) {
 }
 
 func TestRemoveUnclearDestinationsLegacyHomeError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	t.Setenv("HOME", "")
+	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 	if err := removeUnclearDestinations(
 		context.Background(), &msb.MockMsbClient{}, state.Migration{Status: state.MigrationCopying},
 	); err == nil {

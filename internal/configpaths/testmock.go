@@ -11,6 +11,7 @@ import (
 
 type mockConfigPaths struct {
 	baseDir string
+	homeErr error
 }
 
 // InstallFailFastConfigPaths binds the sandbox config-path factory to its
@@ -26,7 +27,28 @@ func WithMockConfigPaths(t *testing.T) {
 	t.Helper()
 	orig := Get
 	tempDir := t.TempDir()
+	// Point $HOME at the mock tree as well, so any stray os.UserHomeDir or
+	// os.Getenv("HOME") in a test resolves inside the temp tree instead of the
+	// developer's real home. This is what keeps host-home writes (e.g. the
+	// agent's own ~/.config/opencode) from leaking into the real home. Do not
+	// mark such tests t.Parallel: t.Setenv forbids it.
+	home := filepath.Join(tempDir, "home")
+	if err := os.MkdirAll(home, 0o750); err != nil {
+		t.Fatalf("create mock home: %v", err)
+	}
+	t.Setenv("HOME", home)
 	Get = func() ConfigPaths { return &mockConfigPaths{baseDir: tempDir} }
+	t.Cleanup(func() { Get = orig })
+}
+
+// WithMockConfigPathsHomeError installs a mock whose UserHomeDir fails, so tests
+// can exercise host-home resolution failures without unsetting $HOME or falling
+// back to the real resolver.
+func WithMockConfigPathsHomeError(t *testing.T, err error) {
+	t.Helper()
+	orig := Get
+	tempDir := t.TempDir()
+	Get = func() ConfigPaths { return &mockConfigPaths{baseDir: tempDir, homeErr: err} }
 	t.Cleanup(func() { Get = orig })
 }
 
@@ -67,6 +89,13 @@ func (m *mockConfigPaths) UserDataDir() string {
 
 func (m *mockConfigPaths) UserAgentConfigDir(a agent.Agent) string {
 	return ensureMockConfigDirectory(filepath.Join(m.UserConfigDir(), a.ConfigDirName()))
+}
+
+func (m *mockConfigPaths) UserHomeDir() (string, error) {
+	if m.homeErr != nil {
+		return "", m.homeErr
+	}
+	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "home")), nil
 }
 
 func (m *mockConfigPaths) ProjectConfigDir() string {
@@ -125,6 +154,8 @@ func (f *failFastConfigPaths) UserAgentConfigDir(_ agent.Agent) string {
 	f.mustMock()
 	return ""
 }
+
+func (f *failFastConfigPaths) UserHomeDir() (string, error) { f.mustMock(); return "", nil }
 
 func (f *failFastConfigPaths) UserEnvFile() string       { f.mustMock(); return "" }
 func (f *failFastConfigPaths) UserEnvSecretFile() string { f.mustMock(); return "" }

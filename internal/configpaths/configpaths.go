@@ -13,6 +13,7 @@ type ConfigPaths interface {
 	UserStateDir() string
 	UserDataDir() string
 	UserAgentConfigDir(a agent.Agent) string
+	UserHomeDir() (string, error)
 
 	UserEnvFile() string
 	UserEnvSecretFile() string
@@ -70,6 +71,13 @@ func MSBHome() string {
 // config, nested under the tool's user config base.
 func (c *realConfigPaths) UserAgentConfigDir(a agent.Agent) string {
 	return filepath.Join(c.UserConfigDir(), a.ConfigDirName())
+}
+
+// UserHomeDir returns the host user's home directory. It is the root the
+// home-relative agent config and home manifests are resolved against, exposed
+// through this seam so every host-home lookup is mockable like the other paths.
+func (c *realConfigPaths) UserHomeDir() (string, error) {
+	return os.UserHomeDir()
 }
 
 // ProjectConfigDir returns the tool's project-config directory: $PWD/agents-sandbox.

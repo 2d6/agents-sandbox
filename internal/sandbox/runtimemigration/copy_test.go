@@ -642,8 +642,7 @@ func overrideChmod(t *testing.T, err error) {
 // TestCopyVolumesLegacyHomeError covers the failure to resolve the legacy home
 // (here, $HOME is unset), which aborts the copy before touching any volume.
 func TestCopyVolumesLegacyHomeError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	t.Setenv("HOME", "")
+	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 
 	ui := termio.NewTestMock(t)
 	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {

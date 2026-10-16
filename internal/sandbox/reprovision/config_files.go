@@ -59,9 +59,10 @@ type ConfigFiles struct {
 }
 
 // LoadConfigFiles builds the desired VM state for the given agent using the
-// real host home. The agent determines its own config directories.
+// host home from the config-paths seam. The agent determines its own config
+// directories.
 func LoadConfigFiles(a agent.Agent, ui termio.UI, provisionHostConfig bool) (*ConfigFiles, error) {
-	hostHome, _ := os.UserHomeDir()
+	hostHome, _ := cp.Get().UserHomeDir()
 	return LoadConfigFilesForHost(a, hostHome, VMHomeDir, ui, provisionHostConfig)
 }
 

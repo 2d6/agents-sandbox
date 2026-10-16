@@ -30,7 +30,13 @@ func TestConfigAgentPrintsMergedAndHostFiles(t *testing.T) {
 	testutil.WritePath(t, snippetPath, `{"model":"x"}`)
 
 	// A host opencode.jsonc plus a non-config file exercise both statuses.
-	hostOcDir := filepath.Join(os.Getenv("HOME"), ".config", "opencode")
+	// The host home comes from the config-paths seam so the write stays in the
+	// per-test temp tree instead of the developer's real ~/.config/opencode.
+	hostHome, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostOcDir := filepath.Join(hostHome, ".config", "opencode")
 	if err := os.MkdirAll(hostOcDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

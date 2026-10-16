@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/humanize"
@@ -335,7 +335,7 @@ func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			provision := provisionHostConfigEnabled(c)
-			hostHome, _ := os.UserHomeDir()
+			hostHome, _ := configpaths.Get().UserHomeDir()
 			merged, sources, hostFiles, mirrorFiles, err := reprovision.Describe(
 				a,
 				hostHome,

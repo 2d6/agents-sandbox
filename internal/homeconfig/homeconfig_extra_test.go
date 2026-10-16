@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -288,10 +289,14 @@ func TestHasShebangBareMarker(t *testing.T) {
 }
 
 func TestBuildHomeFilesReadsUserManifest(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	user := t.TempDir()
 	proj := t.TempDir()
-	t.Setenv("HOME", user)
-	testutil.WriteFile(t, user, ".gitconfig", "user=x\n")
+	testutil.WriteFile(t, home, ".gitconfig", "user=x\n")
 	writeHomeConfig(t, user, ".gitconfig:\n")
 	files, missing, has, err := BuildHomeFiles(user, proj, vmHome, nil)
 	if err != nil {

@@ -42,23 +42,23 @@ func TestApplyHomeWrapsSetenvError(t *testing.T) {
 }
 
 func TestLegacyHomeUsesUserHome(t *testing.T) {
-	oldHome := userHomeDir
-	userHomeDir = func() (string, error) { return "/home/alice", nil }
-	t.Cleanup(func() { userHomeDir = oldHome })
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := LegacyHome()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join("/home/alice", ".microsandbox"); got != want {
+	if want := filepath.Join(home, ".microsandbox"); got != want {
 		t.Errorf("LegacyHome() = %q, want %q", got, want)
 	}
 }
 
 func TestLegacyHomePropagatesHomeError(t *testing.T) {
-	oldHome := userHomeDir
-	userHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
-	t.Cleanup(func() { userHomeDir = oldHome })
+	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 
 	if _, err := LegacyHome(); err == nil {
 		t.Fatal("LegacyHome() error = nil, want home resolution error")
