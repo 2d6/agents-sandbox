@@ -77,28 +77,28 @@ func TestOpencode2AttachCommandQuotesTarget(t *testing.T) {
 	}
 }
 
-func TestOpencode2DaemonStartCmd(t *testing.T) {
+func TestOpencode2DaemonCommand(t *testing.T) {
 	a, _ := agent.Lookup("opencode2")
 	daemon := mustDaemon(t, a)
-	local := daemon.DaemonStartCmd(false)
-	if !strings.Contains(local, "opencode2 serve --hostname 127.0.0.1 --port 4096") {
-		t.Errorf("local DaemonStartCmd = %q, want opencode2 serve on 127.0.0.1:4096", local)
+	local := daemon.DaemonCommand(false)
+	if local.Binary != "opencode2" || !slices.Contains(local.Args, "serve") {
+		t.Errorf("local DaemonCommand = %+v, want opencode2 serve", local)
 	}
-	if !strings.Contains(local, "/tmp/opencode2-serve.log") {
-		t.Errorf("local DaemonStartCmd = %q, want opencode2-serve.log", local)
+	if !slices.Contains(local.Args, "--hostname") || !slices.Contains(local.Args, "127.0.0.1") {
+		t.Errorf("local DaemonCommand = %+v, want --hostname 127.0.0.1", local)
 	}
-	serve := daemon.DaemonStartCmd(true)
-	if !strings.Contains(serve, "--hostname 0.0.0.0") {
-		t.Errorf("serve DaemonStartCmd = %q, want hostname 0.0.0.0", serve)
+	if !slices.Contains(local.Args, "--port") || !slices.Contains(local.Args, "4096") {
+		t.Errorf("local DaemonCommand = %+v, want --port 4096", local)
+	}
+	serve := daemon.DaemonCommand(true)
+	if !slices.Contains(serve.Args, "0.0.0.0") {
+		t.Errorf("serve DaemonCommand = %+v, want hostname 0.0.0.0", serve)
 	}
 }
 
-func TestOpencode2DaemonKillAndHealthCmd(t *testing.T) {
+func TestOpencode2DaemonHealthCmd(t *testing.T) {
 	a, _ := agent.Lookup("opencode2")
 	daemon := mustDaemon(t, a)
-	if !strings.Contains(daemon.DaemonKillCmd(), "pkill -f 'opencode2 serve'") {
-		t.Errorf("DaemonKillCmd = %q, want pkill opencode2 serve", daemon.DaemonKillCmd())
-	}
 	if !strings.Contains(daemon.DaemonHealthCmd(), "127.0.0.1:4096/api/health") {
 		t.Errorf("DaemonHealthCmd = %q, want v2 /api/health endpoint", daemon.DaemonHealthCmd())
 	}

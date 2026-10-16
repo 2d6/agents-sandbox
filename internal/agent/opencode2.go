@@ -34,10 +34,23 @@ func (opencode2Profile) ImageSpec() ImageSpec {
 	}
 }
 
-func (opencode2Profile) DaemonStartCmd(serveOnly bool) string {
-	hostname := "127.0.0.1"
+func (opencode2Profile) DaemonCommand(serveOnly bool) DaemonCommand {
+	hostname := daemonLoopbackHostname
 	if serveOnly {
-		hostname = "0.0.0.0"
+		hostname = daemonExternalHostname
+	}
+	return DaemonCommand{
+		Binary: "opencode2",
+		Args:   []string{"serve", "--hostname", hostname, "--port", opencode2Port},
+	}
+}
+
+// DaemonStartCmd is retained until the launcher's shell-backgrounding path is
+// removed (see Task 4); launch uses DaemonCommand.
+func (opencode2Profile) DaemonStartCmd(serveOnly bool) string {
+	hostname := daemonLoopbackHostname
+	if serveOnly {
+		hostname = daemonExternalHostname
 	}
 	return fmt.Sprintf(
 		"nohup opencode2 serve --hostname %s --port %s > /tmp/opencode2-serve.log 2>&1 &",

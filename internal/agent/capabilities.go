@@ -6,8 +6,25 @@ import "context"
 // agents, whose merged snippet config is written to <config dir>/settings.json.
 const settingsFileName = "settings.json"
 
+// Daemon bind hostnames: loopback for a co-located client, the external
+// interface when the host forwards a published port into the VM.
+const (
+	daemonLoopbackHostname = "127.0.0.1"
+	daemonExternalHostname = "0.0.0.0"
+)
+
+// DaemonCommand is the executable and arguments that launch an agent's serve
+// daemon as a runtime-owned detached job.
+type DaemonCommand struct {
+	Binary string
+	Args   []string
+}
+
 // DaemonProvider runs a long-lived server that clients attach to (opencode).
 type DaemonProvider interface {
+	DaemonCommand(serveOnly bool) DaemonCommand
+	// DaemonStartCmd and DaemonKillCmd are retained until the launcher's
+	// shell-backgrounding path is removed; they no longer launch the daemon.
 	DaemonStartCmd(serveOnly bool) string
 	DaemonKillCmd() string
 	DaemonHealthCmd() string
