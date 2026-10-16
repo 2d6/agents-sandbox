@@ -28,6 +28,8 @@ const (
 	cmdImage      = "image"
 	cmdVolume     = "volume"
 	cmdSandbox    = "sandbox"
+	cmdStorage    = "storage"
+	cmdDF         = "df"
 	cmdPrune      = "prune"
 	cmdStop       = "stop"
 	cmdKill       = "kill"
@@ -69,6 +71,7 @@ const (
 	flagRunning         = "running"
 	flagStopped         = "stopped"
 	flagFormat          = "format"
+	flagVerbose         = "verbose"
 	formatJSON          = "json"
 
 	annotationAlsoAs = naming.Prefix + "/also-as"

@@ -203,6 +203,20 @@ func TestPrintTreeShowsSandboxShorthands(t *testing.T) {
 	}
 }
 
+func TestPrintTreeContainsStorageCommands(t *testing.T) {
+	testUI := buildTree(t)
+	out := strings.Join(testUI.InfoCalls, "\n")
+	for _, s := range []string{
+		"df",
+		"storage",
+		"prune (also: storage prune)",
+	} {
+		if !strings.Contains(out, s) {
+			t.Errorf("expected %q in tree output:\n%s", s, out)
+		}
+	}
+}
+
 func TestPrintTreePositionalArgsHaveDescription(t *testing.T) {
 	testUI := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")

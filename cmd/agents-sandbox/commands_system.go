@@ -772,6 +772,9 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 		Use:   cmdPrune,
 		Args:  cobra.NoArgs,
 		Short: "Prune stale VMs, volumes, and images",
+		Annotations: map[string]string{
+			annotationAlsoAs: cmdStorage + " " + cmdPrune,
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
