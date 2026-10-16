@@ -1,6 +1,6 @@
 ---
-description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: a private XDG data home, no user-facing msb, retired version-matching recovery (a stale runtime our own previous release left in the private home is silently force-reinstalled, partial pairs removed first), and an opt-in copy of legacy home volumes whose progress is tracked in a host-owned `migrations` registry (`runtime_home` entry with `copying`/`completed`/`dismissed` status plus transient `copied`/`kept`/`excluded` sets) in root `state.yaml`. The offer surfaces present private volumes of unclear status, and `volume remove [--force]` is the sanctioned cleanup path.
-read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu or the silent stale-runtime repair, the legacy home-volume copy prompt and its persisted migration state, the ambiguous-state offer, or the `volume remove` cleanup command.
+description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: a private XDG data home, no user-facing msb, retired version-matching recovery (a stale runtime our own previous release left in the private home is silently force-reinstalled, partial pairs removed first), and an opt-in copy of legacy home volumes whose progress is tracked in a host-owned `migrations` registry (`runtime_home` entry with `copying`/`completed`/`dismissed` status plus transient `copied`/`kept`/`excluded` sets) in root `state.yaml`. The offer surfaces present private volumes of unclear status, and `volume remove [--force]` is the sanctioned cleanup path. A one-time, acknowledged post-migration notice tells upgraders their system-wide microsandbox is now optional (instruct-only, never deleted).
+read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu or the silent stale-runtime repair, the legacy home-volume copy prompt and its persisted migration state, the ambiguous-state offer, the post-migration legacy-runtime notice, or the `volume remove` cleanup command.
 ---
 
 # Runtime home decoupling
@@ -155,6 +155,10 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   crashed holder never pins repair.
 - This is the one surviving piece of version handling, and it is a repair, not a
   recovery flow: no prompt, no choice, no error under normal conditions.
+- **A silent repair is still logged at verbose level** (one concise line naming
+  the old and new relation), so a mismatch that triggers an unexpected
+  reinstall is diagnosable without a prompt. The retirement of the recovery menu
+  loses an *interaction*, not the ability to see that a repair happened (#204).
 
 ### Clean break, with stale-state safety
 
@@ -385,6 +389,50 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   `runtime_home_migration.dismissed` key is replaced outright — no compat
   shim.
 
+### Post-migration legacy-runtime notice
+
+- Purpose: tell a ≤0.5.0 upgrader that agents-sandbox now runs its own isolated runtime
+  and no longer uses or requires `~/.microsandbox`, so their system-wide microsandbox is
+  now optional. This is the payoff of the whole decoupling and the only place a user
+  learns it while it is true and they are present.
+- **Audience: only upgraders with evidence agents-sandbox used the legacy home.** The
+  notice never fires for a fresh install, nor for a user whose `~/.microsandbox` is their
+  own unrelated microsandbox. Detection is **file-based** over the legacy home: it fires
+  when `<legacyHome>/volumes` contains an `agents-sandbox-home-*` entry, or when the
+  legacy home's sandbox storage contains a launcher-prefixed name (`agents-sandbox-vm-*`
+  / `agents-sandbox-task-*`). A bare `~/.microsandbox` with none of our artifacts is
+  silent.
+- **Instruct-only; never deletes.** agents-sandbox must not delete the legacy home: it is
+  shared and may hold the user's own microsandbox data, and silent data loss is an
+  anti-goal. The notice explains the distinction rather than printing one command: our
+  own `~/.microsandbox/volumes/agents-sandbox-home-*` is safe to remove, whereas the whole
+  `~/.microsandbox` is removable only if microsandbox was installed solely for
+  agents-sandbox.
+- **Explicit acknowledgment.** The notice requires the user to react (press a key) — it is
+  a deliberate, once-ever moment, not scroll-past output. It needs a new "acknowledge"
+  primitive on the `termio.UI` seam (real printer + `Mock`); `Confirm`/`Input` semantics
+  do not fit.
+- **Trigger points** (interactive only):
+  - immediately after a copy campaign finalizes `completed` (`finalizeMigration`);
+  - immediately after the user chooses dismiss (`dismissMigration`);
+  - on a later session when the migration is already terminal but our artifacts remain in
+    the legacy home and the notice was never acknowledged;
+  - in the `pending` state when there is nothing to copy but our artifacts are present.
+- **Excluded volumes.** When a campaign has `excluded` volumes, the notice — shown at
+  finalize time, because `excluded` is dropped at the terminal write — warns that those
+  volumes could not be copied and still hold data, and must not suggest deleting
+  `~/.microsandbox` wholesale.
+- **Persisted once-ever flag.** A second `migrations` registry entry (e.g.
+  `legacy_runtime_notice`) records acknowledgment as a terminal status; absence is the
+  pending state. This keeps the "absent = pending, terminal = permanent" semantics of the
+  registry rather than adding a bool to `runtime_home`.
+- **Non-interactive sessions.** They cannot acknowledge, so they may print the
+  informational line but must not mark the notice acknowledged; an interactive session
+  still surfaces it.
+- Discoverable homes for the same fact (for users who never see the notice): an
+  upgrading/migration docs page, README positioning ("no system-wide microsandbox
+  required"), the CHANGELOG entry, and `doctor` reporting the private home.
+
 ### State-file placement (related, separate)
 
 - Folding launcher-global state into a single scope-based `state.yaml` is issue
@@ -407,16 +455,18 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 - Testing strategy, including a fake legacy home for the copy path.
 - Docs and `CHANGELOG.md` updates per the repo's documentation rules.
 
-## Open verification
+## Verification
 
-- A KVM session integration test should confirm the end-to-end result: a legacy
-  home volume copied host-side (no `chown`) is readable and writable by the in-VM
-  `dev` user. The design makes this likely correct (build-time `dev` uid/gid
-  alignment; mount owner presentation), but it is not yet verified. Cover the
-  cross-uid case (an image built under one host uid reused by a runner under
-  another) and the default `HostPermissions: Private` mount policy. If the test
-  fails, an ownership-mapping step (e.g. an in-VM `chown -R dev:dev` on first
-  use, mirroring the prefill path) must be added.
+- **Manually verified on KVM (2026-10-16), single run:** a legacy home volume
+  copied host-side (no `chown`) was readable and writable by the in-VM `dev`
+  user, and the 0.5.0 upgrade → migration-offer → copy path completed. This
+  confirms the build-time `dev` uid/gid alignment + mount owner presentation
+  assumption; no ownership-mapping step is needed. The evidence is one
+  successful manual run, not a repeated or automated proof.
+- Remaining (optional hardening, not release-blocking): an automated KVM
+  integration test covering the cross-uid case (an image built under one host
+  uid reused by a runner under another) and the default `HostPermissions:
+  Private` mount policy.
 
 ## Open question deferred to the builder
 

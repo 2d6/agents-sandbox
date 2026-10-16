@@ -3,7 +3,14 @@ name: docs
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build the docs from (defaults to the latest tag)"
+        required: false
 
 permissions:
   contents: read
@@ -20,17 +27,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref }}
       - name: Configure Pages
         id: pages
         uses: actions/configure-pages@v6
       - name: Inject release version
         working-directory: docs
-        run: |
-          mkdir -p _data
-          echo "release: $DOCS_VERSION" > _data/version.yml
         env:
-          DOCS_VERSION: ${{ github.event.release.tag_name || github.ref_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          version="${RELEASE_TAG}"
+          if [ -z "$version" ]; then version="${DISPATCH_TAG}"; fi
+          if [ -z "$version" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then version="${GITHUB_REF_NAME}"; fi
+          if [ -z "$version" ]; then version="$(git describe --tags --abbrev=0)"; fi
+          mkdir -p _data
+          printf 'release: %s\n' "$version" > _data/version.yml
       - name: Render PlantUML diagrams
         working-directory: docs
         run: |
