@@ -136,7 +136,9 @@ func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
 			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
 		},
 	}
-	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, ui); err != nil {
+	if err := EnsureLoaded(
+		context.Background(), msbClient, ImageInfo{Tag: rTag, Digest: "sha256:same"}, ui,
+	); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 	if !verboseContains(ui, "is up to date") {
@@ -156,7 +158,8 @@ func TestEnsureLoadedVerboseReportsNotPresent(t *testing.T) {
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 	if err := EnsureLoaded(
-		context.Background(), msbClient, "test-project", "agents-sandbox/runner-p:opencode", ui,
+		context.Background(), msbClient,
+		ImageInfo{Tag: "agents-sandbox/runner-p:opencode"}, ui,
 	); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
@@ -186,7 +189,9 @@ func TestEnsureLoadedVerboseReportsStaleCache(t *testing.T) {
 			return &msbSdk.ImageConfig{Digest: "sha256:msb-old"}, nil
 		},
 	}
-	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, ui); err != nil {
+	if err := EnsureLoaded(
+		context.Background(), msbClient, ImageInfo{Tag: rTag, Digest: "sha256:docker-new"}, ui,
+	); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 	if !verboseContains(ui, "cached content differs from the Docker image") {

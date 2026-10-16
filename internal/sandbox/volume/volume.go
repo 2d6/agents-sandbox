@@ -45,10 +45,11 @@ func NewManager(ui termio.UI) *Manager {
 func (vm *Manager) PrefillVolume(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, volumeName, imageTag string,
+	k state.Key, volumeName string,
+	info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
+	if err := image.EnsureLoaded(ctx, client, info, ui); err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
 	prefillName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -56,7 +57,7 @@ func (vm *Manager) PrefillVolume(
 
 	spin := ui.Spinner("Preparing home volume")
 	sb, err := client.CreateSandbox(ctx, prefillName,
-		msbSdk.WithImage(imageTag),
+		msbSdk.WithImage(info.Tag),
 		msbSdk.WithMounts(map[string]msbSdk.MountConfig{
 			"/mnt/home": mountConfig,
 		}),
@@ -102,7 +103,8 @@ func (vm *Manager) PrefillVolume(
 func (vm *Manager) ApplyHomeAction(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, oldVolume, imageTag, currentDigest string,
+	k state.Key, oldVolume string,
+	info image.ImageInfo,
 	action VolumeAction,
 	opts options.RunOptions,
 	ui termio.UI,
@@ -111,7 +113,7 @@ func (vm *Manager) ApplyHomeAction(
 		if opts.DryRun {
 			return oldVolume, nil
 		}
-		if err := vm.RecordHomeImage(k, currentDigest, ui); err != nil {
+		if err := vm.RecordHomeImage(k, info.Digest, ui); err != nil {
 			ui.Warnf("failed to record image digest: %v", err)
 		}
 		return oldVolume, nil
@@ -135,19 +137,19 @@ func (vm *Manager) ApplyHomeAction(
 	}
 	newName := newVol.Name()
 
-	if err := vm.PrefillVolume(ctx, client, k, newName, imageTag, ui); err != nil {
+	if err := vm.PrefillVolume(ctx, client, k, newName, info, ui); err != nil {
 		vm.cleanupVolume(ctx, client, newName, ui)
 		return "", err
 	}
 
 	if action == ActionMigrate {
-		if err := vm.CopyVolume(ctx, client, k, oldVolume, newName, imageTag, ui); err != nil {
+		if err := vm.CopyVolume(ctx, client, k, oldVolume, newName, info, ui); err != nil {
 			vm.cleanupVolume(ctx, client, newName, ui)
 			return "", err
 		}
 	}
 
-	newState := state.NewHomeState(newName, currentDigest)
+	newState := state.NewHomeState(newName, info.Digest)
 	// Preserve the env/secret/network/mount fingerprints from the previous
 	// state: a home action changes the home volume data, not the env/secrets/
 	// network/mounts baked into the VM, so discarding them would trigger a
@@ -179,15 +181,16 @@ func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name st
 func (vm *Manager) CopyVolume(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, oldVolume, newVolume, imageTag string,
+	k state.Key, oldVolume, newVolume string,
+	info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
+	if err := image.EnsureLoaded(ctx, client, info, ui); err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
 	copySbName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	copySb, err := client.CreateSandbox(ctx, copySbName,
-		msbSdk.WithImage(imageTag),
+		msbSdk.WithImage(info.Tag),
 		msbSdk.WithMounts(map[string]msbSdk.MountConfig{
 			srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),
 			dstMount: msbSdk.Mount.Named(newVolume, msbSdk.MountOptions{}),

@@ -16,6 +16,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -139,11 +140,10 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{Memory: "1G"},
-		nil,
 		ui,
 	)
 	if err != nil {
@@ -194,11 +194,10 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:abc",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:abc"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{Memory: "1G"},
-		nil,
 		ui,
 	)
 	if err != nil {
@@ -262,10 +261,9 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	)
@@ -314,10 +312,9 @@ func TestEnsureProjectVMAppliesLabels(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	)
@@ -350,10 +347,9 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	)
@@ -398,10 +394,9 @@ func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	); err != nil {
@@ -427,10 +422,9 @@ func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	); err != nil {
@@ -460,10 +454,9 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	); err != nil {
@@ -495,10 +488,9 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:abc123",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:abc123"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	)
@@ -597,10 +589,15 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	if _, _, err := createProjectVM(
-		context.Background(), client, "agents-sandbox-vm-test",
+		context.Background(),
+		client,
+		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
-		options.RunOptions{Memory: "1G", DiskSize: "16G"}, nil, ui,
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
+		"test-home-vol",
+		t.TempDir(),
+		options.RunOptions{Memory: "1G", DiskSize: "16G"},
+		ui,
 	); err != nil {
 		t.Fatalf("createProjectVM failed: %v", err)
 	}
@@ -645,10 +642,9 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:newDigest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:newDigest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
 		ui,
 	)
@@ -696,10 +692,9 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		opts,
-		"new:tag",
+		image.ImageInfo{Tag: "new:tag"},
 		"homevol",
 		"/workspace",
-		map[string]string{},
 		testVMKey(),
 		ui,
 	)
@@ -741,10 +736,9 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{},
-		"old:tag",
+		image.ImageInfo{Tag: "old:tag"},
 		"homevol",
 		"/workspace",
-		map[string]string{},
 		testVMKey(),
 		ui,
 	)

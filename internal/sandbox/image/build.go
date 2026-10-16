@@ -42,11 +42,14 @@ type BuildOptions struct {
 // without treating the identity as an installer release.
 const userProvidedImageIdentity = "user-provided"
 
-// ImageInfo describes the built or existing runner image.
+// ImageInfo describes the built or existing runner image. Digest is the content
+// identity (Docker's image ID); DockerfileID is the source signature carried as
+// the dockerfile-id label.
 type ImageInfo struct {
-	Tag    string
-	Digest string
-	Env    map[string]string
+	Tag          string
+	Digest       string
+	DockerfileID string
+	Env          map[string]string
 }
 
 // referencesImage reports whether the Dockerfile uses the given image
@@ -386,7 +389,7 @@ func EnsureImageWithClient(
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("inspect built image: %w", err)
 	}
-	return ImageInfo{Tag: rTag, Digest: imageDigest, Env: env}, nil
+	return ImageInfo{Tag: rTag, Digest: imageDigest, DockerfileID: plan.dockerfileID, Env: env}, nil
 }
 
 // initialBuildVersions returns the requested agent version, the version baked
@@ -474,31 +477,33 @@ func logBuildDecision(
 	)
 }
 
-// EnsureLoaded loads the runner image into the microsandbox cache if it is not
-// already present, so the image can be used to create VMs. It is idempotent:
-// when the image is already cached (ImageGet succeeds) it returns immediately,
-// unless the cached content no longer matches the Docker image, in which case
-// the Docker image is loaded again under the same reference. Loading directly
-// avoids removing a manifest that an existing VM may still reference.
-func EnsureLoaded(ctx context.Context, mclient msb.Client, _, imageRef string, ui termio.UI) error {
+// EnsureLoaded loads the runner image described by info into the microsandbox
+// cache if it is not already the cached content, so the image can be used to
+// create VMs. It is idempotent: when microsandbox already holds the same image
+// content it returns immediately, otherwise the Docker image is loaded again
+// under the same reference. The comparison uses the content digest microsandbox
+// records for the image, the same value as Docker's image ID; only a legacy
+// image that exposes no digest falls back to the dockerfile-id label. Loading
+// directly avoids removing a manifest that an existing VM may still reference.
+func EnsureLoaded(ctx context.Context, mclient msb.Client, info ImageInfo, ui termio.UI) error {
 	loadReason := "not present in microsandbox cache"
-	if err := mclient.ImageGet(ctx, imageRef); err == nil {
-		if cachedImageMatchesDocker(ctx, mclient, imageRef) {
-			ui.Verbosef("microsandbox image %s is up to date", imageRef)
+	if err := mclient.ImageGet(ctx, info.Tag); err == nil {
+		if cachedImageMatches(ctx, mclient, info) {
+			ui.Verbosef("microsandbox image %s is up to date", info.Tag)
 			return nil
 		}
 		loadReason = "cached content differs from the Docker image"
 	}
-	ui.Verbosef("loading image %s into microsandbox: %s", imageRef, loadReason)
+	ui.Verbosef("loading image %s into microsandbox: %s", info.Tag, loadReason)
 
 	spin := ui.Spinner("Loading image into microsandbox")
-	saveResult, err := docker.Get().ImageSave(ctx, []string{imageRef})
+	saveResult, err := docker.Get().ImageSave(ctx, []string{info.Tag})
 	if err != nil {
 		spin.StopError(err)
 		return fmt.Errorf("cannot export Docker image: %w", err)
 	}
 	defer saveResult.Close()
-	if err = mclient.ImageLoad(ctx, imageRef, saveResult); err != nil {
+	if err = mclient.ImageLoad(ctx, info.Tag, saveResult); err != nil {
 		spin.StopError(err)
 		return err
 	}
@@ -506,24 +511,21 @@ func EnsureLoaded(ctx context.Context, mclient msb.Client, _, imageRef string, u
 	return nil
 }
 
-// cachedImageMatchesDocker reports whether the microsandbox image under ref
-// matches the Docker image under ref. It compares the microsandbox config
-// digest against the Docker image ID, falling back to the dockerfile-id label
-// when the digest is unavailable.
-func cachedImageMatchesDocker(ctx context.Context, mclient msb.Client, ref string) bool {
-	dInspect, err := docker.Get().ImageInspect(ctx, ref)
-	if err != nil || dInspect.Config == nil {
-		return false
-	}
-	mInspect, err := mclient.ImageInspect(ctx, ref)
+// cachedImageMatches reports whether the microsandbox image under info.Tag holds
+// the same content as the Docker image described by info. Docker's image ID and
+// the microsandbox config digest are the same content identity, so they are
+// compared directly; the dockerfile-id label (a source signature, not a content
+// identity) is only consulted when microsandbox records no digest at all. A
+// digest mismatch is never overridden by a label match.
+func cachedImageMatches(ctx context.Context, mclient msb.Client, info ImageInfo) bool {
+	mInspect, err := mclient.ImageInspect(ctx, info.Tag)
 	if err != nil {
 		return false
 	}
-	if mInspect.Digest != "" && mInspect.Digest == dInspect.ID {
-		return true
+	if mInspect.Digest != "" {
+		return mInspect.Digest == info.Digest
 	}
-	dID := dInspect.Config.Labels[dockerfileIDLabelKey]
-	return dID != "" && mInspect.Labels[dockerfileIDLabelKey] == dID
+	return info.DockerfileID != "" && mInspect.Labels[dockerfileIDLabelKey] == info.DockerfileID
 }
 
 // EnsureImage builds/inspects the runner Docker image and returns an ImageInfo
@@ -554,7 +556,7 @@ func Build(
 	if err != nil {
 		return err
 	}
-	return EnsureLoaded(ctx, msb.Get(), projectSlug, info.Tag, ui)
+	return EnsureLoaded(ctx, msb.Get(), info, ui)
 }
 
 // baseImageRef returns the normalized image reference that backs the rendered

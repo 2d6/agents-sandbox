@@ -8,6 +8,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -27,9 +28,15 @@ func TestCreateProjectVMCreateSandboxError(t *testing.T) {
 	ui := &testUI
 
 	_, _, err := createProjectVM(
-		context.Background(), client, "agents-sandbox-vm-test",
-		testVMKey(), "agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
-		options.RunOptions{Memory: "1G"}, nil, ui,
+		context.Background(),
+		client,
+		"agents-sandbox-vm-test",
+		testVMKey(),
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
+		"test-home-vol",
+		t.TempDir(),
+		options.RunOptions{Memory: "1G"},
+		ui,
 	)
 	if err == nil {
 		t.Fatal("expected error from CreateSandbox")
@@ -46,12 +53,18 @@ func TestCreateProjectVMNetworkConfigError(t *testing.T) {
 	ui := &testUI
 
 	_, _, err := createProjectVM(
-		context.Background(), client, "agents-sandbox-vm-test",
-		testVMKey(), "agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
+		context.Background(),
+		client,
+		"agents-sandbox-vm-test",
+		testVMKey(),
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
+		"test-home-vol",
+		t.TempDir(),
 		options.RunOptions{
 			Memory:  "1G",
 			Network: network.Policy{Profile: network.Profile("bogus-profile")},
-		}, nil, ui,
+		},
+		ui,
 	)
 	if err == nil {
 		t.Fatal("expected error from the network config")

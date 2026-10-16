@@ -155,8 +155,7 @@ func PrepareSandbox(
 		vm,
 		k,
 		opts,
-		imageInfo.Tag,
-		imageInfo.Digest,
+		imageInfo,
 		homeVol,
 		vs,
 		cfs,
@@ -169,7 +168,7 @@ func PrepareSandbox(
 	opts.Recreate = recreate
 	opts.ServeHostPort = resolveServeHostPort(opts, serveHostPort)
 
-	sb, boot, err := ensureProjectVM(ctx, opts, imageInfo.Tag, homeVol, layout.BindRoot, imageInfo.Env, k, ui)
+	sb, boot, err := ensureProjectVM(ctx, opts, imageInfo, homeVol, layout.BindRoot, k, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +318,7 @@ func resolveHomeVolume(
 	dryRunVM bool,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	return vm.ResolveHomeVolume(ctx, client, k, info.Digest, info.Tag, dryRunVM, ui)
+	return vm.ResolveHomeVolume(ctx, client, k, info, dryRunVM, ui)
 }
 
 // persistConfigHashes records the desired env/secret/network/mount

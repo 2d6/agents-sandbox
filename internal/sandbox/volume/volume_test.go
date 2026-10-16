@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -93,7 +94,7 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 		client,
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		ui,
 	)
 	if err != nil {
@@ -122,7 +123,7 @@ func TestPrefillVolume_DestroyToleratesReplaced(t *testing.T) {
 		client,
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		ui,
 	)
 	if err != nil {
@@ -145,7 +146,7 @@ func TestPrefillVolume_DestroyFailureWarns(t *testing.T) {
 		client,
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		ui,
 	)
 	if err != nil {
@@ -281,8 +282,7 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 		mock,
 		state.Key{Slug: "myproj", Agent: "opencode"},
 		"agents-sandbox-home-myproj-old",
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:new"},
 		ActionKeep,
 		options.RunOptions{},
 		&termio.Mock{},
@@ -331,8 +331,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 				mock,
 				state.Key{Slug: slug, Agent: "opencode"},
 				oldVol,
-				"img-tag",
-				"sha256:new",
+				image.ImageInfo{Tag: "img-tag", Digest: "sha256:new"},
 				tt.action,
 				options.RunOptions{},
 				&termio.Mock{},
@@ -393,8 +392,7 @@ func TestApplyHomeAction_Reset_DryRun_NoWrites(t *testing.T) {
 		mock,
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:new"},
 		ActionReset,
 		options.RunOptions{DryRun: true},
 		&termio.Mock{},
@@ -439,8 +437,7 @@ func TestApplyHomeAction_Migrate_DryRunVM_NoStateWrite(t *testing.T) {
 		mock,
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:new"},
 		ActionMigrate,
 		options.RunOptions{DryRunVM: true},
 		&termio.Mock{},
@@ -499,8 +496,7 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 		mock,
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:new"},
 		ActionMigrate,
 		options.RunOptions{},
 		&termio.Mock{},
@@ -595,8 +591,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 		context.Background(),
 		mock,
 		state.Key{Slug: "myproj", Agent: "opencode"},
-		"sha256:abc",
-		"",
+		image.ImageInfo{Tag: "", Digest: "sha256:abc"},
 		false,
 		&termio.Mock{},
 	)
@@ -625,8 +620,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 		context.Background(),
 		mock,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		"sha256:def",
-		"",
+		image.ImageInfo{Tag: "", Digest: "sha256:def"},
 		false,
 		&termio.Mock{},
 	)
@@ -666,8 +660,7 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 		context.Background(),
 		mock,
 		state.Key{Slug: "corruptproj", Agent: "opencode"},
-		"sha256:def",
-		"",
+		image.ImageInfo{Tag: "", Digest: "sha256:def"},
 		false,
 		ui,
 	)
@@ -708,8 +701,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		context.Background(),
 		mock,
 		state.Key{Slug: "orphanproj", Agent: "opencode"},
-		"sha256:def",
-		"latest-docker-image",
+		image.ImageInfo{Tag: "latest-docker-image", Digest: "sha256:def"},
 		false,
 		&termio.Mock{},
 	)
@@ -801,7 +793,7 @@ func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
 		mock,
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
-		"img-tag",
+		image.ImageInfo{Tag: "img-tag"},
 		&termio.Mock{},
 	)
 	if err == nil {
@@ -828,7 +820,7 @@ func TestPrefillVolume_ExecFails(t *testing.T) {
 		mock,
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
-		"img-tag",
+		image.ImageInfo{Tag: "img-tag"},
 		ui,
 	)
 	if err == nil {
@@ -863,7 +855,7 @@ func TestPrefillVolume_ExecExitFailure(t *testing.T) {
 		mock,
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
-		"img-tag",
+		image.ImageInfo{Tag: "img-tag"},
 		ui,
 	)
 	if err == nil {
@@ -886,7 +878,7 @@ func TestCopyVolume_CreateSandboxFails(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"old-vol",
 		"new-vol",
-		"img-tag",
+		image.ImageInfo{Tag: "img-tag"},
 		&termio.Mock{},
 	)
 	if err == nil {
@@ -914,7 +906,7 @@ func TestCopyVolume_ExecFails(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"old-vol",
 		"new-vol",
-		"img-tag",
+		image.ImageInfo{Tag: "img-tag"},
 		ui,
 	)
 	if err == nil {
@@ -950,7 +942,7 @@ func TestCopyVolume_ExecExitFailure(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"old-vol",
 		"new-vol",
-		"img-tag",
+		image.ImageInfo{Tag: "img-tag"},
 		ui,
 	)
 	if err == nil {
@@ -980,8 +972,7 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 		mock,
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:new"},
 		ActionReset,
 		options.RunOptions{},
 		&termio.Mock{},
@@ -1036,8 +1027,7 @@ func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
 		mock,
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:new"},
 		ActionReset,
 		options.RunOptions{},
 		&termio.Mock{},
@@ -1078,8 +1068,7 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 		mock,
 		state.Key{Slug: slug, Agent: "opencode"},
 		oldVol,
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:new"},
 		ActionReset,
 		options.RunOptions{},
 		&termio.Mock{},
@@ -1104,8 +1093,7 @@ func TestEnsureNewHome_PrefillFails(t *testing.T) {
 		context.Background(),
 		mock,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		"sha256:abc",
-		"img-tag",
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:abc"},
 		false,
 		&termio.Mock{},
 	)
@@ -1127,8 +1115,7 @@ func TestEnsureNewHome_DryRunVM_NoSandbox(t *testing.T) {
 		context.Background(),
 		mock,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		"sha256:abc",
-		"img-tag",
+		image.ImageInfo{Tag: "img-tag", Digest: "sha256:abc"},
 		true, // dryRunVM
 		&termio.Mock{},
 	)

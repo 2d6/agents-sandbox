@@ -2,7 +2,6 @@
 description: Contract for deciding which agent version is baked into the runner image, when it is (re)built, and when the Docker layer cache is bypassed.
 read_if: Changing image build/caching, BuildOptions, `--rebuild`, `--agent-version`, agent upgrade, or the volume subcommands' image handling.
 ---
-
 # Runner image build and cache contract
 
 How the rendered Dockerfile is arranged into stages (so layer caching works as assumed here) is owned by
@@ -12,20 +11,40 @@ How the rendered Dockerfile is arranged into stages (so layer caching works as a
 
 `EnsureImageWithClient` makes two independent decisions from one input, `BuildOptions.Force`:
 
-- **Build at all:** `needsBuild = Force || !imageHasDockerfileID(...)`. The `dockerfile-id` label is the content identity
-  (rendered Dockerfile + resolved agent version + the profile.d merge script, which travels via the build context rather
-  than the Dockerfile text); a mismatch means a stale image and triggers a build.
+- **Build at all:** `needsBuild = Force || !imageHasDockerfileID(...)`. The `dockerfile-id` label is the source
+  signature (rendered Dockerfile + resolved agent version + the profile.d merge script, which travels via the build
+  context rather than the Dockerfile text); a mismatch means the rendered recipe changed and triggers a build. It is a
+  signature of the declared inputs, not a content identity: it deliberately excludes host-dependent inputs (the
+  resolved base digest and the dev user's uid/gid), so a label match does not imply equal image bytes.
 - **Bypass cache:** `Force` is passed through to `NoCache` on the Docker build.
 
 So `Force` means **clean rebuild**: rebuild even when the identity matches, with `NoCache=true`. It is set only by an
 explicit user `--rebuild` on `build`, `run`, or `shell`.
 
-A build triggered by a stale identity (changed project Dockerfile, agent version, or base) reuses Docker's layer cache. This is
-safe because each change is visible to Docker's cache key: the agent version is rendered as the agent stage's install `ARG`
+A build triggered by a stale identity (changed project Dockerfile, agent version, or base) reuses Docker's layer cache. This
+is safe because each change is visible to Docker's cache key: the agent version is rendered as the agent stage's install `ARG`
 default (and also passed as a build arg), so it is part of the Dockerfile content and invalidates the agent install layer, and
 the `dockerfile-id` label lives after the agent install. An accepted agent upgrade is a version change, not a force: it
 rebuilds the install layer while keeping earlier layers cached. The node and docker stages render their pinned versions the
 same way (see `specs/image-composition.md`).
+
+## Load decision
+
+`EnsureImageWithClient` returns an `ImageInfo{Tag, Digest, DockerfileID, Env}`. `Digest` is Docker's image ID, i.e. the
+same content identity microsandbox computes for an image it holds (`config.digest = sha256(config_bytes)`), and
+`DockerfileID` is the source signature above. Loading into microsandbox is deferred to a separate `EnsureLoaded` call,
+so reconnecting to a running VM never pays the import cost.
+
+`EnsureLoaded(ctx, client, info, ui)` decides from the msb cache only, never by inspecting host Docker:
+
+- msb image missing → load
+- msb image present with a digest → skip iff it equals `info.Digest`, otherwise load
+- msb image present with no digest (legacy) → fall back to comparing the `dockerfile-id` label against `info.DockerfileID`
+
+A digest mismatch is never overridden by a matching `dockerfile-id` label — the label is a source signature and can
+match while the bytes differ (base tag move + `--rebuild`). A load always reuses the same reference (it never removes
+the cached image first), because an existing VM may still reference it. The build/load split is deliberate: `run`/`shell`
+build eagerly via `EnsureImage` but load lazily, only when a VM is actually created or recreated.
 
 ## Version selection
 
