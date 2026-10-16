@@ -45,13 +45,12 @@ it must not be `t.Parallel` (`t.Setenv` forbids it). `WithMockConfigPathsHomeErr
 
 A full sweep of `internal/**` and `cmd/**` found the seam model holding: no production path outside the documented
 `configpaths` exceptions (`mounts` `~/` sources, `docker`'s `~/.docker`) reads or writes host config/home state, and no
-seam family is reached without its injectable factory. The only uncovered ambient paths are read-only or transient:
+seam family is reached without its injectable factory. The remaining ambient paths are read-only or transient:
 
-- `options.FirstFreeHostPort` binds a real loopback port to probe it (no seam; tests call it directly). Read-only, freed
-  immediately; low.
-- `notify`'s backend runs the notifier through the `execCommand` var seam and writes a temp WAV to the real `os.TempDir`
-  with no fail-fast default — tests isolate it via `t.Setenv`/override, but a future test that forgets one would touch
-  real `/tmp` and possibly spawn a real player. The one gap worth a backstop.
+- `options.FirstFreeHostPort` probes a real loopback port through the `probeHostPort` var seam (added so tests inject a
+  deterministic probe); production still binds/frees a transient socket. Read-only.
+- `notify`'s backend runs the notifier through the `execCommand` var seam, whose `TestMain` now installs an
+  `InstallFailFast` panic by default (tests opt in by overriding it); the temp WAV still goes to the real `os.TempDir`.
 - `os.Getuid`/`Getgid` (image build args), `os.Getwd` (workspace source), `time.Now` (names/polling/spinner), and
   `viperconfig`'s env reads are read-only or the input itself, not leaks.
 

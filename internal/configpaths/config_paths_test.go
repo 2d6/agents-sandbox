@@ -110,6 +110,7 @@ func TestEnvSecretYAMLPaths(t *testing.T) {
 
 func TestUserAgentConfigDir(t *testing.T) {
 	WithRealConfigPaths(t)
+	t.Setenv("HOME", t.TempDir())
 	a, _ := agent.Lookup("opencode")
 	got := Get().UserAgentConfigDir(a)
 	want := filepath.Join(Get().UserConfigDir(), a.ConfigDirName())
@@ -120,6 +121,7 @@ func TestUserAgentConfigDir(t *testing.T) {
 
 func TestUserEnvFiles(t *testing.T) {
 	WithRealConfigPaths(t)
+	t.Setenv("HOME", t.TempDir())
 	cfgPaths := Get()
 	if got := cfgPaths.UserEnvFile(); got != filepath.Join(cfgPaths.UserConfigDir(), EnvFileName) {
 		t.Errorf("UserEnvFile() = %q", got)

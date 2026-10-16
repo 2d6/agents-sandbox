@@ -68,14 +68,22 @@ const ServeOnlyBindAddr = "127.0.0.1"
 // server in serve-only mode, and the guest port the agents serve on.
 const ServeOnlyBasePort = 4096
 
+// probeHostPort reports whether the loopback address can bind port. It is a
+// test seam so tests need not touch a real socket.
+var probeHostPort = func(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ServeOnlyBindAddr, port))
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
 // FirstFreeHostPort returns the first host port at or above base that is not
 // currently bound on the loopback address.
 func FirstFreeHostPort(base int) int {
 	for p := base; p < base+1024; p++ {
-		//nolint:noctx // no context applies to a transient probe of localhost port availability
-		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ServeOnlyBindAddr, p))
-		if err == nil {
-			_ = ln.Close()
+		if probeHostPort(p) {
 			return p
 		}
 	}

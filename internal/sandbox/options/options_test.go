@@ -119,6 +119,26 @@ func TestFirstFreeHostPort(t *testing.T) {
 	}
 }
 
+func TestFirstFreeHostPortSkipsBoundPorts(t *testing.T) {
+	orig := probeHostPort
+	t.Cleanup(func() { probeHostPort = orig })
+	probeHostPort = func(port int) bool { return port >= 6001 }
+
+	if got := FirstFreeHostPort(5999); got != 6001 {
+		t.Errorf("FirstFreeHostPort(5999) = %d, want 6001", got)
+	}
+}
+
+func TestFirstFreeHostPortFallsBackToBaseWhenAllBound(t *testing.T) {
+	orig := probeHostPort
+	t.Cleanup(func() { probeHostPort = orig })
+	probeHostPort = func(int) bool { return false }
+
+	if got := FirstFreeHostPort(7000); got != 7000 {
+		t.Errorf("FirstFreeHostPort(7000) = %d, want base 7000", got)
+	}
+}
+
 func TestResolveServeHostPort(t *testing.T) {
 	if got := ResolveServeHostPort(nil, false); got != 0 {
 		t.Errorf("not serve-only => 0, got %d", got)
