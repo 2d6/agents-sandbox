@@ -26,7 +26,10 @@ Packages in the seam import chain cannot import `internal/testutil/mocks` withou
 reachable subset directly, mirroring that body:
 
 - `configpaths` (installs configpaths + docker; doctor and msb are unreachable and would cycle)
-- `doctor` (installs all four itself)
+- `docker` (installs configpaths + docker + msb; doctor imports docker, so it would cycle)
+- `msb` (installs configpaths + docker + msb; doctor imports msb, so it would cycle)
+- `termio` (installs configpaths + docker + msb; doctor imports termio, so it would cycle)
+- `doctor` (installs all four itself; importing `internal/testutil/mocks` would cycle through doctor)
 - `runtime` (installs configpaths + docker + msb; doctor imports runtime, so `InitFailFastMocks` would cycle and doctor
   is unreachable from runtime)
 - `internal/agent` and `internal/filewalk` cannot install any configpaths fail-fast: `configpaths` imports `agent`, which
