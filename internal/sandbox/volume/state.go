@@ -22,6 +22,7 @@ func (vm *Manager) ResolveHomeVolume(
 	k state.Key,
 	info image.ImageInfo,
 	dryRunVM bool,
+	fingerprints state.Fingerprints,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
 	st, err := state.ReadState(k)
@@ -29,25 +30,28 @@ func (vm *Manager) ResolveHomeVolume(
 		if !errors.Is(err, state.ErrStateNotFound) {
 			ui.Warnf("missing state file, creating fresh home volume")
 		}
-		return vm.EnsureNewHome(ctx, client, k, info, dryRunVM, ui)
+		return vm.EnsureNewHome(ctx, client, k, info, dryRunVM, fingerprints, ui)
 	}
 
 	_, err = client.GetVolume(ctx, st.HomeVolume)
 	if err != nil {
 		ui.Warnf("existing home volume %q not found, creating fresh", st.HomeVolume)
-		return vm.EnsureNewHome(ctx, client, k, info, dryRunVM, ui)
+		return vm.EnsureNewHome(ctx, client, k, info, dryRunVM, fingerprints, ui)
 	}
 
 	return st.HomeVolume, *st, nil
 }
 
 // EnsureNewHome creates a fresh home volume from the image and writes the state.
+// It seeds the state with the desired config fingerprints so a fresh state is
+// never fingerprint-less while its VM exists (issue #183).
 func (vm *Manager) EnsureNewHome(
 	ctx context.Context,
 	client msb.Client,
 	k state.Key,
 	info image.ImageInfo,
 	dryRunVM bool,
+	fingerprints state.Fingerprints,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
 	volName := HomeVolumeName(k)
@@ -66,7 +70,7 @@ func (vm *Manager) EnsureNewHome(
 		ui.Infof("dry-run: Would prefill home volume")
 	}
 
-	hs := state.NewHomeState(volName, info.Digest)
+	hs := fingerprints.Apply(state.NewHomeState(volName, info.Digest))
 	if err := state.WriteState(k, hs); err != nil {
 		ui.Warnf("failed to write state file: %v", err)
 	}

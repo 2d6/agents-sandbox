@@ -148,6 +148,23 @@ func TestNewHomeState(t *testing.T) {
 	}
 }
 
+func TestFingerprintsApply(t *testing.T) {
+	f := Fingerprints{
+		Env:     EnvState{Hash: "env"},
+		Secret:  SecretState{Hash: "secret"},
+		Network: NetworkState{Hash: "network"},
+		Mount:   MountState{Hash: "mount"},
+	}
+	st := f.Apply(NewHomeState("vol", "sha256:digest"))
+	if st.HomeVolume != "vol" || st.ImageDigest != "sha256:digest" {
+		t.Errorf("Apply must preserve home volume/digest, got %+v", st)
+	}
+	if st.EnvState.Hash != "env" || st.SecretState.Hash != "secret" ||
+		st.NetworkState.Hash != "network" || st.MountState.Hash != "mount" {
+		t.Errorf("Apply did not copy all fingerprints, got %+v", st)
+	}
+}
+
 func TestRemoveState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "myproj", Agent: "opencode"}

@@ -22,14 +22,15 @@ changes are detected against fingerprints persisted in the per-`(slug, agent)` `
   matter.
 
 Fingerprints are written by `persistConfigHashes`, which runs only when the VM was created this run (`boot ==
-vmBootCreated`).
+vmBootCreated`). A fresh home volume's state is additionally seeded with the desired fingerprints at creation
+(`volume.Manager.EnsureNewHome`), so a `HomeState` is never fingerprint-less while a VM exists (see Resolution below).
 
 ## Invariant: preserve fingerprints on every state rewrite
 
 Every path that rewrites a project's `HomeState` must carry the existing env/secret/network/mount fingerprints forward,
 because an absent fingerprint is treated as "changed". `volume.operations.volumeOp`, `volume.Manager.ApplyHomeAction`,
-and `volume.Manager.RecordHomeImage` all preserve them. Dropping them makes the next run rebuild the VM and blame a
-setting (e.g. the network policy) that did not change.
+and `volume.Manager.RecordHomeImage` all preserve them; `volume.Manager.EnsureNewHome` seeds them on a fresh state.
+Dropping them makes the next run rebuild the VM and blame a setting (e.g. the network policy) that did not change.
 
 ## Determinism
 
@@ -38,21 +39,29 @@ Change detection is order-independent by design: `state.SecretsContentHash`, `st
 and mirror files by map lookup. The helper outputs feeding them are also kept deterministic: `reprovision.ConfigFiles.Keys`
 has a single ordering authority (the merged config leads when snippets exist, the remainder sorted; callers must not
 re-sort) and `envsecret.BuildSecretsFromSpecs` emits entries in sorted `EnvVar` order. Map iteration order therefore never
-reaches the decision — a periodic spurious rebuild is the state-write race below, not input ordering.
+reaches the decision — a periodic spurious rebuild was the state-write race resolved below, not input ordering.
 
-## Known residual race
+## Resolution (issue #183)
 
-State resolution (`volume.Manager.EnsureNewHome`, which writes a fingerprint-less fresh `HomeState`) and
-`persistConfigHashes` run **outside** the `ensure-vm.lock` flock that serializes VM creation (`ensureProjectVM`). A
-second session starting concurrently can read the fresh, fingerprint-less state after the first session created the VM
-but before it persisted fingerprints, and then see a spurious "network policy" (and env/secret/mount) change. That
-surfaces as a silent rebuild when alone or a rebuild/restart prompt when another client is attached — despite no setting
-changing. Closing it means making the fingerprint write part of the same critical section as VM creation, or writing the
-fingerprints together with the fresh home volume. Tracked as issue #183.
+The spurious change came from `EnsureNewHome` writing a fingerprint-less fresh `HomeState` outside the `ensure-vm.lock`
+flock, while `persistConfigHashes` ran only after VM creation. A second session could read the fingerprint-less state
+after the first session created the VM but before it persisted fingerprints, and then see a bogus "network policy" (and
+env/secret/mount) change — a silent rebuild when alone or a rebuild/restart prompt when another client was attached.
 
-The same on-disk condition (fingerprint-less `state.yaml` beside a live VM) is reachable without concurrency: a process
-killed between VM creation and `persistConfigHashes`, or a `state.yaml` deleted while the VM survives. Writing the
-desired fingerprints inside the create critical section closes the concurrent window but not this one; seeding them with
-the fresh home volume (`EnsureNewHome`) closes both, at the cost of briefly overstating "applied" state if creation then
-fails (harmless, because with no VM `PlanReconfig` short-circuits). This is a runtime concern, not a test-seam one:
-state resolution already goes through the fail-fast `configpaths` seam, so no test can leak it.
+The invariant now held is: **a `HomeState` is never fingerprint-less while a VM exists.** The desired fingerprints are
+computed once (`vm.desiredFingerprints`) and seeded as part of the fresh-home write: `volume.Manager.EnsureNewHome`
+applies `state.Fingerprints` to the new `HomeState` in one atomic write, and `persistConfigHashes` persists that same
+value, so the seeded and persisted sets cannot diverge. Because state resolution runs before VM creation, the written
+state already matches the desired config by the time any session can observe the VM, so the empty-applied "changed" rule
+can never fire spuriously. This closes the concurrent window and the crash route (a process killed before
+`persistConfigHashes` now finds a seeded state).
+
+The deleted-state route is only partly addressed: when `state.yaml` is deleted while a VM and its volume survive,
+`ResolveHomeVolume` sees no state, `EnsureNewHome` mints a **new** volume and seeds it, and `homeVolumeChange` then forces
+a rebuild labelled "home volume" — the old volume is orphaned. The spurious "network policy" attribution is gone, but a
+state-loss rebuild remains; tracked separately as #219.
+
+The trade-off: the seed write briefly asserts "applied" before the VM exists. If creation then fails the state overstates
+what is baked in, which is harmless because with no VM `PlanReconfig` short-circuits to no recreate. Recreated VMs (a
+genuine config change against an existing home) still refresh fingerprints via `persistConfigHashes` after creation; the
+state is never fingerprint-less on that path, so the change detected there is real.

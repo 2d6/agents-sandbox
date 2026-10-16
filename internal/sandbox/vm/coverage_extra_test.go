@@ -114,7 +114,14 @@ func TestPersistConfigHashesCoversEnvSecretAndNetwork(t *testing.T) {
 	slug := "hashproj"
 	policy := network.Policy{Profile: network.ProfileNone}
 
-	persistConfigHashes(state.Key{Slug: slug, Agent: "opencode"}, policy, nil, &ui)
+	persistConfigHashes(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.Fingerprints{
+			Network: state.BuildNetworkState(policy),
+			Mount:   state.BuildMountState(nil),
+		},
+		&ui,
+	)
 
 	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
 	if err != nil {

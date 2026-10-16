@@ -14,7 +14,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtimemigration"
@@ -137,7 +136,10 @@ func PrepareSandbox(
 	ui.Verbosef("Using image '%s' (digest=%s)", imageInfo.Tag, imageInfo.Digest)
 
 	k := state.Key{Slug: projectSlug, Agent: a.Name()}
-	client, vm, homeVol, vs, err := prepareHomeVolume(ctx, k, imageInfo, opts, ui)
+	// Compute the desired config fingerprints once: they seed a fresh home
+	// volume's state (issue #183) and are what persistConfigHashes records.
+	fingerprints := desiredFingerprints(opts, ui)
+	client, vm, homeVol, vs, err := prepareHomeVolume(ctx, k, imageInfo, opts, fingerprints, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +175,7 @@ func PrepareSandbox(
 		return nil, err
 	}
 	if boot == vmBootCreated {
-		persistConfigHashes(k, opts.Network, opts.Mounts, ui)
+		persistConfigHashes(k, fingerprints, ui)
 	}
 	name := projectVMName(k)
 	var sandboxTarget string
@@ -282,6 +284,7 @@ func prepareHomeVolume(
 	k state.Key,
 	imageInfo image.ImageInfo,
 	opts options.RunOptions,
+	fingerprints state.Fingerprints,
 	ui termio.UI,
 ) (msb.Client, *volume.Manager, string, state.HomeState, error) {
 	client := msb.Get()
@@ -299,7 +302,9 @@ func prepareHomeVolume(
 	}
 
 	vm := volume.NewManager(ui)
-	homeVol, vs, err := resolveHomeVolume(ctx, vm, client, k, imageInfo, opts.DryRunVM, ui)
+	homeVol, vs, err := resolveHomeVolume(
+		ctx, vm, client, k, imageInfo, opts.DryRunVM, fingerprints, ui,
+	)
 	if err != nil {
 		return nil, nil, "", state.HomeState{}, fmt.Errorf("volume setup failed: %w", err)
 	}
@@ -316,32 +321,39 @@ func resolveHomeVolume(
 	k state.Key,
 	info image.ImageInfo,
 	dryRunVM bool,
+	fingerprints state.Fingerprints,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	return vm.ResolveHomeVolume(ctx, client, k, info, dryRunVM, ui)
+	return vm.ResolveHomeVolume(ctx, client, k, info, dryRunVM, fingerprints, ui)
+}
+
+// desiredFingerprints builds the VM-config fingerprints for the current run:
+// the one computation that seeds a fresh home volume's state (avoiding a
+// fingerprint-less state beside a VM) and that persistConfigHashes records
+// after a VM is created. Building it once keeps the two in lock-step and avoids
+// re-reading (and re-warning on) the env/secret files.
+func desiredFingerprints(opts options.RunOptions, ui termio.UI) state.Fingerprints {
+	env, secrets := envsecret.LoadEnvAndSecrets(ui)
+	return state.Fingerprints{
+		Env:     state.BuildEnvState(env),
+		Secret:  state.BuildSecretState(secrets),
+		Network: state.BuildNetworkState(opts.Network),
+		Mount:   state.BuildMountState(opts.Mounts),
+	}
 }
 
 // persistConfigHashes records the desired env/secret/network/mount
 // fingerprints when a project VM is freshly created (or recreated), so
-// subsequent runs can detect changes.
-func persistConfigHashes(
-	k state.Key,
-	networkPolicy network.Policy,
-	mounts mounts.Mounts,
-	ui termio.UI,
-) {
-	desiredEnv, desiredSecrets := envsecret.LoadEnvAndSecrets(ui)
-	if err := persistEnvSecrets(
-		k,
-		state.BuildEnvState(desiredEnv),
-		state.BuildSecretState(desiredSecrets),
-	); err != nil {
+// subsequent runs can detect changes. It persists the fingerprints computed by
+// desiredFingerprints, so the seeded and persisted sets cannot diverge.
+func persistConfigHashes(k state.Key, fingerprints state.Fingerprints, ui termio.UI) {
+	if err := persistEnvSecrets(k, fingerprints.Env, fingerprints.Secret); err != nil {
 		ui.Warnf("persisting env/secret fingerprints on VM creation: %v (continuing)", err)
 	}
-	if err := persistNetworkState(k, networkPolicy); err != nil {
+	if err := persistNetworkState(k, fingerprints.Network); err != nil {
 		ui.Warnf("persisting network fingerprint on VM creation: %v (continuing)", err)
 	}
-	if err := persistMountState(k, mounts); err != nil {
+	if err := persistMountState(k, fingerprints.Mount); err != nil {
 		ui.Warnf("persisting mount fingerprint on VM creation: %v (continuing)", err)
 	}
 }

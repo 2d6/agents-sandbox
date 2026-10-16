@@ -77,6 +77,27 @@ func NewHomeState(homeVolume, digest string) HomeState {
 	}
 }
 
+// Fingerprints is the set of VM-config fingerprints persisted in HomeState.
+// Seeding a fresh HomeState with the desired fingerprints keeps an empty
+// (fingerprint-less) state from coexisting with a VM, where it would be
+// mistaken for a change on the next decision (see NetworkChanged and
+// specs/reconfig-decision.md).
+type Fingerprints struct {
+	Env     EnvState
+	Secret  SecretState
+	Network NetworkState
+	Mount   MountState
+}
+
+// Apply copies the fingerprints onto hs and returns the updated state.
+func (f Fingerprints) Apply(hs HomeState) HomeState {
+	hs.EnvState = f.Env
+	hs.SecretState = f.Secret
+	hs.NetworkState = f.Network
+	hs.MountState = f.Mount
+	return hs
+}
+
 func stateFile(k Key) string {
 	return slugPath(k, "state.yaml")
 }
