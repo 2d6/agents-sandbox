@@ -34,19 +34,16 @@ func (opencode2Profile) ImageSpec() ImageSpec {
 	}
 }
 
-func (opencode2Profile) DaemonStartCmd(serveOnly bool) string {
-	hostname := "127.0.0.1"
+func (opencode2Profile) DaemonCommand(serveOnly bool) DaemonCommand {
+	hostname := daemonLoopbackHostname
 	if serveOnly {
-		hostname = "0.0.0.0"
+		hostname = daemonExternalHostname
 	}
-	return fmt.Sprintf(
-		"nohup opencode2 serve --hostname %s --port %s > /tmp/opencode2-serve.log 2>&1 &",
-		hostname,
-		opencode2Port,
-	)
+	return DaemonCommand{
+		Binary: "opencode2",
+		Args:   []string{"serve", "--hostname", hostname, "--port", opencode2Port},
+	}
 }
-
-func (opencode2Profile) DaemonKillCmd() string { return "pkill -f 'opencode2 serve' || true" }
 
 func (opencode2Profile) DaemonHealthCmd() string {
 	return "curl -sfm2 http://127.0.0.1:" + opencode2Port + "/api/health"

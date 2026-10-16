@@ -76,13 +76,13 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
 	)
 
-	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
+	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{DryRunVM: true}, &ui)
@@ -161,13 +161,13 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
 	)
 
-	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
+	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), options.RunOptions{DryRunVM: true}, &ui)
@@ -226,13 +226,13 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
+	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(context.Background(), options.RunOptions{DryRunVM: true}, &ui); err == nil {
@@ -291,13 +291,13 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
 	)
 
-	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
+	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui); err == nil {
@@ -361,13 +361,13 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
 	)
 
-	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
+	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(context.Background(), options.RunOptions{}, &ui); err == nil {
