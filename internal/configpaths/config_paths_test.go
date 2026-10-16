@@ -1,7 +1,6 @@
 package configpaths
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -39,6 +38,27 @@ func TestUserDirsDefaultToHome(t *testing.T) {
 	}
 	if got := cfgPaths.UserStateDir(); got != wantState {
 		t.Errorf("UserStateDir() = %q, want %q", got, wantState)
+	}
+}
+
+func TestUserHomeDirReturnsHome(t *testing.T) {
+	WithRealConfigPaths(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := Get().UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir() error = %v", err)
+	}
+	if got != home {
+		t.Errorf("UserHomeDir() = %q, want %q", got, home)
+	}
+}
+
+func TestUserHomeDirErrorsWhenHomeUnset(t *testing.T) {
+	WithRealConfigPaths(t)
+	t.Setenv("HOME", "")
+	if _, err := Get().UserHomeDir(); err == nil {
+		t.Fatal("UserHomeDir() error = nil, want error when $HOME is unset")
 	}
 }
 
@@ -90,6 +110,7 @@ func TestEnvSecretYAMLPaths(t *testing.T) {
 
 func TestUserAgentConfigDir(t *testing.T) {
 	WithRealConfigPaths(t)
+	t.Setenv("HOME", t.TempDir())
 	a, _ := agent.Lookup("opencode")
 	got := Get().UserAgentConfigDir(a)
 	want := filepath.Join(Get().UserConfigDir(), a.ConfigDirName())
@@ -100,6 +121,7 @@ func TestUserAgentConfigDir(t *testing.T) {
 
 func TestUserEnvFiles(t *testing.T) {
 	WithRealConfigPaths(t)
+	t.Setenv("HOME", t.TempDir())
 	cfgPaths := Get()
 	if got := cfgPaths.UserEnvFile(); got != filepath.Join(cfgPaths.UserConfigDir(), EnvFileName) {
 		t.Errorf("UserEnvFile() = %q", got)
@@ -139,8 +161,9 @@ func TestUserDataDirHonorsXDGDataHome(t *testing.T) {
 
 func TestUserDataDirDefaultsToLocalShare(t *testing.T) {
 	WithRealConfigPaths(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("XDG_DATA_HOME", "")
-	home, _ := os.UserHomeDir()
 	want := filepath.Join(home, ".local", "share", "agents-sandbox")
 	if got := Get().UserDataDir(); got != want {
 		t.Errorf("UserDataDir() = %q, want %q", got, want)

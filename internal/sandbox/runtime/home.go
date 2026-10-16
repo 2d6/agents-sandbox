@@ -19,7 +19,7 @@ func PrivateHome() string {
 // LegacyHome is the shared microsandbox home a user's own install may occupy.
 // It is only read by the opt-in legacy volume copy.
 func LegacyHome() (string, error) {
-	home, err := userHomeDir()
+	home, err := configpaths.Get().UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home directory: %w", err)
 	}

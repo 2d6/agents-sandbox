@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
@@ -230,13 +231,15 @@ func TestNecessaryVolumesCopyingFailsClosedOnUnlistableLegacyHome(t *testing.T) 
 	}
 }
 
-// installLegacyHome points runtime.LegacyHome() at a fresh legacy home by
-// setting the process HOME to a temp dir, whose ~/.microsandbox is created with
-// an empty volumes directory. It returns the resolved legacy home.
+// installLegacyHome points runtime.LegacyHome() at a fresh legacy home under the
+// mocked config-paths home, whose .microsandbox is created with an empty volumes
+// directory. It returns the resolved legacy home.
 func installLegacyHome(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatalf("resolve mocked home: %v", err)
+	}
 	legacy := filepath.Join(home, ".microsandbox")
 	if err := os.MkdirAll(filepath.Join(legacy, "volumes"), 0o750); err != nil {
 		t.Fatalf("create legacy volumes dir: %v", err)

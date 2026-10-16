@@ -18,6 +18,7 @@ import (
 	"github.com/titanous/json5"
 	"gopkg.in/yaml.v3"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
@@ -234,13 +235,14 @@ func resolveLayerSources(layers []Layer) ([]Layer, error) {
 //	starts with "~"  -> host $HOME/<rest>
 //	otherwise        -> relative to manifestDir
 func ResolveManifestSource(target, source, manifestDir string) (string, error) {
-	home, _ := os.UserHomeDir()
 	switch {
 	case source == "":
+		home, _ := configpaths.Get().UserHomeDir()
 		return filepath.Join(home, target), nil
 	case strings.HasPrefix(source, "/"):
 		return source, nil
 	case strings.HasPrefix(source, "~"):
+		home, _ := configpaths.Get().UserHomeDir()
 		return filepath.Join(home, strings.TrimPrefix(source, "~")), nil
 	default:
 		return filepath.Join(manifestDir, source), nil

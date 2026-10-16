@@ -126,6 +126,17 @@ command reports the bare version (e.g. `0.1.0`).
   agent version build arg carried the version, which could leave the agent layer cached (and the image on the old release)
   on builders that do not fold the build arg into the cache key. `build dockerfile` gained `--agent-version` to render a
   pinned agent version in the preview.
+- Internal: the host home is now resolved through the config-paths seam. `ConfigPaths` gained `UserHomeDir`, and the
+  host-home consumers (`reprovision.LoadConfigFiles`, the `config agent` command, `homeconfig.ResolveManifestSource`, and
+  the runtime's `LegacyHome` / path sanitizing) resolve it through the seam instead of calling `os.UserHomeDir`.
+  `configpaths.WithMockConfigPaths` now also redirects `$HOME` into the per-test temp tree, so a test that installs it
+  cannot read or write the developer's real home. Previously `TestConfigAgentPrintsMergedAndHostFiles` wrote `{"model":"host"}` into the
+  real `~/.config/opencode/opencode.jsonc` during `go test`; a later launcher start read it as the merged agent config,
+  found it different from the host snippet merge, and prompted to restart the server. Every test package without one now
+  installs the fail-fast seam mocks (`termio.InitFailFastMocks`) in its `TestMain`, so any test that reaches real
+  config-path, Docker, doctor, or msb resolution fails fast instead of silently touching the host. The `notify` backend
+  now also installs a fail-fast default for its notification-command seam, and `options.FirstFreeHostPort` probes through
+  a `probeHostPort` seam so tests need not bind a real socket.
 
 ### Changed
 

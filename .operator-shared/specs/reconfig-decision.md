@@ -49,3 +49,10 @@ but before it persisted fingerprints, and then see a spurious "network policy" (
 surfaces as a silent rebuild when alone or a rebuild/restart prompt when another client is attached — despite no setting
 changing. Closing it means making the fingerprint write part of the same critical section as VM creation, or writing the
 fingerprints together with the fresh home volume. Tracked as issue #183.
+
+The same on-disk condition (fingerprint-less `state.yaml` beside a live VM) is reachable without concurrency: a process
+killed between VM creation and `persistConfigHashes`, or a `state.yaml` deleted while the VM survives. Writing the
+desired fingerprints inside the create critical section closes the concurrent window but not this one; seeding them with
+the fresh home volume (`EnsureNewHome`) closes both, at the cost of briefly overstating "applied" state if creation then
+fails (harmless, because with no VM `PlanReconfig` short-circuits). This is a runtime concern, not a test-seam one:
+state resolution already goes through the fail-fast `configpaths` seam, so no test can leak it.

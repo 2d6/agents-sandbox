@@ -2,8 +2,10 @@ package git
 
 import (
 	"testing"
+
+	termio "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {
-	m.Run()
+	termio.InitFailFastMocks(m)
 }

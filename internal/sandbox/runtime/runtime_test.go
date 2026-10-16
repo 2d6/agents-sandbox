@@ -197,6 +197,7 @@ func TestInspectRuntimeLibraryStatError(t *testing.T) {
 
 func TestPrepareRuntimeApplyHomeError(t *testing.T) {
 	resetRuntimeState(t)
+	configpaths.WithMockConfigPaths(t)
 	wantErr := errors.New("setenv boom")
 	orig := setenv
 	setenv = func(string, string) error { return wantErr }
@@ -470,6 +471,7 @@ func TestPrepareRuntimeMissingManagedRuntimeValidationFails(t *testing.T) {
 
 func TestPrepareRuntimeInspectionFailure(t *testing.T) {
 	resetRuntimeState(t)
+	configpaths.WithMockConfigPaths(t)
 	oldInspect := inspectRuntimeFunc
 	inspectRuntimeFunc = func(string) (Inspection, error) { return Inspection{}, errors.New("inspect failed") }
 	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
@@ -480,6 +482,7 @@ func TestPrepareRuntimeInspectionFailure(t *testing.T) {
 
 func TestPrepareRuntimeRejectsUnknownFutureRelation(t *testing.T) {
 	resetRuntimeState(t)
+	configpaths.WithMockConfigPaths(t)
 	oldInspect := inspectRuntimeFunc
 	inspectRuntimeFunc = func(string) (Inspection, error) {
 		return Inspection{Relation: Relation("future")}, nil
@@ -791,16 +794,19 @@ func TestSanitizeRuntimePathEmpty(t *testing.T) {
 }
 
 func TestSanitizeRuntimePathUsesHomeAndBasenameFallbacks(t *testing.T) {
-	oldHome := userHomeDir
-	userHomeDir = func() (string, error) { return "/home/user", nil }
-	t.Cleanup(func() { userHomeDir = oldHome })
-	if got := sanitizeRuntimePath("/home/user/.microsandbox/bin/msb", "/other"); got != "$HOME/.microsandbox/bin/msb" {
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	insideHome := filepath.Join(home, ".microsandbox", "bin", "msb")
+	if got := sanitizeRuntimePath(insideHome, "/other"); got != "$HOME/.microsandbox/bin/msb" {
 		t.Errorf("home path = %q", got)
 	}
 	if got := sanitizeRuntimePath("/opt/custom/msb", "/other"); got != "msb" {
 		t.Errorf("external path = %q, want basename", got)
 	}
-	userHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
+	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 	if got := sanitizeRuntimePath("/opt/custom/msb", "/other"); got != "msb" {
 		t.Errorf("fallback path = %q, want basename", got)
 	}

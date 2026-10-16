@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -131,15 +132,17 @@ func TestParseHomeSectionRejectsNonBooleanRoot(t *testing.T) {
 }
 
 func TestResolveSourceEmptyFallsBackToTarget(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err := ResolveManifestSource(".gitconfig", "", "/tmp/mf")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
-	if got == "" {
-		t.Fatal("expected a non-empty resolved source")
-	}
-	if !strings.HasSuffix(got, ".gitconfig") {
-		t.Errorf("expected suffix .gitconfig, got %q", got)
+	if want := filepath.Join(home, ".gitconfig"); got != want {
+		t.Errorf("empty source = %q, want %q", got, want)
 	}
 }
 
@@ -154,13 +157,17 @@ func TestResolveSourceAbsolute(t *testing.T) {
 }
 
 func TestResolveSourceTilde(t *testing.T) {
-	t.Setenv("HOME", "/home/u")
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err := ResolveManifestSource(".x", "~/bar", "/tmp/mf")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
-	if got != "/home/u/bar" {
-		t.Errorf("expected ~ expansion, got %q", got)
+	if want := filepath.Join(home, "bar"); got != want {
+		t.Errorf("~ source = %q, want %q", got, want)
 	}
 }
 
@@ -244,9 +251,13 @@ func TestResolveVMTargetAcceptsNonMatchingReservedSpelling(t *testing.T) {
 }
 
 func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
-	// Point $HOME at an empty temp dir so the empty-source default
+	// The mocked home is an empty temp dir, so the empty-source default
 	// (host $HOME/.gitconfig) deterministically does not exist.
-	t.Setenv("HOME", t.TempDir())
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, ".gitconfig:\n")
@@ -260,13 +271,14 @@ func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
 	if len(missing) != 1 {
 		t.Fatalf("expected 1 missing source, got %v", missing)
 	}
-	want := filepath.Join(os.Getenv("HOME"), ".gitconfig")
+	want := filepath.Join(home, ".gitconfig")
 	if missing[0] != want {
 		t.Errorf("missing source = %q, want %q", missing[0], want)
 	}
 }
 
 func TestBuildHomeFilesRejectsReservedTarget(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, proj, ".config/opencode/opencode.jsonc:\n")
@@ -276,6 +288,7 @@ func TestBuildHomeFilesRejectsReservedTarget(t *testing.T) {
 }
 
 func TestDescribeManifestRejectsReservedTarget(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, proj, ".pi/agent/settings.json:\n")
@@ -331,6 +344,7 @@ func TestDescribeLayersResolvesProjectRelativeAgainstProjectDir(t *testing.T) {
 }
 
 func TestDescribeManifestSortsPairsByVMPath(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, proj, ""+
@@ -492,6 +506,7 @@ func TestDescribeManifestResolvesProjectRelativeSourceAgainstProjectDir(t *testi
 }
 
 func TestBuildHooksFiltersAndSorts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 
