@@ -47,6 +47,9 @@
 - `bare-worktree-layout.md`
   - Description: Design for issue #145: make git worktrees host-and-VM-consistent by supporting a bare checkout whose worktrees live inside it. Pattern priority order (non-bare checkout default, non-repo folder, bare-with-worktrees esoteric); the single code change is the `/workspace` bind rule (bind the smallest enclosing checkout that contains the CWD, so a worktree session always exposes its worktree) plus guest-CWD derivation for subdirectories; VM/state/home-volume/image identity is deliberately unchanged (no slug scoping, no migration, no parser changes; outside-checkout worktrees keep current behavior with a termio warning); the opencode server directory model (per-request `directory` from `--dir`, not server-predetermined) as background; convention-only folder taxonomy delivered as a `docs/` recipe + 1:1 `.agents/skills/` copy; `--worktree` kept; no `asb worktree` command.
   - Read If: Implementing or reviewing issue #145 (bare checkout with worktrees inside), the `/workspace` bind-source resolution, guest-CWD derivation, the outside-worktree no-scoping decision, or the worktree-layout recipe/skill.
+- `detached-jobs.md`
+  - Description: **Reverted** design for running dockerd/agent-serve as runtime-owned detached jobs (#146/PR #191). Kept as the re-merge plan: microsandbox counts a job as a guest exec session (`active_exec_sessions = sessions + detached_sessions`) and its idle monitor treats any active exec session as non-idle, so a job permanently suppresses the VM idle timeout; no upstream idle-exempt/service job marker exists (v0.7.8 and main). Records the evidence, the revert, the re-merge condition/steps, and links #146/#147/#148.
+  - Read If: Working on VM idle shutdown, dockerd/agent-serve startup, detached jobs (`ExecDetached`/`Job`), issues #146/#147/#148, or deciding whether to re-land the detached-job runtime.
 
 ### `plans/` - TDD implementation plans
 
