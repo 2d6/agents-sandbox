@@ -88,4 +88,4 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `volume/` — Volume management
 
-- `list.go`, `inspect.go`, `operations.go`, `prompt.go`, `remove.go`, `state.go`, `volume.go` (`inspect.go` is `InspectVolume`: the volume-inspect detail seam)
+- `list.go`, `inspect.go`, `operations.go`, `prompt.go`, `remove.go`, `state.go`, `volume.go` (`inspect.go` is `InspectVolume`: the volume-inspect detail seam; `state.go` holds `ResolveHomeVolume`/`EnsureNewHome`, including recovery of the live VM's mounted volume when the state file is lost)

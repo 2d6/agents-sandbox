@@ -302,8 +302,9 @@ func prepareHomeVolume(
 	}
 
 	vm := volume.NewManager(ui)
+	recovered := liveHomeVolume(ctx, client, k, ui)
 	homeVol, vs, err := resolveHomeVolume(
-		ctx, vm, client, k, imageInfo, opts.DryRunVM, fingerprints, ui,
+		ctx, vm, client, k, imageInfo, opts.DryRunVM, fingerprints, recovered, ui,
 	)
 	if err != nil {
 		return nil, nil, "", state.HomeState{}, fmt.Errorf("volume setup failed: %w", err)
@@ -312,8 +313,33 @@ func prepareHomeVolume(
 	return client, vm, homeVol, vs, nil
 }
 
+// liveHomeVolume returns the home volume currently mounted by the project VM,
+// or "" when the project has no VM or its config cannot be read. It lets home
+// resolution recover the volume when the state file was lost (issue #219). A
+// not-found VM is expected (first run); any other lookup error is logged so a
+// transient failure is visible rather than silently orphaning the volume.
+func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui termio.UI) string {
+	handle, err := client.GetSandbox(ctx, projectVMName(k))
+	if err != nil {
+		if !msb.IsNotFound(err) {
+			ui.Verbosef("project VM lookup for home-volume recovery failed: %v (continuing)", err)
+		}
+		return ""
+	}
+	if handle == nil {
+		return ""
+	}
+	cfg, err := handle.Config()
+	if err != nil || cfg == nil {
+		ui.Verbosef("reading existing VM config for home-volume recovery failed: %v (continuing)", err)
+		return ""
+	}
+	return cfg.Volumes[mounts.VMHomeDir].Named
+}
+
 // resolveHomeVolume resolves the project home volume, reusing the existing one
-// from state or creating a fresh prefill when none exists.
+// from state, recovering the live VM's volume when state was lost, or creating a
+// fresh prefill when none exists.
 func resolveHomeVolume(
 	ctx context.Context,
 	vm *volume.Manager,
@@ -322,9 +348,10 @@ func resolveHomeVolume(
 	info image.ImageInfo,
 	dryRunVM bool,
 	fingerprints state.Fingerprints,
+	recoveredVolume string,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	return vm.ResolveHomeVolume(ctx, client, k, info, dryRunVM, fingerprints, ui)
+	return vm.ResolveHomeVolume(ctx, client, k, info, dryRunVM, fingerprints, recoveredVolume, ui)
 }
 
 // desiredFingerprints builds the VM-config fingerprints for the current run:

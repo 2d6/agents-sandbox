@@ -29,6 +29,9 @@
 - `reconfig-decision.md`
   - Description: Contract for the per-startup project-VM reconfiguration decision: fingerprint-backed detection of env/secret/network/mount changes (and why empty network state forces a one-time migration), which changes recreate vs restart the daemon, the fingerprint-preservation invariant on every state rewrite, the order-stability requirement for `ConfigFiles.Keys`/`BuildSecretsFromSpecs`, and the #183 resolution that seeds fingerprints into a fresh home state so a state is never fingerprint-less while a VM exists.
   - Read If: Changing `decideReconfig`/`PlanReconfig`, the env/secret/network/mount fingerprints, the reconfig prompt, or diagnosing a spurious VM rebuild or "network policy changed" prompt.
+- `home-volume-recovery.md`
+  - Description: Contract for recovering a project's home volume when its `state.yaml` is lost: resolution order (state → live VM's mounted volume → fresh prefill), why the live VM config is authoritative over a volume-list probe, the warning + rewrite, and the deliberate non-recovery of fingerprints (rebuild remains; #219).
+  - Read If: Changing `volume.Manager.ResolveHomeVolume`/`recoverOrCreateHome`, `liveHomeVolume`, home-volume resolution, or diagnosing a duplicate/orphaned home volume after state loss.
 - `guided-onboarding.md`
   - Description: Design contract for first-run onboarding: credential kinds (static vs login; never placeholder-migrate refreshable OAuth), host determination, derived onboarding state, always-explicit `Guide` outcomes, the tiered setup wizard, and `config harden`.
   - Read If: Working on config migration, first-run guidance, credential/auth handling, network egress derivation, the setup wizard, or `config harden`.

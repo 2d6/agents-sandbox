@@ -87,9 +87,11 @@ command reports the bare version (e.g. `0.1.0`).
   fingerprints in the same write that records the volume, so a persisted state is never fingerprint-less while its VM
   exists. This removes the spurious "network policy changed" rebuild/restart prompt — and, via the one-time network
   migration, a silent rebuild — that a concurrent session could trigger by reading the empty state between VM creation
-  and fingerprint persistence, and the same spurious detection after a crash between creation and persistence. A
-  deleted `state.yaml` beside a surviving VM still rebuilds (now labelled "home volume" rather than a network change);
-  that state-loss route is separate (#183).
+  and fingerprint persistence, and the same spurious detection after a crash between creation and persistence (#183).
+- Home volume: a lost `state.yaml` (deleted by hand, a partial/corrupt write, or a crash before the state write) no longer
+  mints a duplicate home volume or orphans the original. When the project VM still mounts a home volume that exists, that
+  volume is recovered and state is rewritten to point at it, seeded with the desired fingerprints (or the prior state's
+  when it was still readable); a fresh volume is created only when no surviving volume can be confirmed (#219).
 - Runner image: the microsandbox load decision now compares the cached image's content digest against the Docker image ID
   directly, so a rebuilt image that keeps the same `dockerfile-id` source signature (e.g. a base tag move followed by
   `--rebuild`) is reloaded instead of silently skipped. It no longer inspects host Docker, so a transient host Docker

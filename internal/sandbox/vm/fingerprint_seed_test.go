@@ -49,6 +49,7 @@ func TestResolveHomeVolumeSeedsFingerprints(t *testing.T) {
 		sandboximage.ImageInfo{Tag: "img:tag", Digest: "sha256:digest"},
 		true,
 		fingerprints,
+		"",
 		&ui,
 	)
 	if err != nil {
