@@ -177,6 +177,14 @@ tag with `PruneChildren: false` (the `removeTestImage` helper). With pruning, ev
 `make test-integration` rerun — re-ran the node/agent/docker installs (the uncached managed composition costs ~13s);
 without it, later builds reuse those layers (~0.2s).
 
+A docker-build integration test must not assert that a layer **missed** the cache. The classic builder's untagged
+intermediate layers persist across runs and even survive `ImageRemove`, so a "the install must re-run" assertion passes
+only on a cold cache and fails on every rerun once the layer is primed (this made
+`TestRenderDockerfileAgentVersionRebuildsInstall` fail from the second run onward). Assert the built **outcome** instead —
+e.g. the agent version the built image reports via its `VersionProvider` — which is stable across runs and still catches
+a render that fails to fold the version into the agent stage (it would reuse the previous release's layer and report the
+old version).
+
 `TestRealDockerClientImagePrune` must prune with a **no-match filter**, not empty options. `go test ./...` runs the
 `docker` and `image` integration binaries **in parallel** against one daemon, and an empty-option `ImagePrune` deletes
 the dangling cache images the image tests are actively reusing, causing `No such image`/missing-layer failures. An

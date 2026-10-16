@@ -173,10 +173,19 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 }
 
 // TestRenderDockerfileAgentVersionRebuildsInstall is the regression guard for
-// the stale-agent-layer bug: a changed agent version must re-run the agent
-// install RUN so the new release is baked, while the node and docker install
-// layers stay cached. It uses pi, the one agent whose render includes all three
-// tool stages (node + agent + docker).
+// the stale-agent-layer bug: after a version bump the runner image must carry
+// the new release, while the node and docker install layers stay cached. It uses
+// pi, the one agent whose render includes all three tool stages (node + agent +
+// docker).
+//
+// It asserts the outcome — the version baked into the built image — rather than
+// the agent install RUN being a cache miss. The classic builder's intermediate
+// layers persist across test runs and across image removal, so a version-bump
+// build is a cache hit on any run after the first; a cache-miss assertion would
+// therefore pass only on a cold builder cache. The outcome is stable across
+// runs and still catches the regression: a render that fails to fold the version
+// into the agent stage reuses the previous release's layer, so the image reports
+// the old version.
 func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
@@ -197,11 +206,9 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
 	})
 
-	// Prime the cache with an older release, then rebuild with a newer one.
-	// Both must differ from the agent's resolved latest: the other pi tests in
-	// this package build pi@latest, which would cache the exact agent install
-	// layer this build needs to re-run (the shared classic-builder cache is keyed
-	// on content, not the tag).
+	// Prime the image with an older release, then rebuild with a newer one. Both
+	// are real published pi releases and differ, so the rebuild has a version
+	// change to fold in.
 	oldVersion, newVersion := "1.0.0", "1.1.0"
 	buildDockerfileTag(t, a, renderBytesVersion(t, a, oldVersion, project, true), oldVersion, true, tag)
 
@@ -210,8 +217,9 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 		t, a, renderBytesVersion(t, a, newVersion, project, true), newVersion, true, tag, &lines,
 	)
 
-	if stageStepCached(lines, agentStageAlias) {
-		t.Errorf("the agent install must re-run on a version bump; output:\n%s", strings.Join(lines, "\n"))
+	if got := imageAgentVersion(t, tag, a); got != newVersion {
+		t.Errorf("built image reports agent version %q, want %q: the version bump did not reach the image",
+			got, newVersion)
 	}
 	for _, stage := range []string{nodeStageAlias, dockerStageAlias} {
 		if !stageStepCached(lines, stage) {
@@ -219,6 +227,27 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 				stage, strings.Join(lines, "\n"))
 		}
 	}
+}
+
+// imageAgentVersion runs the agent's own version probe inside the built runner
+// image and returns the parsed version, so a test can assert which release the
+// image actually carries.
+func imageAgentVersion(t *testing.T, tag string, a agent.Agent) string {
+	t.Helper()
+	provider, ok := agent.AsVersionProvider(a)
+	if !ok {
+		t.Fatalf("agent %s has no version provider", a.Name())
+	}
+	command := provider.VersionCmd()
+	out, err := exec.Command("docker", "run", "--rm", tag, "bash", "-lc", command).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%q failed in the built image: %v\n%s", command, err, out)
+	}
+	version, err := provider.ParseVersion(string(out))
+	if err != nil {
+		t.Fatalf("parse agent version from %q: %v\n%s", command, err, out)
+	}
+	return version
 }
 
 // stageInstallMarkers maps each tool stage to a substring unique to its install
