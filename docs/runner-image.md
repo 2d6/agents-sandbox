@@ -131,7 +131,9 @@ does the newer `FROM .../runner-base-docker:latest`; neither prints a warning.
 
 The Docker stage installs the engine from a docker static binary tarball. The `vfs` storage driver is always forced by
 adding `--storage-driver=vfs` to the dockerd start command **inside the VM** — the image no longer writes
-`/etc/docker/daemon.json`, so a user's edits to it are preserved. `buildx` and `docker compose` are **not** installed —
+`/etc/docker/daemon.json`, so a user's edits to it are preserved. The launcher starts dockerd (and the agent's `serve`
+daemon) as a microsandbox runtime-owned detached job inside the VM: startup is confirmed by health probe, and if it fails
+the launcher reports the job's exit code and a log tail (there is no `dockerd.log`). `buildx` and `docker compose` are **not** installed —
 install them in your project Dockerfile if you need them. The static tarball's platform is selected by `uname -m`
 (`x86_64`/`aarch64`).
 

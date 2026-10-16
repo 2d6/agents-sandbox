@@ -10,6 +10,10 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Added
 
+- Internal: `dockerd` and the agent `serve` daemon now run as microsandbox runtime-owned detached jobs
+  (`ExecDetached`), replacing shell-backgrounded `nohup` processes, logfile polling, and `pkill` start/stop plumbing.
+  Readiness stays health-probe based, a crashed job reports its exit code plus a log tail, and a stale job is killed by
+  command match before a restart. (#146)
 - CLI: `image remove <ref>...` (`rm`) deletes cached runner images by reference and `sandbox remove <name>` (`rm`)
   removes a project VM. `image remove` accepts only `agents-sandbox/runner-*` references and refuses an in-use image
   unless `-f`/`--force` (naming the referencing projects); `sandbox remove` refuses a running VM unless
