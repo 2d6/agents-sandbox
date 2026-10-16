@@ -27,9 +27,11 @@ import (
 
 // TestPrepareSandboxDryRunVM covers the dry-run-vm branch of PrepareSandbox:
 // the VM lifecycle is skipped and the attach target falls back to the default
-// workspace directory.
+// workspace directory. It launches from a checkout root so the target is
+// exactly /workspace regardless of where the test binary happens to run.
 func TestPrepareSandboxDryRunVM(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	t.Chdir(testutil.InitRepo(t))
 
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
@@ -95,6 +97,9 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 	}
 	if sess.Target() != "/workspace" {
 		t.Errorf("expected default target /workspace, got %q", sess.Target())
+	}
+	if sess.GuestCWD() != "/workspace" {
+		t.Errorf("expected guest CWD /workspace, got %q", sess.GuestCWD())
 	}
 }
 
@@ -177,7 +182,8 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxVolumeError covers the resolveHomeVolume failure branch of// PrepareSandbox: a volume-creation failure is propagated.
+// TestPrepareSandboxVolumeError covers the resolveHomeVolume failure branch of
+// PrepareSandbox: a volume-creation failure is propagated.
 func TestPrepareSandboxVolumeError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
