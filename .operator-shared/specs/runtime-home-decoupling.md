@@ -467,6 +467,10 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   integration test covering the cross-uid case (an image built under one host
   uid reused by a runner under another) and the default `HostPermissions:
   Private` mount policy.
+- Tests that resolve the private home isolate `configpaths` (`configpaths.
+  WithMockConfigPaths(t)`), **not** just `HOME`. Resolution is XDG-based, so a
+  host `XDG_DATA_HOME` that points at a real `agents-sandbox/msb` would
+  otherwise satisfy inspection and bypass the path under test.
 
 ## Open question deferred to the builder
 

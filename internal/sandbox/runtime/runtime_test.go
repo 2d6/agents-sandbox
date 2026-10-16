@@ -432,8 +432,11 @@ func TestPrepareRuntimeMissingInstallsAndValidates(t *testing.T) {
 
 func TestPrepareRuntimeMissingManagedRuntimeInstallFails(t *testing.T) {
 	resetRuntimeState(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	// Resolve the private home to an isolated, empty directory. Setting HOME
+	// alone is not enough: configpaths honors XDG_DATA_HOME, so on a host where
+	// it points at a real install the runtime would be found and the install
+	// path never reached.
+	configpaths.WithMockConfigPaths(t)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 	oldEnsure := ensureRuntime
