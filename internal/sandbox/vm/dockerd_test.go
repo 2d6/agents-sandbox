@@ -21,6 +21,7 @@ type countingSandbox struct {
 
 	execCalls               int
 	execErr                 error
+	cleanupErr              error
 	readyCalls              int
 	readyCallsBeforeHealthy int
 }
@@ -35,6 +36,10 @@ func (s *countingSandbox) Shell(_ context.Context, command string, _ ...msbSdk.E
 			return msb.NewTestResult(true, 0, "", "", nil), nil
 		}
 		return msb.NewTestResult(false, 1, "", "", nil), nil
+	case dockerdCleanupCmd:
+		if s.cleanupErr != nil {
+			return msb.NewTestResult(false, 1, "", "", nil), s.cleanupErr
+		}
 	}
 	return msb.NewTestResult(true, 0, "", "", nil), nil
 }
@@ -173,6 +178,32 @@ func TestStartDockerdIfPresentKillsStaleJob(t *testing.T) {
 	}
 	if !stale.DidKill {
 		t.Error("stale dockerd job was not killed before restart")
+	}
+}
+
+func TestStartDockerdIfPresentContinuesAfterCleanupError(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	sb := newCountingSandbox(1)
+	sb.cleanupErr = errors.New("residue boom")
+
+	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+		t.Fatalf("residue cleanup failure must be non-fatal, got: %v", err)
+	}
+	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "residue cleanup failed") {
+		t.Errorf("expected a verbose cleanup failure, got %v", ui.VerboseCalls)
+	}
+}
+
+func TestStartDockerdIfPresentReportsCloseFailure(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	sb := newCountingSandbox(1)
+	sb.Job_ = &msb.MockJob{ID_: "new-dockerd", CloseErr: errors.New("close boom")}
+
+	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+		t.Fatalf("startDockerdIfPresent: %v", err)
+	}
+	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "closing dockerd job handle") {
+		t.Errorf("expected a verbose close failure, got %v", ui.VerboseCalls)
 	}
 }
 

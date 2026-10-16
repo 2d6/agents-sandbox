@@ -60,6 +60,31 @@ func TestMockSandboxGetJobAndListJobs(t *testing.T) {
 	}
 }
 
+func TestMockSandboxGetJobAndListJobsUseCallbacksAndDefaults(t *testing.T) {
+	callbackJob := &MockJob{ID_: "fn-job"}
+	wantListErr := errors.New("list fn boom")
+	sb := &MockSandbox{
+		GetJobFn: func(_ context.Context, id string) (Job, error) { return callbackJob, nil },
+		ListJobsFn: func(context.Context, ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
+			return nil, wantListErr
+		},
+	}
+	got, err := sb.GetJob(context.Background(), "fn-job")
+	if err != nil || got != callbackJob {
+		t.Fatalf("GetJob() via callback = (%v, %v), want (fn-job, nil)", got, err)
+	}
+	if _, err := sb.ListJobs(context.Background()); !errors.Is(err, wantListErr) {
+		t.Fatalf("ListJobs() via callback error = %v, want %v", err, wantListErr)
+	}
+
+	// Neither a callback nor a configured job: GetJob synthesizes one by id.
+	defaultSB := &MockSandbox{}
+	fallback, err := defaultSB.GetJob(context.Background(), "synthesized")
+	if err != nil || fallback == nil || fallback.ID() != "synthesized" {
+		t.Fatalf("GetJob() default = (%v, %v), want a job with id synthesized", fallback, err)
+	}
+}
+
 func TestMockJobMethods(t *testing.T) {
 	job := &MockJob{
 		ID_:   "job-1",
@@ -87,6 +112,27 @@ func TestMockJobMethods(t *testing.T) {
 	}
 	if err := job.Close(); err != nil || !job.DidClose {
 		t.Fatalf("Close() = %v, DidClose=%v; want nil, true", err, job.DidClose)
+	}
+}
+
+func TestMockJobInspectAndLogsCallbacks(t *testing.T) {
+	ctx := context.Background()
+	inspected := &msbSdk.JobInfo{ID: "callback"}
+	logged := []msbSdk.JobLogEntry{{Data: []byte("from-callback")}}
+	job := &MockJob{
+		InspectFn: func(context.Context) (*msbSdk.JobInfo, error) { return inspected, nil },
+		LogsFn: func(context.Context, msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error) {
+			return logged, nil
+		},
+	}
+
+	info, err := job.Inspect(ctx)
+	if err != nil || info != inspected {
+		t.Fatalf("Inspect() via callback = (%v, %v), want (%v, nil)", info, err, inspected)
+	}
+	logs, err := job.Logs(ctx, msbSdk.JobLogOptions{})
+	if err != nil || len(logs) != 1 || string(logs[0].Data) != "from-callback" {
+		t.Fatalf("Logs() via callback = (%v, %v), want one from-callback entry", logs, err)
 	}
 }
 
@@ -138,6 +184,18 @@ func TestRealSandboxDetachedDelegates(t *testing.T) {
 		}
 		if _, err := (realSandbox{}).GetJob(ctx, "job-1"); err != nil || !called {
 			t.Fatalf("GetJob() = %v, called=%v; want nil, true", err, called)
+		}
+	})
+
+	t.Run("GetJob error", func(t *testing.T) {
+		original := realSandboxGetJob
+		t.Cleanup(func() { realSandboxGetJob = original })
+		wantErr := errors.New("get boom")
+		realSandboxGetJob = func(_ *msbSdk.Sandbox, _ context.Context, _ string) (*msbSdk.Job, error) {
+			return nil, wantErr
+		}
+		if _, err := (realSandbox{}).GetJob(ctx, "job-1"); !errors.Is(err, wantErr) {
+			t.Fatalf("GetJob() error = %v, want %v", err, wantErr)
 		}
 	})
 

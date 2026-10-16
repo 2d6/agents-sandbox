@@ -175,6 +175,20 @@ func TestEnsureDaemonKillsStaleJobByCommand(t *testing.T) {
 	}
 }
 
+func TestEnsureDaemonReportsCloseFailure(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	fastDaemonPoll(t)
+	healthQueue(t, unhealthy(), healthy())
+
+	sb := &msb.MockSandbox{Job_: &msb.MockJob{ID_: "daemon", CloseErr: errors.New("close boom")}}
+	if err := ensureDaemon(context.Background(), opencodeAgent(t), false, false, sb, &testUI); err != nil {
+		t.Fatalf("ensureDaemon failed: %v", err)
+	}
+	if !strings.Contains(strings.Join(testUI.VerboseCalls, "\n"), "closing opencode job handle") {
+		t.Errorf("expected a verbose close failure, got %v", testUI.VerboseCalls)
+	}
+}
+
 func TestEnsureDaemonCrashSurfacesExitAndLogs(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	fastDaemonPoll(t)

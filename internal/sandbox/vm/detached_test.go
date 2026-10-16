@@ -128,6 +128,25 @@ func TestKillJobsByCommandToleratesGetAndKillErrors(t *testing.T) {
 	}
 }
 
+func TestKillJobsByCommandReportsCloseFailure(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	closing := &msb.MockJob{ID_: "closing", CloseErr: errors.New("close boom")}
+	sb := &msb.MockSandbox{
+		Jobs: []msbSdk.JobInfo{{ID: "closing", Command: []string{"dockerd"}}},
+		GetJobFn: func(context.Context, string) (msb.Job, error) {
+			return closing, nil
+		},
+	}
+	killJobsByCommand(context.Background(), sb, "dockerd", nil, &ui)
+
+	if !closing.DidKill {
+		t.Error("expected the matching job to be killed")
+	}
+	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "closing job") {
+		t.Errorf("expected a verbose close failure, got %v", ui.VerboseCalls)
+	}
+}
+
 func TestAwaitJobReadyInspectErrorKeepsPolling(t *testing.T) {
 	job := &msb.MockJob{
 		InspectFn: func(context.Context) (*msbSdk.JobInfo, error) { return nil, errors.New("inspect boom") },

@@ -67,7 +67,12 @@ func TestJobsRoundTrip(t *testing.T) {
 		t.Fatalf("ListJobs did not contain job %s: %+v", job.ID(), infos)
 	}
 
-	if got, getErr := adapter.GetJob(ctx, job.ID()); getErr != nil || got.ID() != job.ID() {
+	got, getErr := adapter.GetJob(ctx, job.ID())
+	if getErr != nil {
+		t.Fatalf("GetJob(%s): %v", job.ID(), getErr)
+	}
+	t.Cleanup(func() { _ = got.Close() })
+	if got.ID() != job.ID() {
 		t.Fatalf("GetJob(%s) = (%v, %v), want the same job", job.ID(), got, getErr)
 	}
 
