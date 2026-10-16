@@ -41,6 +41,23 @@ Add a `main_test.go` with such a `TestMain` to every new package that has tests.
 it must not be `t.Parallel` (`t.Setenv` forbids it). `WithMockConfigPathsHomeError(t, err)` installs a mock whose
 `UserHomeDir` fails, to exercise host-home resolution failures.
 
+## Audit status (2026-10-16)
+
+A full sweep of `internal/**` and `cmd/**` found the seam model holding: no production path outside the documented
+`configpaths` exceptions (`mounts` `~/` sources, `docker`'s `~/.docker`) reads or writes host config/home state, and no
+seam family is reached without its injectable factory. The only uncovered ambient paths are read-only or transient:
+
+- `options.FirstFreeHostPort` binds a real loopback port to probe it (no seam; tests call it directly). Read-only, freed
+  immediately; low.
+- `notify`'s backend runs the notifier through the `execCommand` var seam and writes a temp WAV to the real `os.TempDir`
+  with no fail-fast default — tests isolate it via `t.Setenv`/override, but a future test that forgets one would touch
+  real `/tmp` and possibly spawn a real player. The one gap worth a backstop.
+- `os.Getuid`/`Getgid` (image build args), `os.Getwd` (workspace source), `time.Now` (names/polling/spinner), and
+  `viperconfig`'s env reads are read-only or the input itself, not leaks.
+
+`agent` and `filewalk` remain the two packages with no fail-fast backstop (import cycle). Keep any future host-path need
+in them injected, never global.
+
 ## Why (the incident this encodes)
 
 `TestConfigAgentPrintsMergedAndHostFiles` built the host opencode dir from `os.Getenv("HOME")` and wrote
