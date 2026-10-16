@@ -107,6 +107,33 @@ func TestDFUnsupported(t *testing.T) {
 	}
 }
 
+func TestDFVerboseUnsupported(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, cmdDF, "--verbose")
+	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+		StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrUnsupportedOperation, Message: "remote backend"}
+		},
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("df --verbose should degrade gracefully, got: %v", err)
+	}
+	for _, want := range []string{
+		"TYPE COUNT IN USE LOGICAL SIZE RECLAIMABLE",
+		"storage observation unsupported by this backend",
+	} {
+		if !containsNormalized(ui.OutCalls, want) {
+			t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
+		}
+	}
+}
+
+func TestStorageCategoryJSONFallback(t *testing.T) {
+	got := storageCategoryJSON(map[string]jsonStorageCategory{}, "missing")
+	if got.Items == nil || got.Notes == nil {
+		t.Errorf("fallback category should have non-nil items/notes, got %+v", got)
+	}
+}
+
 func TestDFObserveError(t *testing.T) {
 	runListCmdTest(t, []string{cmdDF}, func(m *sandboxmsb.MockMsbClient) {
 		m.StorageUsageFn = func(context.Context) (*msbSdk.StorageUsageReport, error) {
@@ -188,6 +215,59 @@ func TestDFVerbose(t *testing.T) {
 		"msb",
 		fmt.Sprintf("Path: %s", path),
 		"Logical size: 64 B",
+	} {
+		if !containsNormalized(ui.OutCalls, want) {
+			t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)
+		}
+	}
+}
+
+// storageReportWithItem carries an item with boolean flags and reasons, plus a
+// category note, so the verbose detail lines are exercised.
+func storageReportWithItem() *msbSdk.StorageUsageReport {
+	inUse := true
+	reclaimable := false
+	return &msbSdk.StorageUsageReport{
+		Images: msbSdk.StorageCategoryUsage{
+			Count:        storageUint(2),
+			InUse:        storageUint(1),
+			LogicalBytes: storageUint(100),
+			Items: []msbSdk.StorageItemUsage{{
+				Name:           "agents-sandbox/x:latest",
+				Path:           "/msb/images/x",
+				LogicalBytes:   storageUint(500),
+				AllocatedBytes: storageUint(400),
+				InUse:          &inUse,
+				Reclaimable:    &reclaimable,
+				Reasons:        []string{"tagged"},
+			}},
+			Notes: []string{"pinned"},
+		},
+	}
+}
+
+func TestDFVerboseDetails(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, cmdDF, "--verbose")
+	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+		StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
+			return storageReportWithItem(), nil
+		},
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("df --verbose: %v", err)
+	}
+	for _, want := range []string{
+		"TYPE COUNT IN USE LOGICAL SIZE RECLAIMABLE",
+		"images 2 1 100 B -",
+		"Images (2)",
+		"agents-sandbox/x:latest",
+		"Path: /msb/images/x",
+		"Logical size: 500 B",
+		"Allocated: 400 B",
+		"In use: Yes",
+		"Reclaimable: No",
+		"Reason: tagged",
+		"images: pinned",
 	} {
 		if !containsNormalized(ui.OutCalls, want) {
 			t.Errorf("OutCalls missing %q; got: %v", want, ui.OutCalls)

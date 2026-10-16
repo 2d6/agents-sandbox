@@ -33,18 +33,8 @@ func storageCategoryHeaders() []string {
 // a category totals table by default, or (with verbose) per-category item
 // blocks preceded by the reclaimable/accounting notes.
 func printStorageReport(ui termio.UI, report *storage.Report, verbose bool) {
+	printStorageTable(ui, report)
 	if !verbose {
-		table := ui.NewTable(storageCategoryHeaders()...)
-		for _, category := range report.Categories {
-			table.AddRow(
-				storageDisplayName(category.Name),
-				formatOptionalUint(category.Totals.Count),
-				formatOptionalUint(category.Totals.InUse),
-				formatOptionalBytes(category.Totals.LogicalBytes),
-				formatOptionalBytes(category.Totals.ReclaimableBytes),
-			)
-		}
-		table.Print()
 		ui.Out(storageLogicalFooter)
 		for _, note := range report.Notes {
 			ui.Out(note)
@@ -52,6 +42,20 @@ func printStorageReport(ui termio.UI, report *storage.Report, verbose bool) {
 		return
 	}
 	printStorageVerbose(ui, report)
+}
+
+func printStorageTable(ui termio.UI, report *storage.Report) {
+	table := ui.NewTable(storageCategoryHeaders()...)
+	for _, category := range report.Categories {
+		table.AddRow(
+			storageDisplayName(category.Name),
+			formatOptionalUint(category.Totals.Count),
+			formatOptionalUint(category.Totals.InUse),
+			formatOptionalBytes(category.Totals.LogicalBytes),
+			formatOptionalBytes(category.Totals.ReclaimableBytes),
+		)
+	}
+	table.Print()
 }
 
 func printStorageVerbose(ui termio.UI, report *storage.Report) {
@@ -122,6 +126,7 @@ type jsonStorageUsage struct {
 	Notes          []string            `json:"notes"`
 }
 
+//exhaustruct:ignore
 type jsonStorageCategory struct {
 	Count                   *uint64           `json:"count"`
 	InUse                   *uint64           `json:"in_use"`
@@ -158,15 +163,24 @@ func newStorageReportJSON(report *storage.Report) jsonStorageUsage {
 		}
 	}
 	return jsonStorageUsage{
-		Images:         byName[storage.CategoryImages],
-		Snapshots:      byName[storage.CategorySnapshots],
-		BranchMemory:   byName[storage.CategoryBranchMemory],
-		SnapshotMemory: byName[storage.CategorySnapshotMemory],
-		Sandboxes:      byName[storage.CategorySandboxes],
-		Volumes:        byName[storage.CategoryVolumes],
-		Runtime:        byName[storage.CategoryRuntime],
+		Images:         storageCategoryJSON(byName, storage.CategoryImages),
+		Snapshots:      storageCategoryJSON(byName, storage.CategorySnapshots),
+		BranchMemory:   storageCategoryJSON(byName, storage.CategoryBranchMemory),
+		SnapshotMemory: storageCategoryJSON(byName, storage.CategorySnapshotMemory),
+		Sandboxes:      storageCategoryJSON(byName, storage.CategorySandboxes),
+		Volumes:        storageCategoryJSON(byName, storage.CategoryVolumes),
+		Runtime:        storageCategoryJSON(byName, storage.CategoryRuntime),
 		Notes:          nonNilStrings(report.Notes),
 	}
+}
+
+// storageCategoryJSON returns a category or an empty one with non-nil
+// collections, so `items`/`notes` serialize as [] even for a missing category.
+func storageCategoryJSON(byName map[string]jsonStorageCategory, name string) jsonStorageCategory {
+	if category, ok := byName[name]; ok {
+		return category
+	}
+	return jsonStorageCategory{Items: []jsonStorageItem{}, Notes: []string{}}
 }
 
 // storageItemsJSON always returns a non-nil slice so items serializes as [].
