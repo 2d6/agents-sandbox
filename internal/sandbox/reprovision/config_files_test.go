@@ -954,3 +954,34 @@ func TestReservedHomeTargetsRejectsMixedRelAbs(t *testing.T) {
 		t.Fatal("expected error when mergedPath is not relative to an absolute vmHome")
 	}
 }
+
+// TestConfigKeysDeterministic pins that ConfigFiles.Keys is order-stable across
+// runs: the map-backed inputs are unordered, so Keys must be sorted (after the
+// merged config, which is kept first) or downstream verbose output and any
+// order-sensitive comparison would vary run to run.
+func TestConfigKeysDeterministic(t *testing.T) {
+	const merged = "/home/dev/.config/opencode/opencode.json"
+	homeFiles := map[string][]byte{
+		"/home/dev/.gitconfig": {},
+		"/home/dev/.bashrc":    {},
+		"/home/dev/.vimrc":     {},
+	}
+	mirror := map[string][]byte{
+		"/home/dev/.config/opencode/agent/coder.md":    {},
+		"/home/dev/.config/opencode/agent/reviewer.md": {},
+	}
+	provisioned := map[string][]byte{
+		"/home/dev/.config/opencode/other.json":   {},
+		"/home/dev/.config/opencode/another.json": {},
+	}
+
+	for range 50 {
+		keys := configKeys(merged, true, homeFiles, mirror, provisioned)
+		if keys[0] != merged {
+			t.Fatalf("Keys[0] = %q, want merged config %q", keys[0], merged)
+		}
+		if !slices.IsSorted(keys[1:]) {
+			t.Fatalf("Keys[1:] must be sorted for a stable order, got %v", keys)
+		}
+	}
+}

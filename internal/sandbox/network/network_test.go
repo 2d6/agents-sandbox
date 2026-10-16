@@ -194,6 +194,24 @@ func TestFingerprintStable(t *testing.T) {
 	}
 }
 
+func TestFingerprintOrderIndependent(t *testing.T) {
+	a := Policy{
+		Profile:     ProfileNone,
+		EgressAllow: []string{"b.example.com", "a.example.com"},
+		EgressDeny:  []string{"z.example.com", "y.example.com"},
+		DNSServers:  []string{"1.1.1.1", "8.8.8.8"},
+	}
+	b := Policy{
+		Profile:     ProfileNone,
+		EgressAllow: []string{"a.example.com", "b.example.com"},
+		EgressDeny:  []string{"y.example.com", "z.example.com"},
+		DNSServers:  []string{"8.8.8.8", "1.1.1.1"},
+	}
+	if a.Fingerprint() != b.Fingerprint() {
+		t.Errorf("Fingerprint must be independent of list order: %q vs %q", a.Fingerprint(), b.Fingerprint())
+	}
+}
+
 func TestFingerprintDistinguishesConfigs(t *testing.T) {
 	none := Policy{Profile: ProfileNone, EgressAllow: []string{"api.example.com"}}
 	public := Policy{Profile: ProfilePublic, EgressAllow: []string{"api.example.com"}}

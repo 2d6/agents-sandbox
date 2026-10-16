@@ -74,6 +74,12 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- Config: the rebuilt-VM change detection is now deterministic. `ConfigFiles.Keys` is sorted (the merged config stays
+  first) instead of carrying Go map iteration order, and secret entries are emitted in sorted `EnvVar` order. Both feed an
+  agent-config/secret-change decision that previously varied run to run.
+- Volume: `volume migrate`/`reset` on the image-change path now preserves the persisted env/secret/network/mount
+  fingerprints. They describe the live VM, not the home volume, so dropping them made the next run treat every setting as
+  changed and blame a spurious rebuild on (for example) the network policy.
 - Sandboxes: removal and cleanup are now fail-closed against a sandbox name that was removed and recreated (a same-name
   replacement). Every destructive/attach path goes through the identity-aware handle or live sandbox it already holds
   instead of a bare name — prune skips-and-reports a replaced or already-gone sandbox, throwaway volume sandboxes

@@ -270,24 +270,26 @@ func applyMirrorPrecedence(
 	}
 }
 
-// configKeys returns the sorted VM paths to provision and compare: the merged
-// config (when snippets exist), then home files, mirror files, and drop-in
-// provisioned files.
+// configKeys returns the VM paths to provision and compare: the merged config
+// (when snippets exist) first, then the home/mirror/drop-in paths sorted. The
+// inputs are map-backed and therefore unordered, so the remainder must be
+// sorted to keep Keys stable across runs.
 func configKeys(mergedPath string, hasSnippets bool, homeFiles, mirror, provisioned map[string][]byte) []string {
-	keys := make([]string, 0, len(homeFiles)+len(provisioned)+len(mirror)+1)
-	if hasSnippets {
-		keys = append(keys, mergedPath)
-	}
+	rest := make([]string, 0, len(homeFiles)+len(provisioned)+len(mirror))
 	for p := range homeFiles {
-		keys = append(keys, p)
+		rest = append(rest, p)
 	}
 	for p := range mirror {
-		keys = append(keys, p)
+		rest = append(rest, p)
 	}
 	for p := range provisioned {
-		keys = append(keys, p)
+		rest = append(rest, p)
 	}
-	return keys
+	sort.Strings(rest)
+	if hasSnippets {
+		return append([]string{mergedPath}, rest...)
+	}
+	return rest
 }
 
 // configFamilyNames returns the config filenames the agent reads from its VM
