@@ -595,14 +595,106 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 	}
 }
 
-func TestEnsureLoadedReloadsWhenCachedContentDiffers(t *testing.T) {
+// TestEnsureLoadedDecision pins the load decision table: the content digest is
+// authoritative, the dockerfile-id label is only a fallback for a legacy cached
+// image with no digest, and host Docker is never inspected.
+func TestEnsureLoadedDecision(t *testing.T) {
+	cases := []struct {
+		name          string
+		cached        bool
+		msbDigest     string
+		msbLabels     map[string]string
+		info          ImageInfo
+		wantLoadCount int
+	}{
+		{
+			name:          "not cached loads",
+			cached:        false,
+			info:          ImageInfo{Tag: "ref", Digest: "sha256:new"},
+			wantLoadCount: 1,
+		},
+		{
+			name:          "equal digest skips",
+			cached:        true,
+			msbDigest:     "sha256:new",
+			info:          ImageInfo{Tag: "ref", Digest: "sha256:new"},
+			wantLoadCount: 0,
+		},
+		{
+			name:          "different digest loads",
+			cached:        true,
+			msbDigest:     "sha256:old",
+			info:          ImageInfo{Tag: "ref", Digest: "sha256:new"},
+			wantLoadCount: 1,
+		},
+		{
+			name:          "no digest, equal label skips",
+			cached:        true,
+			msbLabels:     map[string]string{dockerfileIDLabelKey: "abc"},
+			info:          ImageInfo{Tag: "ref", Digest: "sha256:new", DockerfileID: "abc"},
+			wantLoadCount: 0,
+		},
+		{
+			name:          "no digest, different label loads",
+			cached:        true,
+			msbLabels:     map[string]string{dockerfileIDLabelKey: "old"},
+			info:          ImageInfo{Tag: "ref", Digest: "sha256:new", DockerfileID: "abc"},
+			wantLoadCount: 1,
+		},
+		{
+			name:          "different digest with equal label loads",
+			cached:        true,
+			msbDigest:     "sha256:old",
+			msbLabels:     map[string]string{dockerfileIDLabelKey: "abc"},
+			info:          ImageInfo{Tag: "ref", Digest: "sha256:new", DockerfileID: "abc"},
+			wantLoadCount: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			docker.WithDockerMock(t, &docker.MockDockerClient{
+				ImageInspectFn: func(
+					_ context.Context, _ string, _ ...client.ImageInspectOption,
+				) (client.ImageInspectResult, error) {
+					t.Error("EnsureLoaded must not inspect host Docker")
+					return client.ImageInspectResult{}, nil
+				},
+				ImageSaveFn: func(
+					_ context.Context, _ []string, _ ...client.ImageSaveOption,
+				) (client.ImageSaveResult, error) {
+					return io.NopCloser(strings.NewReader("tar-data")), nil
+				},
+			})
+			msbClient := &msb.MockMsbClient{
+				ImageGetFn: func(_ context.Context, _ string) error {
+					if tc.cached {
+						return nil
+					}
+					return errors.New("not cached")
+				},
+				ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+					return &msbSdk.ImageConfig{Digest: tc.msbDigest, Labels: tc.msbLabels}, nil
+				},
+			}
+			if err := EnsureLoaded(context.Background(), msbClient, tc.info, &termio.Mock{}); err != nil {
+				t.Fatalf("EnsureLoaded: %v", err)
+			}
+			if len(msbClient.LoadedImages) != tc.wantLoadCount {
+				t.Errorf(
+					"load count = %d, want %d (%v)",
+					len(msbClient.LoadedImages), tc.wantLoadCount, msbClient.LoadedImages,
+				)
+			}
+		})
+	}
+}
+
+func TestEnsureLoadedReloadsStaleContentUnderSameRef(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	rTag := runnerTag("test-project", a.Name())
 	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{ID: "sha256:docker-new"}, nil
-		},
 		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			if len(refs) != 1 || refs[0] != rTag {
 				t.Errorf("ImageSave refs = %v, want %q", refs, rTag)
@@ -622,14 +714,12 @@ func TestEnsureLoadedReloadsWhenCachedContentDiffers(t *testing.T) {
 		},
 	}
 	ui := &termio.Mock{}
-	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, ui); err != nil {
+	info := ImageInfo{Tag: rTag, Digest: "sha256:docker-new", DockerfileID: "abc"}
+	if err := EnsureLoaded(context.Background(), msbClient, info, ui); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 	if removeCalled {
 		t.Error("expected the stale cached image to be refreshed without removal")
-	}
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("WarnCalls = %v, want no stale-image removal warning", ui.WarnCalls)
 	}
 	if len(msbClient.LoadedImages) != 1 || msbClient.LoadedImages[0] != rTag {
 		t.Errorf("LoadedImages = %v, want a reload of %q", msbClient.LoadedImages, rTag)
@@ -638,15 +728,6 @@ func TestEnsureLoadedReloadsWhenCachedContentDiffers(t *testing.T) {
 
 func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	a := agentOpencode(t)
-	rTag := runnerTag("test-project", a.Name())
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:same", Config: dockerConfigWith("", nil),
-			}, nil
-		},
-	})
 	removed := false
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
@@ -655,7 +736,8 @@ func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
 		},
 		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
 	}
-	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err != nil {
+	info := ImageInfo{Tag: "ref", Digest: "sha256:same"}
+	if err := EnsureLoaded(context.Background(), msbClient, info, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 	if removed {
@@ -666,33 +748,18 @@ func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
 	}
 }
 
-func TestEnsureLoadedSkipsWhenDockerfileIDLabelMatches(t *testing.T) {
+func TestEnsureLoadedSkipsLegacyImageByDockerfileIDLabel(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	a := agentOpencode(t)
-	rTag := runnerTag("test-project", a.Name())
 	labels := map[string]string{dockerfileIDLabelKey: "abc123"}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "", Config: &dockerspec.DockerOCIImageConfig{
-					Labels: labels,
-				},
-			}, nil
-		},
-	})
-	removed := false
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{Digest: "", Labels: labels}, nil
 		},
-		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
 	}
-	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err != nil {
+	info := ImageInfo{Tag: "ref", Digest: "sha256:new", DockerfileID: "abc123"}
+	if err := EnsureLoaded(context.Background(), msbClient, info, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
-	}
-	if removed {
-		t.Error("expected the matching cached image not to be removed")
 	}
 	if len(msbClient.LoadedImages) != 0 {
 		t.Errorf("expected no reload when labels match, got %v", msbClient.LoadedImages)
@@ -716,8 +783,7 @@ func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
 	if err := EnsureLoaded(
 		context.Background(),
 		msbClient,
-		"test-project",
-		"agents-sandbox/runner-test-project:abc",
+		ImageInfo{Tag: "agents-sandbox/runner-test-project:abc", Digest: "sha256:new"},
 		&termio.Mock{},
 	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -748,8 +814,7 @@ func TestEnsureLoadedReturnsErrorWhenSaveFails(t *testing.T) {
 	err := EnsureLoaded(
 		context.Background(),
 		msbClient,
-		"test-project",
-		"agents-sandbox/runner-test-project:abc",
+		ImageInfo{Tag: "agents-sandbox/runner-test-project:abc", Digest: "sha256:new"},
 		&termio.Mock{},
 	)
 	if err == nil {

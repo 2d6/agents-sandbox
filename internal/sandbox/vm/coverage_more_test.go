@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -386,14 +387,13 @@ func TestCreateProjectVMNetworkError(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{
 			Memory:  "1G",
 			Network: network.Policy{Profile: network.Profile("bogus-profile")},
 		},
-		nil,
 		&ui,
 	)
 	if err == nil {
@@ -413,11 +413,10 @@ func TestCreateProjectVMCreateError(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{Memory: "1G"},
-		nil,
 		&ui,
 	)
 	if err == nil {
@@ -466,7 +465,7 @@ func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{
@@ -474,7 +473,6 @@ func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 			ServeOnly: true,
 			Network:   network.Policy{Profile: network.ProfilePublic},
 		},
-		nil,
 		&ui,
 	)
 	if err != nil {
@@ -509,7 +507,7 @@ func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{Tag: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{
@@ -517,7 +515,6 @@ func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
 			ServeOnly:     true,
 			ServeHostPort: 4097,
 		},
-		nil,
 		&ui,
 	)
 	if err != nil {

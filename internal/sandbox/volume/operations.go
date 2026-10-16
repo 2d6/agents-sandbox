@@ -71,11 +71,12 @@ type volCallbacks struct {
 // CmdMigrate creates a new home volume, copies old files on top, updates state.
 func CmdMigrate(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName string,
+	info image.ImageInfo,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, info, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q, copy files from %q",
@@ -85,7 +86,7 @@ func CmdMigrate(
 		},
 		main: func(oldVolume, newVolumeName string) error {
 			if err := NewManager(ui).CopyVolume(
-				ctx, msb.Get(), k, oldVolume, newVolumeName, imageTag, ui,
+				ctx, msb.Get(), k, oldVolume, newVolumeName, info, ui,
 			); err != nil {
 				return err
 			}
@@ -98,11 +99,12 @@ func CmdMigrate(
 // CmdReset creates a new home volume from image only, no copy.
 func CmdReset(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName string,
+	info image.ImageInfo,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, info, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create fresh volume %q, remove %q",
@@ -120,11 +122,12 @@ func CmdReset(
 // CmdEdit creates a new volume alongside the old for manual transfer.
 func CmdEdit(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName string,
+	info image.ImageInfo,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, info, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q alongside %q for manual transfer",
@@ -134,7 +137,7 @@ func CmdEdit(
 		},
 		main: func(oldVolume, newVolumeName string) error {
 			client := msb.Get()
-			if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
+			if err := image.EnsureLoaded(ctx, client, info, ui); err != nil {
 				return fmt.Errorf("load runner image: %w", err)
 			}
 			spin := ui.Spinner("Starting interactive session with both volumes")
@@ -145,7 +148,7 @@ func CmdEdit(
 			editOldMount := msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{})
 			editNewMount := msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{})
 			editSb, editErr := client.CreateSandbox(ctx, editSandboxName,
-				msbSdk.WithImage(imageTag),
+				msbSdk.WithImage(info.Tag),
 				msbSdk.WithMounts(map[string]msbSdk.MountConfig{
 					srcMount: editOldMount,
 					dstMount: editNewMount,
@@ -182,7 +185,8 @@ func CmdEdit(
 // volumeOp is the shared implementation for migrate, reset, and edit operations.
 func volumeOp(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName string,
+	info image.ImageInfo,
 	rmOld, dryRun bool,
 	cbs volCallbacks,
 	ui termio.UI,
@@ -223,7 +227,7 @@ func volumeOp(
 	}
 
 	vm := NewManager(ui)
-	if err := vm.PrefillVolume(ctx, client, k, newVol.Name(), imageTag, ui); err != nil {
+	if err := vm.PrefillVolume(ctx, client, k, newVol.Name(), info, ui); err != nil {
 		return fmt.Errorf("prefill new volume: %w", err)
 	}
 
@@ -242,7 +246,7 @@ func volumeOp(
 	// trigger a false VM rebuild on the next startup (see
 	// EnvChanged/SecretsChanged/NetworkChanged/MountsChanged treating empty
 	// state as "changed").
-	newState := state.NewHomeState(newVolumeName, currentDigest)
+	newState := state.NewHomeState(newVolumeName, info.Digest)
 	newState.EnvState = st.EnvState
 	newState.SecretState = st.SecretState
 	newState.NetworkState = st.NetworkState

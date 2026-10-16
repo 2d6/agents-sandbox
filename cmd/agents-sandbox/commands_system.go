@@ -26,7 +26,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
-type volumeOpFunc func(context.Context, state.Key, string, string, string, bool, bool, termio.UI) error
+type volumeOpFunc func(context.Context, state.Key, string, image.ImageInfo, bool, bool, termio.UI) error
 
 const (
 	colName    = "NAME"
@@ -141,8 +141,7 @@ func buildVolumeOpsCmd(
 				c.Context(),
 				state.Key{Slug: projectSlug, Agent: a.Name()},
 				volName,
-				info.Tag,
-				info.Digest,
+				info,
 				*rmVar,
 				dryRun,
 				ui,

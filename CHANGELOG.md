@@ -83,6 +83,11 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
+- Runner image: the microsandbox load decision now compares the cached image's content digest against the Docker image ID
+  directly, so a rebuilt image that keeps the same `dockerfile-id` source signature (e.g. a base tag move followed by
+  `--rebuild`) is reloaded instead of silently skipped. It no longer inspects host Docker, so a transient host Docker
+  inspect failure no longer forces a redundant `docker save` + `ImageLoad`; the `dockerfile-id` label is now only a
+  fallback for a legacy cached image that carries no digest (#186).
 - Internal: the rebuilt-VM change-detection inputs are now order-stable by construction. `reprovision.ConfigFiles.Keys`
   has a single ordering authority (the merged config leads, the remainder sorted) instead of being built from unordered
   maps and then sorted again, and `envsecret.BuildSecretsFromSpecs` emits secret entries in sorted `EnvVar` order. The

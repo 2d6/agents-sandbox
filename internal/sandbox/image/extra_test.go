@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -217,9 +216,6 @@ func TestEnsureLoadedReturnsErrorWhenLoadFails(t *testing.T) {
 	a := agentOpencode(t)
 	rTag := runnerTag("test-project", a.Name())
 	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil
-		},
 		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return io.NopCloser(strings.NewReader("tar")), nil
 		},
@@ -230,111 +226,82 @@ func TestEnsureLoadedReturnsErrorWhenLoadFails(t *testing.T) {
 			return errors.New("load boom")
 		},
 	}
-	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err == nil {
+	info := ImageInfo{Tag: rTag, Digest: "sha256:new"}
+	if err := EnsureLoaded(context.Background(), msbClient, info, &termio.Mock{}); err == nil {
 		t.Fatal("expected EnsureLoaded to return an error when ImageLoad fails")
 	}
 }
 
-func TestCachedImageMatchesDockerDockerInspectError(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{}, errors.New("docker inspect boom")
-		},
-	})
-	if cachedImageMatchesDocker(context.Background(), &msb.MockMsbClient{}, "ref") {
-		t.Error("expected false when the Docker inspect fails")
-	}
-}
-
-func TestCachedImageMatchesDockerNilConfig(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil
-		},
-	})
-	if cachedImageMatchesDocker(context.Background(), &msb.MockMsbClient{}, "ref") {
-		t.Error("expected false when the Docker inspect has no config")
-	}
-}
-
-func TestCachedImageMatchesDockerMsbInspectError(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID:     "sha256:x",
-				Config: dockerConfigWith("", nil),
-			}, nil
-		},
-	})
+func TestCachedImageMatchesMsbInspectError(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return nil, errors.New("msb inspect boom")
 		},
 	}
-	if cachedImageMatchesDocker(context.Background(), msbClient, "ref") {
+	if cachedImageMatches(context.Background(), msbClient, ImageInfo{Tag: "ref", Digest: "sha256:x"}) {
 		t.Error("expected false when the microsandbox inspect fails")
 	}
 }
 
-func TestCachedImageMatchesDockerByDigest(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID:     "sha256:same",
-				Config: dockerConfigWith("", nil),
-			}, nil
-		},
-	})
+func TestCachedImageMatchesByDigest(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
 		},
 	}
-	if !cachedImageMatchesDocker(context.Background(), msbClient, "ref") {
+	if !cachedImageMatches(context.Background(), msbClient, ImageInfo{Tag: "ref", Digest: "sha256:same"}) {
 		t.Error("expected true when digests match")
 	}
 }
 
-func TestCachedImageMatchesDockerByLabel(t *testing.T) {
+func TestCachedImageMatchesByLabelWhenNoDigest(t *testing.T) {
 	labels := map[string]string{dockerfileIDLabelKey: "abc123"}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: labels,
-				},
-			}, nil
-		},
-	})
 	msbClient := &msb.MockMsbClient{
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return &msbSdk.ImageConfig{Digest: "", Labels: labels}, nil
 		},
 	}
-	if !cachedImageMatchesDocker(context.Background(), msbClient, "ref") {
-		t.Error("expected true when the dockerfile-id labels match")
+	info := ImageInfo{Tag: "ref", Digest: "sha256:new", DockerfileID: "abc123"}
+	if !cachedImageMatches(context.Background(), msbClient, info) {
+		t.Error("expected true when the dockerfile-id labels match and no digest is present")
 	}
 }
 
-func TestCachedImageMatchesDockerLabelMismatch(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: "abc"},
-				},
-			}, nil
-		},
-	})
+func TestCachedImageMatchesLabelMismatchWhenNoDigest(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "", Labels: map[string]string{dockerfileIDLabelKey: "def"}}, nil
+			return &msbSdk.ImageConfig{
+				Digest: "", Labels: map[string]string{dockerfileIDLabelKey: "def"},
+			}, nil
 		},
 	}
-	if cachedImageMatchesDocker(context.Background(), msbClient, "ref") {
+	info := ImageInfo{Tag: "ref", Digest: "sha256:new", DockerfileID: "abc"}
+	if cachedImageMatches(context.Background(), msbClient, info) {
 		t.Error("expected false when the dockerfile-id labels differ")
+	}
+}
+
+func TestCachedImageMatchesDigestMismatchOverridesMatchingLabel(t *testing.T) {
+	labels := map[string]string{dockerfileIDLabelKey: "abc"}
+	msbClient := &msb.MockMsbClient{
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Digest: "sha256:old", Labels: labels}, nil
+		},
+	}
+	info := ImageInfo{Tag: "ref", Digest: "sha256:new", DockerfileID: "abc"}
+	if cachedImageMatches(context.Background(), msbClient, info) {
+		t.Error("expected false when the digests differ, even though the labels match")
+	}
+}
+
+func TestCachedImageMatchesLegacyNoDigestNoRequestedLabel(t *testing.T) {
+	msbClient := &msb.MockMsbClient{
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Digest: "", Labels: map[string]string{}}, nil
+		},
+	}
+	if cachedImageMatches(context.Background(), msbClient, ImageInfo{Tag: "ref", Digest: "sha256:new"}) {
+		t.Error("expected false when neither a digest nor a dockerfile-id is available")
 	}
 }
 
