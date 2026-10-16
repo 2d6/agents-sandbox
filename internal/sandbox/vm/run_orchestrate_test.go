@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -177,6 +178,45 @@ func TestLiveHomeVolumeConfigError(t *testing.T) {
 	}
 }
 
+// TestLiveHomeVolumeLookupErrorLogs covers a transient (non-not-found) VM lookup
+// failure: it is verbose-logged rather than silently falling back to a fresh
+// volume, which could orphan the surviving one.
+func TestLiveHomeVolumeLookupErrorLogs(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	k := state.Key{Slug: "slug", Agent: "opencode"}
+	mock := &msb.MockMsbClient{
+		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+			return nil, errors.New("lookup boom")
+		},
+	}
+
+	ui := termio.NewTestMock(t)
+	if got := liveHomeVolume(context.Background(), mock, k, &ui); got != "" {
+		t.Errorf("liveHomeVolume() = %q, want empty on lookup error", got)
+	}
+	if !strings.Contains(strings.Join(ui.VerboseCalls, " "), "home-volume recovery") {
+		t.Errorf("expected a verbose lookup-error log, got %v", ui.VerboseCalls)
+	}
+}
+
+// TestLiveHomeVolumeNilHandle covers the defensive nil-handle branch.
+func TestLiveHomeVolumeNilHandle(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	k := state.Key{Slug: "slug", Agent: "opencode"}
+	mock := &msb.MockMsbClient{
+		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+			return nil, nil //nolint:nilnil // exercises the defensive nil-handle branch
+		},
+	}
+
+	ui := termio.NewTestMock(t)
+	if got := liveHomeVolume(context.Background(), mock, k, &ui); got != "" {
+		t.Errorf("liveHomeVolume() = %q, want empty for a nil handle", got)
+	}
+}
+
 // TestPrepareHomeVolumeRecoversLostStateFromLiveVM covers issue #219 end to end
 // through the volume-setup entry point: with no state file but a project VM
 // that still mounts a home volume, the existing volume is reused (no duplicate
@@ -220,6 +260,7 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 		k,
 		sandboximage.ImageInfo{Digest: "sha256:def"},
 		options.RunOptions{},
+		state.Fingerprints{},
 		&ui,
 	)
 	if err != nil {
@@ -242,6 +283,7 @@ func TestResolveServeHostPortNotServeOnly(t *testing.T) {
 		t.Errorf("resolveServeHostPort(not serve-only) = %d, want 0", got)
 	}
 }
+
 func TestResolveServeHostPortPassthrough(t *testing.T) {
 	if got := resolveServeHostPort(options.RunOptions{ServeOnly: true}, 4096); got != 4096 {
 		t.Errorf("resolveServeHostPort(planned 4096) = %d, want 4096", got)

@@ -315,10 +315,18 @@ func prepareHomeVolume(
 
 // liveHomeVolume returns the home volume currently mounted by the project VM,
 // or "" when the project has no VM or its config cannot be read. It lets home
-// resolution recover the volume when the state file was lost (issue #219).
+// resolution recover the volume when the state file was lost (issue #219). A
+// not-found VM is expected (first run); any other lookup error is logged so a
+// transient failure is visible rather than silently orphaning the volume.
 func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui termio.UI) string {
 	handle, err := client.GetSandbox(ctx, projectVMName(k))
-	if err != nil || handle == nil {
+	if err != nil {
+		if !msb.IsNotFound(err) {
+			ui.Verbosef("project VM lookup for home-volume recovery failed: %v (continuing)", err)
+		}
+		return ""
+	}
+	if handle == nil {
 		return ""
 	}
 	cfg, err := handle.Config()

@@ -31,12 +31,18 @@ the VM's mount is therefore preferred over any list-based probe.
 Recovery rewrites `state.yaml` to the recovered volume (with the current image digest) and emits a warning naming the
 recovered volume.
 
-## Not recovered: fingerprints (rebuild still occurs)
+## Fingerprints
 
-Recovery restores the *volume reference*, not the env/secret/network/mount fingerprints, which lived only in the lost
-state. The recovered state is therefore fingerprint-less and the next run still rebuilds the VM (the same on-disk
-condition as the concurrent state-write race in `specs/reconfig-decision.md`). The rebuild mounts the same recovered
-volume, so no user data is lost and no volume is orphaned — only the spurious rebuild remains, tracked by #183.
+A recovered `HomeState` is never fingerprint-less while the VM exists (the #183 invariant). Fingerprint handling depends
+on which branch triggered recovery:
+
+- **State lost entirely** — no prior fingerprints exist, so recovery seeds the desired fingerprints
+  (`fingerprints.Apply`), exactly as `EnsureNewHome` does (#183). No spurious rebuild fires; as with the fresh-home
+  seed, a live VM whose config differs from the desired one is masked (the trade-off #183 accepted).
+- **State readable but its recorded volume gone** — the state's fingerprints are still valid (they describe the live
+  VM, not the home volume), so they are carried forward into the recovered state, matching `ApplyHomeAction`'s
+  preservation invariant (`specs/reconfig-decision.md`). A genuine config change is still detected against them.
+- **No recoverable volume** — falls back to `EnsureNewHome`, which seeds the desired fingerprints (#183).
 
 ## Non-interactive
 

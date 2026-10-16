@@ -641,7 +641,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 
 // TestResolveHomeVolume_CorruptStateFile covers the branch where the state file
 // exists but cannot be read (a non-not-found error): the caller warns about the
-// missing state and creates a fresh home volume.
+// unreadable state and creates a fresh home volume.
 func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
@@ -679,8 +679,8 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 	if st.ImageDigest != "sha256:def" {
 		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
 	}
-	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "missing state file") {
-		t.Errorf("expected a 'missing state file' warning, got %v", ui.WarnCalls)
+	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "could not read state file") {
+		t.Errorf("expected a 'could not read state file' warning, got %v", ui.WarnCalls)
 	}
 }
 
@@ -914,6 +914,115 @@ func TestResolveHomeVolume_RecoveryWriteStateFails(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "failed to write state file") {
 		t.Errorf("expected a write-state warning, got %v", ui.WarnCalls)
+	}
+}
+
+// TestResolveHomeVolume_StateWinsOverRecoveredVolume pins the precedence rule:
+// when state resolves to an existing volume, the live VM's volume is never
+// consulted, even if it differs.
+func TestResolveHomeVolume_StateWinsOverRecoveredVolume(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	const stateVol = "agents-sandbox-home-precedence-20250101T000000"
+	const liveVol = "agents-sandbox-home-precedence-20260101T000000"
+	key := state.Key{Slug: "precedence", Agent: "opencode"}
+	state.WriteState(key, state.HomeState{HomeVolume: stateVol, ImageDigest: "sha256:abc"})
+
+	mock := &msb.MockMsbClient{}
+	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
+		if name != stateVol {
+			t.Errorf("GetVolume called with %q; the live volume must not be consulted when state resolves", name)
+		}
+		return msb.MockVolumeHandle{Name_: name}, nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		t.Fatalf("CreateVolume must not be called (got %q)", name)
+		return msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+	volName, _, err := vm.ResolveHomeVolume(
+		context.Background(),
+		mock,
+		key,
+		image.ImageInfo{Digest: "sha256:def"},
+		false,
+		state.Fingerprints{},
+		liveVol,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if volName != stateVol {
+		t.Errorf("volume = %q, want state volume %q", volName, stateVol)
+	}
+}
+
+// TestResolveHomeVolume_RecoveryPreservesFingerprints pins that recovering a
+// live volume from a still-readable prior state carries the env/secret/network/
+// mount fingerprints forward, so the recovered state does not itself trigger a
+// spurious rebuild.
+func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	const recorded = "agents-sandbox-home-fp-20250101T000000"
+	const recovered = "agents-sandbox-home-fp-20260101T000000"
+	key := state.Key{Slug: "fp", Agent: "opencode"}
+	state.WriteState(key, state.HomeState{
+		HomeVolume:   recorded,
+		ImageDigest:  "sha256:old",
+		EnvState:     state.EnvState{Hash: "envhash", Names: []string{"A"}},
+		SecretState:  state.SecretState{Hash: "secrethash", Names: []string{"B"}},
+		NetworkState: state.NetworkState{Hash: "nethash", Names: []string{"example.com"}},
+		MountState:   state.MountState{Hash: "mountHash", Names: []string{"/x"}},
+	})
+
+	mock := &msb.MockMsbClient{}
+	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
+		if name == recovered {
+			return msb.MockVolumeHandle{Name_: name}, nil
+		}
+		var vh msb.VolumeHandle
+		return vh, fmt.Errorf("volume %s not found", name)
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		t.Fatalf("CreateVolume must not be called during recovery (got %q)", name)
+		return msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+	volName, hs, err := vm.ResolveHomeVolume(
+		context.Background(),
+		mock,
+		key,
+		image.ImageInfo{Digest: "sha256:new"},
+		false,
+		state.Fingerprints{},
+		recovered,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if volName != recovered {
+		t.Errorf("volume = %q, want recovered %q", volName, recovered)
+	}
+	if hs.EnvState.Hash != "envhash" || hs.NetworkState.Hash != "nethash" ||
+		hs.SecretState.Hash != "secrethash" || hs.MountState.Hash != "mountHash" {
+		t.Errorf("fingerprints not preserved: %+v", hs)
+	}
+	if hs.ImageDigest != "sha256:new" {
+		t.Errorf("digest = %q, want %q", hs.ImageDigest, "sha256:new")
+	}
+	persisted, err := state.ReadState(key)
+	if err != nil {
+		t.Fatalf("state not written: %v", err)
+	}
+	if persisted.NetworkState.Hash != "nethash" {
+		t.Errorf("persisted network fingerprint = %q, want %q", persisted.NetworkState.Hash, "nethash")
 	}
 }
 
