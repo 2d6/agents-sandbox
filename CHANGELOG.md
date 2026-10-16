@@ -71,6 +71,10 @@ command reports the bare version (e.g. `0.1.0`).
 - Sessions started inside a git worktree now bind the enclosing checkout at `/workspace` and start the agent in that
   worktree, so bare checkouts whose worktrees live inside the checkout work host-and-VM-consistently; a worktree outside
   its checkout keeps the current behavior and warns.
+- Internal: runtime resolution and installation now pass the private home explicitly via the SDK's `RuntimeConfig.Home`
+  (`configpaths.MSBHome()`), so they no longer depend on `MSB_HOME` having been applied first; `MSB_HOME` still governs
+  the FFI cache and non-setup SDK operations. `configpaths.MSBHome` is the single source of truth and
+  `runtime.PrivateHome` delegates to it. #160.
 
 ### Fixed
 
