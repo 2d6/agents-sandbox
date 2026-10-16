@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
@@ -355,25 +354,133 @@ func TestPrepareRuntimeRejectsUnknownFutureRelation(t *testing.T) {
 	}
 }
 
-func TestPrepareRuntimeMismatchIsPlainError(t *testing.T) {
+func TestPrepareRuntimeMismatchRepairsByForceInstalling(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		version string
+	}{
+		{name: "older", version: olderMSBVersion(t)},
+		{name: "newer", version: newerMSBVersion(t)},
+		{name: "unknown", version: "not-a-version"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetRuntimeState(t)
+			home := writeRuntimeFixture(t, test.version, true)
+			t.Setenv("HOME", home)
+			unsetEnv(t, "MSB_HOME")
+			unsetEnv(t, "MSB_PATH")
+
+			oldInstall, oldValidate := installRuntime, validateRuntime
+			installCalls, validateCalls := 0, 0
+			installRuntime = func(context.Context) error {
+				installCalls++
+				writeRuntimeFiles(t, home, currentMSBVersion())
+				return nil
+			}
+			validateRuntime = func(context.Context) error {
+				validateCalls++
+				return nil
+			}
+			t.Cleanup(func() {
+				installRuntime = oldInstall
+				validateRuntime = oldValidate
+			})
+
+			if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+				t.Fatalf("prepareRuntime() error = %v", err)
+			}
+			if installCalls != 1 || validateCalls != 1 {
+				t.Fatalf(
+					"installRuntime calls = %d, validateRuntime calls = %d; want 1 each",
+					installCalls,
+					validateCalls,
+				)
+			}
+		})
+	}
+}
+
+func TestPrepareRuntimeIncompleteRepairsAfterRemovingStrayFile(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, currentMSBVersion(), false)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInstall, oldValidate := installRuntime, validateRuntime
+	installRuntime = func(context.Context) error {
+		if _, err := os.Stat(filepath.Join(home, "bin", "msb")); !os.IsNotExist(err) {
+			t.Fatalf("stray runtime file not removed before install: err = %v", err)
+		}
+		writeRuntimeFiles(t, home, currentMSBVersion())
+		return nil
+	}
+	validateRuntime = func(context.Context) error { return nil }
+	t.Cleanup(func() {
+		installRuntime = oldInstall
+		validateRuntime = oldValidate
+	})
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+		t.Fatalf("prepareRuntime() error = %v", err)
+	}
+}
+
+func TestPrepareRuntimeIncompleteRemovalFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, currentMSBVersion(), true)
+	binMSB := filepath.Join(home, "bin", "msb")
+	if err := os.Remove(binMSB); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(binMSB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binMSB, "keep"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want incomplete runtime removal error")
+	}
+}
+
+func TestPrepareRuntimeRepairValidationFails(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
 	t.Setenv("HOME", home)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 
-	ui := &termio.Mock{IsInteractiveResult: true}
-	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
-		t.Fatal("runtime mismatch must not open an interactive menu")
-		return "", nil
+	oldInstall, oldValidate := installRuntime, validateRuntime
+	installRuntime = func(context.Context) error {
+		writeRuntimeFiles(t, home, currentMSBVersion())
+		return nil
 	}
+	validateRuntime = func(context.Context) error { return errors.New("validation failed") }
+	t.Cleanup(func() {
+		installRuntime = oldInstall
+		validateRuntime = oldValidate
+	})
 
-	err := prepareRuntime(context.Background(), ui, "0.2.0")
-	if err == nil {
-		t.Fatal("prepareRuntime() error = nil, want plain mismatch error")
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want post-repair validation error")
 	}
-	if !strings.Contains(err.Error(), "not the SDK-pinned version") {
-		t.Fatalf("error = %v, want SDK-pinned wording", err)
+}
+
+func TestPrepareRuntimeRepairInstallFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInstall := installRuntime
+	installRuntime = func(context.Context) error { return errors.New("install failed") }
+	t.Cleanup(func() { installRuntime = oldInstall })
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want repair install error")
 	}
 }
 

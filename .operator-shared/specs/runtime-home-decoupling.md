@@ -1,6 +1,6 @@
 ---
-description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: a private XDG data home, no user-facing msb, retired version-matching recovery, and an opt-in copy of legacy home volumes whose progress is tracked in a host-owned `migrations` registry (`runtime_home` entry with `copying`/`completed`/`dismissed` status plus transient `copied`/`kept`/`excluded` sets) in root `state.yaml`. The offer surfaces present private volumes of unclear status, and `volume remove [--force]` is the sanctioned cleanup path.
-read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu, the legacy home-volume copy prompt and its persisted migration state, the ambiguous-state offer, or the `volume remove` cleanup command.
+description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: a private XDG data home, no user-facing msb, retired version-matching recovery (a stale runtime our own previous release left in the private home is silently force-reinstalled, partial pairs removed first), and an opt-in copy of legacy home volumes whose progress is tracked in a host-owned `migrations` registry (`runtime_home` entry with `copying`/`completed`/`dismissed` status plus transient `copied`/`kept`/`excluded` sets) in root `state.yaml`. The offer surfaces present private volumes of unclear status, and `volume remove [--force]` is the sanctioned cleanup path.
+read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu or the silent stale-runtime repair, the legacy home-volume copy prompt and its persisted migration state, the ambiguous-state offer, or the `volume remove` cleanup command.
 ---
 
 # Runtime home decoupling
@@ -44,7 +44,9 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 - The user's `~/.microsandbox` is never read or written by normal operation.
 - No user-facing `msb` command is installed or advertised by agents-sandbox.
 - The version-mismatch recovery menu is retired, because the mismatch it
-  handled can no longer arise from the user's side.
+  handled can no longer arise from the user's side; a runtime our own previous
+  release left in the private home is repaired silently instead (see
+  "Retire version-matching recovery, repair our own stale runtime").
 - Existing users get a one-time, opt-in path to carry their old sandbox home
   volumes into the new private home, without forcing it.
 
@@ -119,12 +121,22 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   agents-sandbox is the only thing installed, there is no `msb` command — that
   is expected, not a defect.
 
-### Retire version-matching recovery
+### Retire version-matching recovery, repair our own stale runtime
 
-- The mismatch recovery menu is removed. Since our runtime is always the
-  SDK-pinned one in our private home, a mismatch from the user's side cannot
-  arise. Any internal sanity check that remains is a plain error, not an
-  interactive recovery flow.
+- The mismatch recovery menu is removed: a mismatch from the user's side cannot
+  arise, because the private home is ours alone and the user's `~/.microsandbox`
+  is never consulted.
+- A mismatch *can* still arise from our own side, when an agents-sandbox upgrade
+  bumps the SDK pin over a runtime a previous release installed into the private
+  home. At startup, any non-equal relation (older, newer, unknown, or an
+  incomplete pair) is repaired silently by force-installing the SDK-pinned
+  runtime — the upstream installer replaces a complete pair under `Force`.
+- The upstream installer **refuses to repair an incomplete pair** (`Force` does
+  not either), so a stray file from a partial install is removed before the
+  force-install. Removing the partial first is safe: it is unusable, and the
+  installer publishes the replacement pair atomically.
+- This is the one surviving piece of version handling, and it is a repair, not a
+  recovery flow: no prompt, no choice, no error under normal conditions.
 
 ### Clean break, with stale-state safety
 

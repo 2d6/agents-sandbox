@@ -80,6 +80,14 @@ var (
 		)
 		return err
 	}
+	installRuntime = func(ctx context.Context) error {
+		_, err := msbSdk.InstallRuntime(
+			ctx,
+			msbSdk.RuntimeConfig{},
+			msbSdk.InstallOptions{Force: true},
+		)
+		return err
+	}
 	validateRuntime = sandboxmsb.ValidateInstalled
 )
 
@@ -219,13 +227,44 @@ func prepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) e
 		runtimeState.prepared = true
 		return nil
 	case RuntimeNewer, RuntimeOlder, RuntimeUnknown, RuntimeIncomplete:
-		return runtimeMismatchError(
-			inspection,
-			"runtime is not the SDK-pinned version; reinstall agents-sandbox runtime",
-		)
+		if err := repairRuntime(ctx, inspection); err != nil {
+			return err
+		}
+		sandboxmsb.SkipRuntimeInstall()
+		runtimeState.prepared = true
+		return nil
 	default:
 		return fmt.Errorf("unknown msb runtime relation %q", inspection.Relation)
 	}
+}
+
+// repairRuntime provisions the SDK-pinned runtime into the private home when the
+// pair there is stale or incomplete. The private home is ours alone, so a
+// mismatch can only come from one of our own earlier releases pinning a
+// different SDK — never from the user — and is repaired silently. The installer
+// replaces a complete pair under Force but refuses to repair an incomplete one,
+// so any stray file from a partial install is removed first.
+func repairRuntime(ctx context.Context, inspection Inspection) error {
+	if inspection.Relation == RuntimeIncomplete {
+		if err := removeRuntimeFiles(inspection); err != nil {
+			return fmt.Errorf("remove incomplete msb runtime: %w", err)
+		}
+	}
+	if err := installRuntime(ctx); err != nil {
+		return fmt.Errorf("repair msb runtime: %w", err)
+	}
+	return validatePreparedRuntime(ctx)
+}
+
+// removeRuntimeFiles deletes the private-home runtime pair, tolerating files
+// that are already absent.
+func removeRuntimeFiles(inspection Inspection) error {
+	for _, path := range []string{inspection.MSBPath, inspection.LibkrunfwPath} {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 func runtimeMismatchError(inspection Inspection, reason string) error {
