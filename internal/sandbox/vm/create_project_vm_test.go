@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -103,10 +101,10 @@ func TestSetUpSandboxDockerdError(t *testing.T) {
 // TestSetUpSandboxEnsureDaemonError covers the ensureDaemon failure branch in
 // setUpSandbox: the daemon never becomes healthy and starting it fails.
 func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", 0, errors.New("daemon shell failed")
 	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
@@ -114,9 +112,6 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 		FSValue_: msb.NewTestFS(nil, nil),
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
-		},
-		ExecDetachedFn: func(context.Context, string, []string, ...msbSdk.JobExecOption) (msb.Job, error) {
-			return nil, errors.New("daemon start failed")
 		},
 	}
 
@@ -141,13 +136,13 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 // setUpSandbox (config files are provisioned but the write fails; this is
 // logged as a warning and does not fail the sandbox setup).
 func TestSetUpSandboxProvisionWarn(t *testing.T) {
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	t.Cleanup(func() { SetDaemonShellFunc(orig) })
 
 	fs := msb.NewTestFS(nil, nil)
 	fs.WriteErr = errors.New("write denied")

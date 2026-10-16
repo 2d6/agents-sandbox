@@ -17,6 +17,7 @@ func TestStartDockerdCtxDone(t *testing.T) {
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(true, 0, "", "", nil),
 			dockerdReadyCmd:       msb.NewTestResult(false, 1, "", "", nil),
+			dockerdRestartCmd:     msb.NewTestResult(true, 0, "", "", nil),
 		},
 	}
 

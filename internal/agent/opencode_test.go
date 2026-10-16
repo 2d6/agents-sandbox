@@ -48,25 +48,25 @@ func TestOpencodeWorktreeCreateCmdUsesName(t *testing.T) {
 	}
 }
 
-func TestOpencodeDaemonCommand(t *testing.T) {
+func TestOpencodeDaemonStartCmd(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	daemon := mustDaemon(t, a)
-	local := daemon.DaemonCommand(false)
-	if local.Binary != "opencode" || !slices.Contains(local.Args, "serve") {
-		t.Errorf("local DaemonCommand = %+v, want opencode serve", local)
+	local := daemon.DaemonStartCmd(false)
+	if !strings.Contains(local, "--hostname 127.0.0.1") {
+		t.Errorf("local DaemonStartCmd = %q, want hostname 127.0.0.1", local)
 	}
-	if !slices.Contains(local.Args, "--hostname") || !slices.Contains(local.Args, "127.0.0.1") {
-		t.Errorf("local DaemonCommand = %+v, want --hostname 127.0.0.1", local)
-	}
-	serve := daemon.DaemonCommand(true)
-	if !slices.Contains(serve.Args, "0.0.0.0") {
-		t.Errorf("serve DaemonCommand = %+v, want hostname 0.0.0.0", serve)
+	serve := daemon.DaemonStartCmd(true)
+	if !strings.Contains(serve, "--hostname 0.0.0.0") {
+		t.Errorf("serve DaemonStartCmd = %q, want hostname 0.0.0.0", serve)
 	}
 }
 
-func TestOpencodeDaemonHealthCmd(t *testing.T) {
+func TestOpencodeDaemonKillAndHealthCmd(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	daemon := mustDaemon(t, a)
+	if daemon.DaemonKillCmd() == "" {
+		t.Error("DaemonKillCmd must not be empty")
+	}
 	if !strings.Contains(daemon.DaemonHealthCmd(), "127.0.0.1:4096") {
 		t.Errorf("DaemonHealthCmd = %q, want port 4096", daemon.DaemonHealthCmd())
 	}

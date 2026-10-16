@@ -47,9 +47,6 @@
 - `bare-worktree-layout.md`
   - Description: Design for issue #145: make git worktrees host-and-VM-consistent by supporting a bare checkout whose worktrees live inside it. Pattern priority order (non-bare checkout default, non-repo folder, bare-with-worktrees esoteric); the single code change is the `/workspace` bind rule (bind the smallest enclosing checkout that contains the CWD, so a worktree session always exposes its worktree) plus guest-CWD derivation for subdirectories; VM/state/home-volume/image identity is deliberately unchanged (no slug scoping, no migration, no parser changes; outside-checkout worktrees keep current behavior with a termio warning); the opencode server directory model (per-request `directory` from `--dir`, not server-predetermined) as background; convention-only folder taxonomy delivered as a `docs/` recipe + 1:1 `.agents/skills/` copy; `--worktree` kept; no `asb worktree` command.
   - Read If: Implementing or reviewing issue #145 (bare checkout with worktrees inside), the `/workspace` bind-source resolution, guest-CWD derivation, the outside-worktree no-scoping decision, or the worktree-layout recipe/skill.
-- `detached-jobs.md`
-  - Description: Contract for issue #146: `dockerd` and the agent `serve` daemon run as microsandbox runtime-owned detached jobs (`Sandbox.ExecDetached` + a minimal `Job` seam), replacing `nohup … &`, logfile polling, and `pkill` plumbing. No shell fallback; readiness stays health-probe based with `Job.Inspect` crash detection and a `Job.Logs` tail on failure; no live `FollowLogs`; idempotency by health probe and kill-by-command rediscovery (jobs have no labels, no persisted job IDs); dockerd keeps a minimal `containerd`/pid/socket residue cleanup; the agent `DaemonProvider` exposes a structured `DaemonCommand`. Implemented on `issue-146-detached-jobs`.
-  - Read If: Working on the VM's dockerd/agent-serve startup, readiness, or restart in `internal/sandbox/vm`, the msb detached-job seam, or the agent `DaemonProvider` daemon command.
 
 ### `plans/` - TDD implementation plans
 
@@ -95,6 +92,3 @@
 - `2026-10-15-custom-base-toolbase.md`
   - Description: TDD plan for #143: introduce a tool-owned `agents-sandbox-toolbase` (`debian:trixie-slim` + `curl`/`ca-certificates`/`tar`) as the parent of the node/agent/docker stages, rewire them off the user's base, remove the now-dead `command -v` install probes, drop `curl`/`tar` from the docker runtime-prerequisite check, and cover a custom base without `curl`/`tar` in integration. Implemented on `issue-143-custom-base-toolbase`.
   - Read If: Implementing or reviewing #143 / the tool-base decoupling.
-- `2026-10-16-detached-jobs.md`
-  - Description: TDD plan for `specs/detached-jobs.md` (issue #146): msb seam additions (`ExecDetached`/`Job`/`GetJob`/`ListJobs`), structured `agent.DaemonCommand`, dockerd + agent-serve job launch in `internal/sandbox/vm` (`detached.go` helpers: `jobExited`/`jobTailLogs`/`killJobsByCommand`/`awaitJobReady`/`probeHealthy`), removal of the shell-backgrounding path, an `integration`-tagged jobs round-trip test, and docs/spec/changelog updates. Implemented on `issue-146-detached-jobs`.
-  - Read If: Reviewing or resuming issue #146 / the detached-job work.
