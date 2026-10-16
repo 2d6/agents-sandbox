@@ -59,7 +59,7 @@ can never fire spuriously. This closes the concurrent window and the crash route
 The deleted-state route is only partly addressed: when `state.yaml` is deleted while a VM and its volume survive,
 `ResolveHomeVolume` sees no state, `EnsureNewHome` mints a **new** volume and seeds it, and `homeVolumeChange` then forces
 a rebuild labelled "home volume" — the old volume is orphaned. The spurious "network policy" attribution is gone, but a
-state-loss rebuild remains; that is a pre-existing, separate concern.
+state-loss rebuild remains; tracked separately as #219.
 
 The trade-off: the seed write briefly asserts "applied" before the VM exists. If creation then fails the state overstates
 what is baked in, which is harmless because with no VM `PlanReconfig` short-circuits to no recreate. Recreated VMs (a
