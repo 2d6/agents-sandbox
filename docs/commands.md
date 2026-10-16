@@ -412,11 +412,14 @@ agents-sandbox image inspect <ref> --quiet         # reference only
 
 #### image remove
 
-Remove one or more cached runner images by reference. Refuses when an image is
-still in use — recorded by a project's state file or held by a live project/task
-sandbox — naming the referencing projects, so an in-use image is never silently
-deleted; pass `--force` to remove it anyway. Prompts for confirmation unless the
-global `--yes` is set; non-interactively, `--yes` is required.
+Remove one or more cached runner images by reference. Only agents-sandbox runner
+images (`agents-sandbox/runner-*`) are accepted; any other reference is refused,
+and `--force` does not override that ownership boundary. Refuses when a runner
+image is still in use — recorded by a project's state file or held by a live
+project/task sandbox — naming the referencing projects, so an in-use image is
+never silently deleted; pass `--force` to remove it anyway. Prompts for
+confirmation unless the global `--yes` is set; non-interactively, `--yes` is
+required.
 
 ```console
 agents-sandbox image remove agents-sandbox/runner-myproj-aBc1234D:latest
@@ -425,7 +428,7 @@ agents-sandbox image remove <ref>... --force   # remove even when still in use
 
 - **Args:** one or more `ref`
 - **Flags:**
-  - `--force` — remove even when a project or sandbox still references the image
+  - `-f`/`--force` — remove even when a project or sandbox still references the image
   - `--yes` (global) — skip the confirmation prompt
 
 **Aliases:** `image rm`
@@ -476,19 +479,19 @@ agents-sandbox sandbox inspect <name> --quiet         # name only
 
 Remove a project sandbox VM by name. Only agents-sandbox project VMs
 (`agents-sandbox-vm-*`) are accepted. Refuses a running VM unless `--force` is
-set, which stops it first. `--force` also drops the project's persisted state, so
-the next run starts fresh; without it, the recorded state is left intact. Prompts
-for confirmation unless the global `--yes` is set; non-interactively, `--yes` is
+set, which stops it first. The project's persisted state is left intact, so the
+next run recreates the VM against the same recorded home volume. Prompts for
+confirmation unless the global `--yes` is set; non-interactively, `--yes` is
 required.
 
 ```console
 agents-sandbox sandbox remove agents-sandbox-vm-aBc1234D
-agents-sandbox sandbox remove <name> --force   # stop a running VM and drop its state
+agents-sandbox sandbox remove <name> --force   # stop a running VM first
 ```
 
 - **Args:** `name` — the sandbox name
 - **Flags:**
-  - `--force` — stop a running VM and drop its persisted project state
+  - `-f`/`--force` — remove a running VM (stopping it first)
   - `--yes` (global) — skip the confirmation prompt
 
 **Aliases:** `sandbox rm`
@@ -629,7 +632,7 @@ agents-sandbox volume remove agents-sandbox-home-myproj-aBc1234D-opencode-202608
 
 - **Args:** one or more `volume-name`
 - **Flags:**
-  - `--force` — remove even when a project still references the volume
+  - `-f`/`--force` — remove even when a project still references the volume
   - `--yes` (global) — skip the confirmation prompt
 
 **Aliases:** `volume rm`

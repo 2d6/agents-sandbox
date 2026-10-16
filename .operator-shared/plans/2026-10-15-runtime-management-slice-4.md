@@ -13,8 +13,10 @@
 ## Global Constraints
 
 - Every command operates on the private runtime home (`$MSB_HOME`) and the agents-sandbox state roots only — never a user `~/.microsandbox`.
-- `--force` overrides a guard; `--yes` skips a confirmation prompt — distinct flags that may coexist.
+- Every removal exposes `-f/--force` (bound with `BoolVarP`, not `BoolP`, so the closure var updates) and `--yes`.
+- `--force` overrides the reference/in-use/running-state guards; `--yes` skips the confirmation prompt — distinct flags that may coexist. Ownership/scope guards (only `agents-sandbox-vm-*` VMs / `agents-sandbox/runner-*` images) are **hard** and not `--force`-overridable.
 - Guards are fail-closed: an unreadable or corrupt project state file blocks a guarded removal unless `--force`.
+- `sandbox remove` never drops `state.yaml`: the recorded home volume must survive so the next run reuses it.
 - Target platforms: Linux (KVM) and macOS (Apple Silicon).
 - Follow existing conventions: Cobra group subcommands with `rm` aliases, `termio` for output, fail-closed errors that name the referencing projects.
 - Do not restate implementation in the brain; keep the spec/CHANGELOG factual.
@@ -25,23 +27,29 @@
 - `sandbox remove <name>` for a name that is not an agents-sandbox project VM (e.g. a user's own msb sandbox): must refuse rather than touching an object we do not own.
 - A destructive removal in a non-interactive context (CI, scripts) without `--yes`: must fail fast with `termio.ErrConfirmationRequired`, never block on stdin.
 - `image remove` when a project `state.yaml` is corrupt: must fail closed (guard error) instead of removing a possibly-in-use image.
-- `sandbox remove --force` on an already-stopped VM: must still drop persisted state — `force` is the state-drop switch, not a running-only switch.
+- `image remove <non-runner-ref>`: must be a hard ownership refusal that `--force` does not override.
+- `sandbox remove --force` on an already-stopped VM: `force` permits removing a running VM only; it must **not** drop `state.yaml` — the recorded home volume survives and the next run reuses it.
 
 ---
 
 ### Task 1: Shared confirmation helper and key formatter
 
 **Files:**
-- Modify: `internal/termio/termio.go` (add `ConfirmAction` near `ErrConfirmationRequired`)
+- Modify: `internal/termio/termio.go` (add `ErrCancelled` + `ConfirmAction` near `ErrConfirmationRequired`)
 - Modify: `internal/sandbox/state/references.go` (add `FormatKeys`)
+- Modify: `internal/sandbox/naming/naming.go` (add `IsProjectSandbox`/`IsTaskSandbox`/`IsLauncherSandbox`)
+- Modify: `internal/sandbox/pruning/state.go` (reuse the naming helpers)
 - Test: `internal/termio/confirm_test.go` (create)
 - Test: `internal/sandbox/state/references_test.go` (add `TestFormatKeys`)
+- Test: `internal/sandbox/naming/naming_test.go` (add `TestIsLauncherSandbox`)
 
 **Interfaces:**
 - Consumes: `termio.UI` (`Confirm(prompt string, defaultYes bool) (bool, error)`), `termio.ErrConfirmationRequired`.
 - Produces:
-  - `func ConfirmAction(ui UI, prompt string) error` — prompts; returns `ErrConfirmationRequired` non-interactively without `--yes`; returns `errors.New("cancelled")` when declined.
+  - `var ErrCancelled = errors.New("cancelled")` — the declined-prompt sentinel; `ConfirmAction` returns it, tests match with `errors.Is`.
+  - `func ConfirmAction(ui UI, prompt string) error` — prompts; returns `ErrConfirmationRequired` non-interactively without `--yes`; returns `ErrCancelled` when declined.
   - `func FormatKeys(keys []Key) string` — renders `Key` labels as sorted `slug/agent` (or `slug` for a legacy agent-less key) joined with `", "`.
+  - `func IsProjectSandbox(name string) bool` / `IsTaskSandbox(name string) bool` / `IsLauncherSandbox(name string) bool` — the shared sandbox-name-type predicates that `image` and `pruning` both need, replacing the duplicated prefix checks.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -76,9 +84,8 @@ func TestConfirmActionNonInteractiveFails(t *testing.T) {
 
 func TestConfirmActionDeclined(t *testing.T) {
 	ui := &Mock{IsInteractiveResult: true, ConfirmResult: false}
-	if err := ConfirmAction(ui, "Remove it?"); err == nil ||
-		err.Error() != "cancelled" {
-		t.Fatalf("ConfirmAction(declined) = %v, want cancelled", err)
+	if err := ConfirmAction(ui, "Remove it?"); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("ConfirmAction(declined) = %v, want ErrCancelled", err)
 	}
 }
 
@@ -114,20 +121,27 @@ Expected: FAIL — `undefined: ConfirmAction` / `undefined: FormatKeys`.
 Add `errors` to the imports if absent.
 
 ```go
+// ErrCancelled is returned by ConfirmAction when the user declines a prompt.
+var ErrCancelled = errors.New("cancelled")
+
 // ConfirmAction prompts for a destructive action and maps the answer to an
 // error: nil on yes, ErrConfirmationRequired when non-interactive without
-// assume-yes (from ui.Confirm), and a "cancelled" error when declined.
+// assume-yes (from ui.Confirm), and ErrCancelled when declined.
 func ConfirmAction(ui UI, prompt string) error {
 	ok, err := ui.Confirm(prompt, false)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return errors.New("cancelled")
+		return ErrCancelled
 	}
 	return nil
 }
 ```
+
+Add the `naming` sandbox-type predicates and rewire `pruning/state.go`
+(`buildPruneState`/`prunable`) onto them; `image/remove.go` (Task 3) reuses
+`IsLauncherSandbox`.
 
 - [ ] **Step 4: Implement `FormatKeys` in `internal/sandbox/state/references.go`**
 
@@ -227,10 +241,13 @@ func buildVolumeRemoveCmd(ui termio.UI) *cobra.Command {
 			return volume.RemoveVolumes(cmd.Context(), args, force, ui)
 		},
 	}
-	cmd.Flags().BoolVar(&force, flagForce, false, "Remove even when a project still references the volume")
+	cmd.Flags().BoolVarP(&force, flagForce, flagForce[:1], false, "Remove even when a project still references the volume")
 	return cmd
 }
 ```
+
+Note: bind with `BoolVarP(&force, ...)`, never `BoolP(...)` — `BoolP` allocates a
+value the closure var never sees, so `--force` would parse but stay `false`.
 
 - [ ] **Step 3: Update `internal/sandbox/volume/remove_test.go`**
 
@@ -357,11 +374,15 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// RemoveImages removes the named runner image references. Unless force is set,
-// it refuses when a reference is still in use — recorded by a project state or
-// held by a live project/task sandbox — naming the referencing projects, so an
-// in-use image is never silently deleted. The scan fails closed.
+// RemoveImages removes the named runner image references. It first refuses any
+// reference that is not an agents-sandbox runner image (a hard ownership guard
+// that --force does not override), then, unless force is set, refuses an in-use
+// reference — recorded by a project state or held by a live project/task sandbox
+// — naming the referencing projects. Both guards fail closed.
 func RemoveImages(ctx context.Context, refs []string, force bool, ui termio.UI) error {
+	if err := refuseNonRunnerRefs(refs); err != nil {
+		return err
+	}
 	if !force {
 		references, err := inUseImageReferences(ctx)
 		if err != nil {
@@ -382,6 +403,25 @@ func RemoveImages(ctx context.Context, refs []string, force bool, ui termio.UI) 
 	return nil
 }
 
+// refuseNonRunnerRefs fails closed on a reference that is not an agents-sandbox
+// runner image. Unlike the in-use guard, this ownership boundary is not
+// overridable by --force.
+func refuseNonRunnerRefs(refs []string) error {
+	var foreign []string
+	for _, ref := range refs {
+		if !strings.HasPrefix(ref, naming.ImagePrefix) {
+			foreign = append(foreign, ref)
+		}
+	}
+	if len(foreign) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"refusing to remove image(s) not managed by agents-sandbox (want prefix %q): %s",
+		naming.ImagePrefix, strings.Join(foreign, ", "),
+	)
+}
+
 // inUseImageReferences unions the project-state ownership scan with the image
 // references held by the live launcher sandboxes (project VMs and task
 // workers), reusing the fail-closed Slice 1 seam.
@@ -392,8 +432,7 @@ func inUseImageReferences(ctx context.Context) (map[string][]state.Key, error) {
 	}
 	kept := make([]msb.SandboxHandle, 0, len(handles))
 	for _, h := range handles {
-		name := h.Name()
-		if strings.HasPrefix(name, naming.VMPrefix) || strings.HasPrefix(name, naming.TaskPrefix) {
+		if naming.IsLauncherSandbox(h.Name()) {
 			kept = append(kept, h)
 		}
 	}
@@ -440,7 +479,7 @@ func buildImageRemoveCmd(ui termio.UI) *cobra.Command {
 			return image.RemoveImages(cmd.Context(), args, force, ui)
 		},
 	}
-	cmd.Flags().BoolVar(&force, flagForce, false, "Remove even when a project or sandbox still references the image")
+	cmd.Flags().BoolVarP(&force, flagForce, flagForce[:1], false, "Remove even when a project or sandbox still references the image")
 	return cmd
 }
 ```
@@ -472,8 +511,8 @@ git commit -m "feat(image): guard and confirm image remove (#172)"
 - Test: `cmd/agents-sandbox/cli_sandbox_remove_test.go` (create)
 
 **Interfaces:**
-- Consumes: `msb.Get().GetSandbox(ctx, name)`; `msb.IsSandboxInactive(status)`; `msb.IsReplaced(err)`, `msb.IsNotFound(err)`; `naming.VMPrefix`, `naming.ArtifactFor(name)`; `state.RemoveState(key)`; `termio.ConfirmAction`.
-- Produces: `func RemoveSandbox(ctx context.Context, name string, force bool, ui termio.UI) error`.
+- Consumes: `msb.Get().GetSandbox(ctx, name)`; `msb.IsSandboxInactive(status)`; `naming.VMPrefix`; `termio.ConfirmAction`/`termio.ErrCancelled`.
+- Produces: `func RemoveSandbox(ctx context.Context, name string, force bool, ui termio.UI) error`. No `state.RemoveState` — `--force` must not drop `state.yaml`.
 
 - [ ] **Step 1: Write the failing CLI test** in `cmd/agents-sandbox/cli_sandbox_remove_test.go`
 
@@ -515,13 +554,14 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // RemoveSandbox removes a project VM by name. It removes only agents-sandbox
-// project VMs, refuses a running VM unless force is set (a forced removal stops
-// it first), and drops the persisted project state only when force is set.
+// project VMs (a hard ownership guard), refuses a VM that is not stopped unless
+// force is set, confirms before mutating, and leaves the persisted project state
+// intact so the next run reuses the recorded home volume. A forced removal stops
+// the VM after the confirmation succeeds, immediately before removing.
 func RemoveSandbox(ctx context.Context, name string, force bool, ui termio.UI) error {
 	if !strings.HasPrefix(name, naming.VMPrefix) {
 		return fmt.Errorf("%q is not an agents-sandbox project VM", name)
@@ -530,42 +570,20 @@ func RemoveSandbox(ctx context.Context, name string, force bool, ui termio.UI) e
 	if err != nil {
 		return fmt.Errorf("remove sandbox %q: %w", name, err)
 	}
-	if !msb.IsSandboxInactive(handle.Status()) {
-		if !force {
-			return fmt.Errorf("sandbox %q is running; stop it first or pass --force", name)
-		}
-		if err := handle.Stop(ctx); err != nil {
-			return fmt.Errorf("stop sandbox %q: %w", name, err)
-		}
+	stopped := msb.IsSandboxInactive(handle.Status())
+	if !stopped && !force {
+		return fmt.Errorf("sandbox %q is not stopped; stop it first or pass --force", name)
 	}
 	if err := termio.ConfirmAction(ui, fmt.Sprintf("Remove sandbox %q?", name)); err != nil {
 		return err
 	}
+	if !stopped {
+		if err := handle.Stop(ctx); err != nil {
+			return fmt.Errorf("stop sandbox %q: %w", name, err)
+		}
+	}
 	if err := handle.Remove(ctx); err != nil {
-		if msb.IsReplaced(err) {
-			return fmt.Errorf("remove sandbox %q: %w", name, err)
-		}
-		if msb.IsNotFound(err) {
-			return dropSandboxState(name, force)
-		}
 		return fmt.Errorf("remove sandbox %q: %w", name, err)
-	}
-	return dropSandboxState(name, force)
-}
-
-// dropSandboxState removes the persisted per-agent state that points at a
-// project VM, but only when force is set. A legacy agent-less or unparsable
-// name drops nothing.
-func dropSandboxState(name string, force bool) error {
-	if !force {
-		return nil
-	}
-	artifact := naming.ArtifactFor(name)
-	if artifact.Slug == "" || artifact.Agent == "" {
-		return nil
-	}
-	if err := state.RemoveState(state.Key{Slug: artifact.Slug, Agent: artifact.Agent}); err != nil {
-		return fmt.Errorf("remove state for sandbox %q: %w", name, err)
 	}
 	return nil
 }
@@ -578,7 +596,8 @@ Add `cmd.AddCommand(buildSandboxRemoveCmd(ui))` in `buildSandboxCmd`, and:
 ```go
 // buildSandboxRemoveCmd builds `sandbox remove <name>`, which removes a project
 // VM by name. It refuses a running VM unless --force is set (which stops it
-// first), and drops the persisted project state only when --force is set.
+// first); the persisted project state is left intact so the next run reuses the
+// recorded home volume.
 func buildSandboxRemoveCmd(ui termio.UI) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
@@ -587,19 +606,19 @@ func buildSandboxRemoveCmd(ui termio.UI) *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		Short:   "Remove a project sandbox VM by name",
 		Long: "Remove an agents-sandbox project VM. Refuses a running VM unless --force is set, " +
-			"which stops it first. --force also drops the project's persisted state. Prompts unless --yes is set.",
+			"which stops it first. The project's persisted state is left intact. Prompts unless --yes is set.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.RemoveSandbox(cmd.Context(), args[0], force, ui)
 		},
 	}
-	cmd.Flags().BoolVar(&force, flagForce, false, "Remove a running VM and drop its persisted project state")
+	cmd.Flags().BoolVarP(&force, flagForce, flagForce[:1], false, "Remove a running VM (stopping it first)")
 	return cmd
 }
 ```
 
 - [ ] **Step 5: Add package unit tests** in `internal/sandbox/vm/remove_test.go`
 
-Model on the CLI cases at the package level: prefix refusal, running refusal, force stop+remove, force state drop (`state.ReadState` returns not-found), replace fails closed (`RemoveErr` seeded with a replaced error, e.g. via `msb.IsReplaced`), and the assume-yes UI. Note: `remove.go`'s package is `vm`, whose tests already set up `configpaths.WithMockConfigPaths`.
+Model on the CLI cases at the package level: prefix refusal, non-stopped refusal, force stop+remove (stopped only after confirming), declined-confirmation does not stop, `--force` **keeps** state (`state.ReadState` still succeeds and the home volume survives), a replaced `Remove` error fails closed, and the assume-yes UI. Note: `remove.go`'s package is `vm`, whose tests already set up `configpaths.WithMockConfigPaths`.
 
 - [ ] **Step 6: Run tests**
 
@@ -629,9 +648,9 @@ git commit -m "feat(sandbox): guarded sandbox remove with running/state semantic
 
 - [ ] **Step 1: Update `docs/commands.md`**
 
-- `image remove <ref>...` (`rm`): by-reference deletion; `--force` overrides the in-use guard; prompts unless `--yes`. Table the flags `--force` and the global `--yes`.
-- `sandbox remove <name>` (`rm`): removes a project VM; refuses a running VM unless `--force` (stops it first); `--force` drops persisted state; prompts unless `--yes`.
-- `volume remove <name>...`: add that it now prompts unless `--yes` (keeping the `--force` guard note).
+- `image remove <ref>...` (`rm`): by-reference deletion; accepts only `agents-sandbox/runner-*` refs (hard ownership refusal, not `--force`-overridable); `-f`/`--force` overrides the in-use guard; prompts unless `--yes`. Table the flags `-f`/`--force` and the global `--yes`.
+- `sandbox remove <name>` (`rm`): removes a project VM; accepts only `agents-sandbox-vm-*`; refuses a running VM unless `-f`/`--force` (stops it first); leaves persisted state intact; prompts unless `--yes`.
+- `volume remove <name>...`: add that it now prompts unless `--yes` and exposes `-f`/`--force`.
 
 - [ ] **Step 2: Update `CHANGELOG.md`**
 
@@ -671,5 +690,5 @@ git commit -m "docs: record runtime-management Slice 4 (#172)"
 - **Spec coverage:** Slice 4 requires `image remove` (guarded, naming projects) — Task 3; `sandbox remove` with `--force` dropping state — Task 4; confirmation under `--yes` for all removals — Tasks 1–2 (retrofit) and 3–4 (new commands); fail-closed image guard — Task 3 reuses Slice 1. Docs/CHANGELOG — Task 5. Covered.
 - **Step scan:** Each step names the exact signature, guard order, and test assertions; bodies appear only where the algorithm (guard→confirm→remove ordering, name-key derivation) is not implied by a signature.
 - **Type consistency:** `RemoveVolumes`/`RemoveImages`/`RemoveSandbox` all take `(ctx, ..., force bool, ui termio.UI)`; helpers `inUseImageReferences`, `refuseReferencedImages`, `dropSandboxState` are defined in the task that uses them; `state.FormatKeys` and `termio.ConfirmAction` are produced in Task 1 before any consumer.
-- **Review Focus:** each of the five lines has an owning task test (missing-ref error in Task 3 Step 1; non-VM-name refusal in Task 4 Step 1; non-interactive `ErrConfirmationRequired` in Tasks 2 and 3; corrupt-state fail-closed in Task 2 Step 5 and Task 3 Step 5; forced-stopped state drop in Task 4 Step 1).
+- **Review Focus:** each line has an owning task test (missing-ref error in Task 3 Step 1; non-runner-ref hard refusal in Task 3; non-VM-name refusal in Task 4 Step 1; non-interactive `ErrConfirmationRequired` in Tasks 2/3/4; corrupt-state fail-closed in Task 2 Step 5 and Task 3 Step 5; forced `sandbox remove` retaining state in Task 4 Step 1).
 - **Proportion:** five focused tasks; no task transcribes an implementation the interfaces and tests already determine.
