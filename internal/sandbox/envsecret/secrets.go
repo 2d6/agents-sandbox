@@ -3,6 +3,7 @@ package envsecret
 import (
 	"maps"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -22,8 +23,14 @@ type SecretSpec struct {
 }
 
 func BuildSecretsFromSpecs(specs map[string]SecretSpec, ui termio.UI) []msbSdk.SecretEntry {
+	envVars := make([]string, 0, len(specs))
+	for envVar := range specs {
+		envVars = append(envVars, envVar)
+	}
+	sort.Strings(envVars)
 	var secrets []msbSdk.SecretEntry
-	for envVar, spec := range specs {
+	for _, envVar := range envVars {
+		spec := specs[envVar]
 		if spec.Host == "" && len(spec.Hosts) == 0 && !spec.AllowAnyHostDangerous {
 			ui.Warnf("Secret '%s' has no hosts or allow_any_host_dangerous; dropping", envVar)
 			continue

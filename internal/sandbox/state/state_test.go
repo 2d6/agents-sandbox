@@ -8,8 +8,38 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
+
+// TestNetworkFingerprintSurvivesStateRoundTrip pins that the network
+// fingerprint persisted to disk still compares equal to the desired policy, so
+// a run does not see a spurious "network policy changed" and rebuild the VM.
+func TestNetworkFingerprintSurvivesStateRoundTrip(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	k := Key{Slug: "netproj-aBc1234D", Agent: "opencode"}
+	policy := network.Policy{
+		Profile:     network.ProfilePrivate,
+		EgressAllow: []string{"api.example.com", "*.example.com"},
+		DNSServers:  []string{"1.1.1.1"},
+	}
+	if err := WriteState(k, HomeState{
+		HomeVolume:   "vol",
+		ImageDigest:  "sha256:abc",
+		NetworkState: BuildNetworkState(policy),
+	}); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+
+	st, err := ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if NetworkChanged(st.NetworkState, policy) {
+		t.Errorf("network fingerprint did not survive the state round trip: %+v", st.NetworkState)
+	}
+}
 
 func TestStateFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)

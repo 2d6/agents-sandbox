@@ -20,6 +20,9 @@
 - `runner-image-build.md`
   - Description: Agent version selection precedence (`--agent-version`, upgrade check, user-provided), when the runner image is (re)built, and when `BuildOptions.Force` bypasses the Docker layer cache.
   - Read If: Changing image build/caching, `BuildOptions`, `--rebuild`, `--agent-version`, agent upgrade, or volume subcommands' image handling.
+- `reconfig-decision.md`
+  - Description: Contract for the per-startup project-VM reconfiguration decision: fingerprint-backed detection of env/secret/network/mount changes (and why empty network state forces a one-time migration), which changes recreate vs restart the daemon, the fingerprint-preservation invariant on every state rewrite, the order-stability requirement for `ConfigFiles.Keys`/`BuildSecretsFromSpecs`, and the known state-write race outside `ensure-vm.lock`.
+  - Read If: Changing `decideReconfig`/`PlanReconfig`, the env/secret/network/mount fingerprints, the reconfig prompt, or diagnosing a spurious VM rebuild or "network policy changed" prompt.
 - `guided-onboarding.md`
   - Description: Design contract for first-run onboarding: credential kinds (static vs login; never placeholder-migrate refreshable OAuth), host determination, derived onboarding state, always-explicit `Guide` outcomes, the tiered setup wizard, and `config harden`.
   - Read If: Working on config migration, first-run guidance, credential/auth handling, network egress derivation, the setup wizard, or `config harden`.

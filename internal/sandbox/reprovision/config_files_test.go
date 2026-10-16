@@ -954,3 +954,47 @@ func TestReservedHomeTargetsRejectsMixedRelAbs(t *testing.T) {
 		t.Fatal("expected error when mergedPath is not relative to an absolute vmHome")
 	}
 }
+
+// TestLoadConfigFilesKeysMergedFirstAndSorted pins the ordering contract of
+// ConfigFiles.Keys as returned to callers: the merged config leads, and the
+// remaining paths (home/mirror/drop-in, all map-backed and therefore unordered)
+// are sorted. A mirror path such as agents/coder.md sorts before the merged
+// config, so this fails if the result is ever re-sorted after configKeys and
+// the merged config slips out of position.
+func TestLoadConfigFilesKeysMergedFirstAndSorted(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	vmHome := t.TempDir()
+	testutil.WriteFile(t, cp.ProjectAgentConfigDir(a), "opencode-model.json", `{"model":"x"}`)
+	if err := os.MkdirAll(filepath.Join(cp.ProjectAgentConfigDir(a), "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, filepath.Join(cp.ProjectAgentConfigDir(a), "agents"), "coder.md", "# coder\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "gitconfig", "[user]\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .gitconfig:\n"+
+			"    source: gitconfig\n")
+
+	ui := termio.NewTestMock(t)
+	for range 20 {
+		cf, err := LoadConfigFilesForHost(a, t.TempDir(), vmHome, &ui, true)
+		if err != nil {
+			t.Fatalf("LoadConfigFilesForHost: %v", err)
+		}
+		merged := AgentConfigPath(a, vmHome)
+		if len(cf.Keys) < 3 {
+			t.Fatalf("Keys = %v, want merged, mirror, and home paths", cf.Keys)
+		}
+		if cf.Keys[0] != merged {
+			t.Fatalf("Keys[0] = %q, want merged config %q (a mirror path sorts before it)", cf.Keys[0], merged)
+		}
+		if !slices.IsSorted(cf.Keys[1:]) {
+			t.Fatalf("Keys[1:] must be sorted for a stable order, got %v", cf.Keys)
+		}
+	}
+}

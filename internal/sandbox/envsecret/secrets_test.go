@@ -3,6 +3,7 @@ package envsecret
 import (
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -418,5 +419,31 @@ func TestBuildSecretsFromSpecsOnlySingleHost(t *testing.T) {
 	}
 	if secrets[0].Allow[0] != "h.example" {
 		t.Errorf("Allow = %v, want [h.example]", secrets[0].Allow)
+	}
+}
+
+// TestBuildSecretsFromSpecsDeterministicOrder pins that secret entries are
+// emitted in a stable order. The specs input is map-backed and therefore
+// unordered, so without sorting the entry order (and any dependent output)
+// varies run to run.
+func TestBuildSecretsFromSpecsDeterministicOrder(t *testing.T) {
+	specs := map[string]SecretSpec{
+		"ZED":     {Value: "z", Host: "z.example"},
+		"ALPHA":   {Value: "a", Host: "a.example"},
+		"MIKE":    {Value: "m", Host: "m.example"},
+		"BRAVO":   {Value: "b", Host: "b.example"},
+		"CHARLIE": {Value: "c", Host: "c.example"},
+	}
+	testUI := termio.NewTestMock(t)
+
+	for range 50 {
+		entries := BuildSecretsFromSpecs(specs, &testUI)
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.EnvVar)
+		}
+		if !slices.IsSorted(names) {
+			t.Fatalf("secret entries must be emitted in a stable sorted order, got %v", names)
+		}
 	}
 }

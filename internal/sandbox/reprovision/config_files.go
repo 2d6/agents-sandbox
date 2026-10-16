@@ -55,7 +55,7 @@ type ConfigFiles struct {
 	Modes       map[string]os.FileMode // VM absolute path -> ordinary file permission bits
 	Remove      []string               // VM absolute paths to delete before writing
 	Hooks       []homeconfig.HookSpec  // startup hooks to run at setUpSandbox
-	Keys        []string               // sorted VM paths for comparison
+	Keys        []string               // merged config path first (when snippets exist), then the remaining VM paths sorted
 }
 
 // LoadConfigFiles builds the desired VM state for the given agent using the
@@ -130,7 +130,6 @@ func LoadConfigFilesForHost(
 		remove = append(remove, provisionDestinations(a, hostHome, vmHome)...)
 	}
 	keys := configKeys(mergedPath, hasSnippets, homeFiles, mirror, provisioned)
-	sort.Strings(keys)
 	return &ConfigFiles{
 		HasSnippets: hasSnippets,
 		Merged:      mergedConfig,
@@ -270,24 +269,27 @@ func applyMirrorPrecedence(
 	}
 }
 
-// configKeys returns the sorted VM paths to provision and compare: the merged
-// config (when snippets exist), then home files, mirror files, and drop-in
-// provisioned files.
+// configKeys returns the VM paths to provision and compare: the merged config
+// (when snippets exist) first, then the home/mirror/drop-in paths sorted. It is
+// the sole ordering authority for ConfigFiles.Keys — callers must not re-sort,
+// or the merged config would no longer lead. The map-backed inputs are
+// unordered, so the remainder must be sorted to keep Keys stable across runs.
 func configKeys(mergedPath string, hasSnippets bool, homeFiles, mirror, provisioned map[string][]byte) []string {
-	keys := make([]string, 0, len(homeFiles)+len(provisioned)+len(mirror)+1)
-	if hasSnippets {
-		keys = append(keys, mergedPath)
-	}
+	rest := make([]string, 0, len(homeFiles)+len(provisioned)+len(mirror))
 	for p := range homeFiles {
-		keys = append(keys, p)
+		rest = append(rest, p)
 	}
 	for p := range mirror {
-		keys = append(keys, p)
+		rest = append(rest, p)
 	}
 	for p := range provisioned {
-		keys = append(keys, p)
+		rest = append(rest, p)
 	}
-	return keys
+	sort.Strings(rest)
+	if hasSnippets {
+		return append([]string{mergedPath}, rest...)
+	}
+	return rest
 }
 
 // configFamilyNames returns the config filenames the agent reads from its VM

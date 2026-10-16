@@ -1005,6 +1005,59 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 	}
 }
 
+// TestApplyHomeAction_PreservesFingerprints pins that a migrate/reset home
+// action keeps the env/secret/network/mount fingerprints. They describe the
+// live VM, not the home volume, so discarding them would make the next run see
+// every fingerprint as changed and blame a spurious VM rebuild on (e.g.) the
+// network policy. This mirrors TestVolumeOp_PreservesEnvSecretFingerprints.
+func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
+
+	slug := "myproj"
+	oldVol := "agents-sandbox-home-myproj-old"
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{
+			HomeVolume:   oldVol,
+			ImageDigest:  "sha256:old",
+			EnvState:     state.EnvState{Hash: "envhash", Names: []string{"FOO"}},
+			SecretState:  state.SecretState{Hash: "sechash", Names: []string{"TOKEN"}},
+			NetworkState: state.NetworkState{Hash: "nethash", Names: []string{"none"}},
+			MountState:   state.MountState{Hash: "mounthash", Names: []string{"/mnt/x"}},
+		},
+	)
+
+	mock := &msb.MockMsbClient{}
+	vm := NewManager(&termio.Mock{})
+
+	if _, err := vm.ApplyHomeAction(
+		context.Background(),
+		mock,
+		state.Key{Slug: slug, Agent: "opencode"},
+		oldVol,
+		"img-tag",
+		"sha256:new",
+		ActionReset,
+		options.RunOptions{},
+		&termio.Mock{},
+	); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.EnvState.Hash != "envhash" || st.SecretState.Hash != "sechash" ||
+		st.NetworkState.Hash != "nethash" || st.MountState.Hash != "mounthash" {
+		t.Errorf("fingerprints not preserved after home action: %+v", st)
+	}
+	if st.ImageDigest != "sha256:new" {
+		t.Errorf("state ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
+	}
+}
+
 func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
