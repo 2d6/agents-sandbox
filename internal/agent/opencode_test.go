@@ -18,9 +18,23 @@ func TestOpencodeAttachCommand(t *testing.T) {
 		t.Fatal("opencode should implement AttachRunner")
 	}
 	got := cmd.AttachCommand("/workspace", []string{"--print-logs"})
-	want := "opencode attach http://127.0.0.1:4096 --dir /workspace --print-logs"
+	want := "opencode attach http://127.0.0.1:4096 --dir '/workspace' --print-logs"
 	if got != want {
 		t.Errorf("AttachCommand = %q, want %q", got, want)
+	}
+}
+
+func TestOpencodeAttachCommandQuotesTarget(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	cmd, _ := agent.AsAttachRunner(a)
+	cases := map[string]string{
+		"/workspace/my notes": "opencode attach http://127.0.0.1:4096 --dir '/workspace/my notes'",
+		"/workspace/it's":     `opencode attach http://127.0.0.1:4096 --dir '/workspace/it'\''s'`,
+	}
+	for target, want := range cases {
+		if got := cmd.AttachCommand(target, nil); got != want {
+			t.Errorf("AttachCommand(%q) = %q, want %q", target, got, want)
+		}
 	}
 }
 

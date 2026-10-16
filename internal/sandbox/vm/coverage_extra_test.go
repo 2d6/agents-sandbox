@@ -11,6 +11,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -257,6 +258,7 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 		&ui,
 		false,
 		vmBootStarted,
+		mounts.WorkspaceMountPath,
 	); err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
 	}

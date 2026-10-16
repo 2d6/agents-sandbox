@@ -85,7 +85,7 @@ func (opencodeProfile) LatestVersion(ctx context.Context) (string, error) {
 func (opencodeProfile) NewerThan(a, b string) (bool, error) { return newerOpenCodeThan(a, b) }
 
 func (opencodeProfile) AttachCommand(target string, args []string) string {
-	parts := []string{opencodeName, "attach", "http://127.0.0.1:4096", "--dir", target}
+	parts := []string{opencodeName, "attach", "http://127.0.0.1:4096", "--dir", shellQuote(target)}
 	parts = append(parts, args...)
 	return strings.Join(parts, " ")
 }

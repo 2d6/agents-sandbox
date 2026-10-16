@@ -451,6 +451,7 @@ type MockSandbox struct {
 	AttachCode int
 	AttachErr  error
 	AttachUser string
+	AttachCwd  string
 	AttachCmd  string
 	AttachArgs []string
 	DetachErr  error
@@ -528,6 +529,7 @@ func (m *MockSandbox) AttachWith(
 			opt(&cfg)
 		}
 		m.AttachUser = cfg.User
+		m.AttachCwd = cfg.Cwd
 	}
 	return m.AttachCode, m.AttachErr
 }

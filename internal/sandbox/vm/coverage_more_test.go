@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -186,7 +187,14 @@ func TestResolveTargetCreateShellError(t *testing.T) {
 		ShellCalls: &[]string{},
 	}
 	sb := &errOnCmdSandbox{Sandbox: base, cmd: createCmd}
-	_, err := ResolveTarget(context.Background(), opencodeAgent(t), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
+	_, err := ResolveTarget(
+		context.Background(),
+		opencodeAgent(t),
+		sb,
+		options.WorktreeSpec{Name: "feat-x"},
+		mounts.WorkspaceMountPath,
+		ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when the worktree create shell command fails")
 	}

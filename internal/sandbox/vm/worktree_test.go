@@ -6,17 +6,11 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
-
-func TestResolveTargetNoWorktreeReturnsWorkspace(t *testing.T) {
-	got := resolveTargetNoBranch()
-	if got != "/workspace" {
-		t.Errorf("expected /workspace, got %q", got)
-	}
-}
 
 // mustWorktreeProvider returns the opencode profile's WorktreeProvider so tests
 // can build the exact worktree commands the production path shells out with.
@@ -32,7 +26,14 @@ func mustWorktreeProvider(t *testing.T) agent.WorktreeProvider {
 func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
-	dir, err := ResolveTarget(context.Background(), opencodeAgent(t), sb, options.WorktreeSpec{}, ui)
+	dir, err := ResolveTarget(
+		context.Background(),
+		opencodeAgent(t),
+		sb,
+		options.WorktreeSpec{},
+		mounts.WorkspaceMountPath,
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -47,7 +48,14 @@ func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
 func TestResolveTargetNoDaemonProvider(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
-	dir, err := ResolveTarget(context.Background(), &fakeAgent{}, sb, options.WorktreeSpec{Name: "feat-x"}, ui)
+	dir, err := ResolveTarget(
+		context.Background(),
+		&fakeAgent{},
+		sb,
+		options.WorktreeSpec{Name: "feat-x"},
+		mounts.WorkspaceMountPath,
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -74,6 +82,7 @@ func TestResolveTargetReusesExistingWorktree(t *testing.T) {
 		opencodeAgent(t),
 		sb,
 		options.WorktreeSpec{Name: "bugfix-exit-zero"},
+		mounts.WorkspaceMountPath,
 		ui,
 	)
 	if err != nil {
@@ -104,6 +113,7 @@ func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
 		opencodeAgent(t),
 		sb,
 		options.WorktreeSpec{Name: "foo", Base: "main"},
+		mounts.WorkspaceMountPath,
 		ui,
 	)
 	if err != nil {
@@ -137,7 +147,14 @@ func TestResolveTargetCreatesWithoutBase(t *testing.T) {
 		},
 		ShellCalls: &[]string{},
 	}
-	dir, err := ResolveTarget(context.Background(), opencodeAgent(t), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
+	dir, err := ResolveTarget(
+		context.Background(),
+		opencodeAgent(t),
+		sb,
+		options.WorktreeSpec{Name: "feat-x"},
+		mounts.WorkspaceMountPath,
+		ui,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,6 +194,7 @@ func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T)
 		opencodeAgent(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x", Base: "main"},
+		mounts.WorkspaceMountPath,
 		ui,
 	)
 	if err != nil {
@@ -228,6 +246,7 @@ func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 		opencodeAgent(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x", Base: "nope"},
+		mounts.WorkspaceMountPath,
 		ui,
 	); err == nil {
 		t.Error("expected error for unresolvable base")

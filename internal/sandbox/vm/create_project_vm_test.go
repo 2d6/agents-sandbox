@@ -8,6 +8,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -69,7 +70,16 @@ func TestSetUpSandboxDockerdError(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	cfs := &reprovision.ConfigFiles{}
-	_, err := setUpSandbox(context.Background(), sb, options.RunOptions{}, cfs, &ui, false, vmBootConnected)
+	_, err := setUpSandbox(
+		context.Background(),
+		sb,
+		options.RunOptions{},
+		cfs,
+		&ui,
+		false,
+		vmBootConnected,
+		mounts.WorkspaceMountPath,
+	)
 	if err == nil {
 		t.Fatal("expected error from dockerd startup")
 	}
@@ -94,7 +104,16 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	cfs := &reprovision.ConfigFiles{}
-	_, err := setUpSandbox(context.Background(), sb, options.RunOptions{}, cfs, &ui, false, vmBootConnected)
+	_, err := setUpSandbox(
+		context.Background(),
+		sb,
+		options.RunOptions{},
+		cfs,
+		&ui,
+		false,
+		vmBootConnected,
+		mounts.WorkspaceMountPath,
+	)
 	if err == nil {
 		t.Fatal("expected error from ensureDaemon")
 	}
@@ -119,7 +138,16 @@ func TestSetUpSandboxProvisionWarn(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	configpaths.WithMockConfigPaths(t)
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
-	_, err := setUpSandbox(context.Background(), sb, options.RunOptions{}, cfs, &ui, false, vmBootCreated)
+	_, err := setUpSandbox(
+		context.Background(),
+		sb,
+		options.RunOptions{},
+		cfs,
+		&ui,
+		false,
+		vmBootCreated,
+		mounts.WorkspaceMountPath,
+	)
 	if err != nil {
 		t.Fatalf("setUpSandbox should not fail on provision warning: %v", err)
 	}

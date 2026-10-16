@@ -25,6 +25,7 @@ type preparedSandbox interface {
 	Sandbox() msb.Sandbox
 	Target() string
 	ServeHostPort() int
+	GuestCWD() string
 }
 
 // prepareSandbox is a test seam swapped in tests to avoid real VM setup.
@@ -154,7 +155,7 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	// putting tools installed under /usr/local/go/bin and ~/go/bin on
 	// PATH for the agent and its child shells. The image's composed PATH
 	// is restored by the /etc/profile.d/agents-sandbox-path.sh merge.
-	return runAttach(ctx, sb, projectSlug, ui, opts, "-l", "-c", setup)
+	return runAttach(ctx, sb, projectSlug, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
 }
 
 // runServeOnlySession owns the lease acquire/serve/release/reap sequence for
@@ -211,7 +212,7 @@ func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	}
 
 	projectSlug := git.ProjectSlug()
-	return runAttach(ctx, sb, projectSlug, ui, opts, "-l")
+	return runAttach(ctx, sb, projectSlug, ses.GuestCWD(), ui, opts, "-l")
 }
 
 func finalizeRun(attachErr error, exitCode int) error {
@@ -225,11 +226,14 @@ func finalizeRun(attachErr error, exitCode int) error {
 }
 
 // runAttach performs the shared lease-acquire, attach, explicit release,
-// reap-on-last-client, and finalize sequence for Run and Shell.
+// reap-on-last-client, and finalize sequence for Run and Shell. The guest CWD
+// is applied to every agent attach; pi and Claude Code ignore the attach
+// target and rely solely on the working directory.
 func runAttach(
 	ctx context.Context,
 	sb msb.Sandbox,
 	projectSlug string,
+	guestCWD string,
 	ui termio.UI,
 	opts options.RunOptions,
 	bashArgs ...string,
@@ -251,11 +255,11 @@ func runAttach(
 	// Attach to the sandbox and capture its exit code.
 	var exitCode int
 	var attachErr error
+	attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
 	if opts.Root {
-		exitCode, attachErr = sb.AttachWith(ctx, "/bin/bash", bashArgs, msbSdk.WithAttachUser(sandbox.RootUser))
-	} else {
-		exitCode, attachErr = sb.Attach(ctx, "/bin/bash", bashArgs...)
+		attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))
 	}
+	exitCode, attachErr = sb.AttachWith(ctx, "/bin/bash", bashArgs, attachOpts...)
 
 	// Explicitly release the lease after attach returns, before reaping.
 	// This ensures state.CountActiveClients reflects only OTHER live clients.

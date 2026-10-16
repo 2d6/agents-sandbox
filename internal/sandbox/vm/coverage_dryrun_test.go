@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -20,13 +22,16 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // TestPrepareSandboxDryRunVM covers the dry-run-vm branch of PrepareSandbox:
 // the VM lifecycle is skipped and the attach target falls back to the default
-// workspace directory.
+// workspace directory. It launches from a checkout root so the target is
+// exactly /workspace regardless of where the test binary happens to run.
 func TestPrepareSandboxDryRunVM(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	t.Chdir(testutil.InitRepo(t))
 
 	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
 		t.Fatalf("saveUpgradeState: %v", err)
@@ -92,6 +97,88 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 	}
 	if sess.Target() != "/workspace" {
 		t.Errorf("expected default target /workspace, got %q", sess.Target())
+	}
+	if sess.GuestCWD() != "/workspace" {
+		t.Errorf("expected guest CWD /workspace, got %q", sess.GuestCWD())
+	}
+}
+
+// TestPrepareSandboxDryRunVMLaunchSubdirectory covers the guest-CWD derivation:
+// when launched from a repository subdirectory the bound /workspace is the
+// checkout root and the agent starts in the launched subdirectory. The dry-run
+// harness creates no VM, so the /workspace bind source is asserted indirectly
+// via resolveBindLayout (see TestResolveBindLayoutOutsideWorktreeWarns).
+func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.5.0"}); err != nil {
+		t.Fatalf("saveUpgradeState: %v", err)
+	}
+	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
+		return req, nil
+	})
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+
+	repo := testutil.InitRepo(t)
+	sub := filepath.Join(repo, "internal", "foo")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sub, err)
+	}
+	t.Chdir(sub)
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+				},
+			}, nil
+		},
+	})
+
+	slug := git.ProjectSlug()
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+			}, nil
+		},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	msb.WithMsbMock(t, mock)
+
+	state.WriteState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"},
+	)
+
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	})
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
+
+	ui := termio.NewTestMock(t)
+	sess, err := PrepareSandbox(context.Background(), options.RunOptions{DryRunVM: true}, &ui)
+	if err != nil {
+		t.Fatalf("PrepareSandbox (dry-run-vm, subdirectory): %v", err)
+	}
+	if sess.Target() != "/workspace/internal/foo" {
+		t.Errorf("expected target /workspace/internal/foo, got %q", sess.Target())
+	}
+	if sess.GuestCWD() != "/workspace/internal/foo" {
+		t.Errorf("expected guest CWD /workspace/internal/foo, got %q", sess.GuestCWD())
 	}
 }
 
