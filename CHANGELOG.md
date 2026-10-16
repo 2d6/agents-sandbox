@@ -74,9 +74,12 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Fixed
 
-- Config: the rebuilt-VM change detection is now deterministic. `ConfigFiles.Keys` is sorted (the merged config stays
-  first) instead of carrying Go map iteration order, and secret entries are emitted in sorted `EnvVar` order. Both feed an
-  agent-config/secret-change decision that previously varied run to run.
+- Internal: the rebuilt-VM change-detection inputs are now order-stable by construction. `reprovision.ConfigFiles.Keys`
+  has a single ordering authority (the merged config leads, the remainder sorted) instead of being built from unordered
+  maps and then sorted again, and `envsecret.BuildSecretsFromSpecs` emits secret entries in sorted `EnvVar` order. The
+  decision itself was already order-independent — `state.SecretsContentHash`/`EnvContentHash` sort their inputs and
+  `reprovision.AgentConfigEqual` compares by map lookup — so this removes redundant ordering rather than fixing a
+  varying decision.
 - Volume: `volume migrate`/`reset` on the image-change path now preserves the persisted env/secret/network/mount
   fingerprints. They describe the live VM, not the home volume, so dropping them made the next run treat every setting as
   changed and blame a spurious rebuild on (for example) the network policy.

@@ -33,8 +33,12 @@ setting (e.g. the network policy) that did not change.
 
 ## Determinism
 
-Decision inputs must be order-stable, since map-backed inputs are otherwise unordered: `reprovision.ConfigFiles.Keys` is
-sorted (merged config first), and `envsecret.BuildSecretsFromSpecs` emits entries in sorted `EnvVar` order.
+Change detection is order-independent by design: `state.SecretsContentHash`, `state.EnvContentHash`, and
+`network.Policy.Fingerprint` all sort their inputs before hashing, and `reprovision.AgentConfigEqual` compares the merged
+and mirror files by map lookup. The helper outputs feeding them are also kept deterministic: `reprovision.ConfigFiles.Keys`
+has a single ordering authority (the merged config leads when snippets exist, the remainder sorted; callers must not
+re-sort) and `envsecret.BuildSecretsFromSpecs` emits entries in sorted `EnvVar` order. Map iteration order therefore never
+reaches the decision — a periodic spurious rebuild is the state-write race below, not input ordering.
 
 ## Known residual race
 
