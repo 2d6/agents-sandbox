@@ -138,6 +138,8 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd.AddCommand(buildStopCmd(ui))
 	rootCmd.AddCommand(buildKillCmd(ui))
 	rootCmd.AddCommand(buildPruneCmd(ui))
+	rootCmd.AddCommand(buildDFCmd(ui))
+	rootCmd.AddCommand(buildStorageCmd(ui))
 
 	rootCmd.SetOut(ui.StdOut())
 	rootCmd.SetErr(ui.StdErr())

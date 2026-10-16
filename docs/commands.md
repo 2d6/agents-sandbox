@@ -268,6 +268,44 @@ agents-sandbox sandbox prune --format json      # machine-readable report on std
 
 ---
 
+### df
+
+Show storage usage of agents-sandbox's private runtime home, grouped into the categories microsandbox reports
+(`images`, `snapshots`, `branch memory`, `snapshot memory`, `sandboxes`, `volumes`) plus the host-side `runtime`
+install (`bin`/`lib`). The table mirrors `msb df`; `-` means unknown. `--verbose` adds each category's objects with
+their host paths, retention reasons, and accounting details. `--format json` prints a structured report shaped like
+microsandbox's storage report (unknown counters are `null`). `--format json` and `--quiet` are mutually exclusive.
+Only the private runtime home is observed; a user's own `~/.microsandbox` is never touched. When the backend cannot
+report storage, the categories show as unknown and a note explains why.
+
+```console
+agents-sandbox df                     # category totals
+agents-sandbox df --verbose           # per-object rows and host paths
+agents-sandbox df --format json       # machine-readable report on stdout
+agents-sandbox df --quiet             # category names only
+```
+
+**Flags:**
+
+| Flag        | Short | Default | Purpose                                           |
+|-------------|-------|---------|---------------------------------------------------|
+| `--verbose` | —     | `false` | List per-object rows and host paths               |
+| `--format`  | —     | `""`    | Output format. `json` prints a structured report. |
+
+---
+
+### storage
+
+Storage maintenance group. `storage df` and `storage prune` are aliases for the top-level [`df`](#df) and
+[`prune`](#prune) commands.
+
+```console
+agents-sandbox storage df --verbose
+agents-sandbox storage prune --older-than 24h --yes
+```
+
+---
+
 ### list
 
 List all sandboxes on this host (across all projects).

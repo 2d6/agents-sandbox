@@ -153,13 +153,18 @@ it covers are marked unknown rather than reported as zero.
 Depends on: nothing (parallel with Slices 0–1). Needed by Slice 5.
 
 Implemented (issue #170) in `internal/sandbox/storage`: `Observe` emits the six
-microsandbox categories (nil counters stay unknown; `ErrUnsupportedOperation`
-marks them unknown with a note) followed by a `runtime` category that walks the
-private home's `bin`/`lib` for the runtime/FFI artifacts. The host-side buildkit
-cache and docker images were **deferred out of this seam**: the buildkit cache is
-a named msb volume already covered by the `volumes` category, and host Docker's
-store is outside the private home. Revisit when a docker-backend image store
-lands.
+microsandbox categories (nil counters stay unknown) followed by a `runtime`
+category that walks the private home's `bin`/`lib` for the runtime/FFI
+artifacts. `ErrUnsupportedOperation` records a report-level note and leaves the
+six categories unknown. The host-side buildkit cache and docker images were
+**deferred out of this seam**: the buildkit cache is a named msb volume already
+covered by the `volumes` category, and host Docker's store is outside the
+private home. Revisit when a docker-backend image store lands.
+
+Realigned in Slice 5 to microsandbox's report shape: category names are
+snake_case (`branch_memory`, `snapshot_memory`) and ordered as microsandbox
+orders them (images, snapshots, branch memory, snapshot memory, sandboxes,
+volumes; `runtime` last), and `Totals` carries the category `InUse` count.
 
 ### Slice 3 — Object inspection (read-only commands)
 
@@ -230,6 +235,15 @@ Tracked as issue **#155** (the canonical ticket for this slice).
 
 Depends on: Slice 0, Slice 2.
 
+Implemented (issue #155) in `cmd/agents-sandbox/commands_storage.go` +
+`storage_output.go`. `df` mirrors microsandbox's own `df` (see "Resolved
+decisions → Storage accounting (Slice 5)"): human table
+`TYPE COUNT IN USE LOGICAL SIZE RECLAIMABLE` in msb category order with
+`humanize.FormatBytes`/`-`, a non-verbose footer, and `--verbose` item blocks
+with host paths and retention reasons. `--format json` emits microsandbox's
+category-keyed report shape plus a `runtime` key. The `storage` group reuses
+`buildDFCmd`/`buildPruneCmd` verbatim, so the aliases cannot drift.
+
 ### Slice 6 — Sandbox file transfer (dropped)
 
 `sandbox copy`/`cp` (host↔VM transfer over `SandboxFS`) is **dropped**: it is the
@@ -277,7 +291,10 @@ The full per-group contract, as the slices deliver it.
 
 `storage` / `df`:
 
-- `df` and the `storage` group — Slice 5.
+- `df` — Slice 5: msb-shaped storage table; `--verbose` item blocks;
+  `--format json` msb-shaped report; `-q` category labels only.
+- `storage df` / `storage prune` — Slice 5 aliases of the top-level `df`
+  (`also: storage df`) and `prune` (`also: storage prune`).
 
 Out of scope (explicit): `registry`/`registries`, `context`/`ctx`, `self`/
 `doctor`/`update`/`downgrade`/`uninstall`, and `sandbox compact` (issue #157).
@@ -335,6 +352,23 @@ docker images, and msb images, but not runtime RAM.
   `msb.ImageInspectDetail` (a local `msb.ImageDetail` DTO) rather than widening
   the existing config-only `msb.ImageInspect`, which the build digest check
   still uses; `sandbox inspect` needs `SandboxHandle.ID`, added to the seam.
+- **Storage accounting (Slice 5)**: `df` mirrors microsandbox's `msb df`
+  (`crates/cli/lib/commands/storage.rs`) rather than inventing a format —
+  human columns `TYPE COUNT IN USE LOGICAL SIZE RECLAIMABLE` in msb's category
+  order, `-` for unknown, `--verbose` item blocks per category, and a
+  `--format json` object keyed by category (`images`, `snapshots`,
+  `branch_memory`, `snapshot_memory`, `sandboxes`, `volumes`) with microsandbox's
+  per-category fields (`count`, `in_use`, `logical_bytes`, `allocated_bytes`,
+  `reclaimable_logical_bytes`, `items`, `notes`) plus top-level `notes` and our
+  extra `runtime` key. Unknown counters are `null`; `items` is always present
+  (`[]`). Deviations from msb: the extra `runtime` category, graceful
+  degradation instead of erroring on `ErrUnsupportedOperation` (the note is
+  surfaced on non-verbose output so an all-`-` table is explained), and our
+  global `-q` printing category display labels (bare minimum, list-style).
+  `--verbose` affects only the human render; JSON always includes `items`
+  (msb behaviour). The Slice 2 seam was realigned (snake_case names, msb order,
+  `InUse`) to keep one source of truth; the CLI derives display labels and
+  `storage prune` reuses `buildPruneCmd`.
 
 ## Left to the builder
 

@@ -32,7 +32,9 @@ read_if: Navigating the codebase.
 - `commands_cli.go` — run/shell/stop/kill commands.
 - `commands_system.go` — doctor/list/config/home/agent/build/dockerfile/image/volume/sandbox/prune commands.
 - `commands_inspect.go` — `volume inspect`/`image inspect`/`sandbox inspect` command builders.
-- `list_output.go`, `inspect_output.go`, `prune_output.go` — shared table/JSON/quiet list rendering, single-object inspect rendering, and prune report JSON.
+- `commands_storage.go` — `df` command and the `storage` group alias (`storage df`/`storage prune`).
+- `list_output.go`, `inspect_output.go`, `prune_output.go`, `storage_output.go` — shared table/JSON/quiet list rendering, single-object inspect rendering, prune report JSON, and the msb-shaped `df` report.
+- `cli_storage_test.go` — CLI tests for `df` (table/JSON/verbose/quiet/degradation) and the `storage` group.
 - `constants.go`, `tree.go` — command name/flag constants and `tree` output.
 - `cli_*_test.go` — Extensive CLI integration tests (one per command/area).
 

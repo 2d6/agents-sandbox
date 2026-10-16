@@ -76,9 +76,9 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 - `claim.go`, `clientlock.go`, `flock.go`, `state.go`, `root.go`, `fingerprint.go`
 - `references.go` — fail-closed project-state reference scan: `HomeVolumeReferences` and `ImageReferences` (the image analogue), both built on the shared `projectStateReferences` walk
 
-### `storage/` — Private-home storage accounting seam (Slice 2, groundwork)
+### `storage/` — Private-home storage accounting seam (Slice 2; backs `df` in Slice 5)
 
-- `storage.go` — `Observe`: the six microsandbox storage categories plus the runtime host category; nil counters stay unknown, `ErrUnsupportedOperation` degrades to unknown.
+- `storage.go` — `Observe`: the six microsandbox storage categories (snake_case names, msb order, with `InUse`) plus the runtime host category; nil counters stay unknown, `ErrUnsupportedOperation` degrades to unknown with a report-level note.
 - `host.go` — walks the private home's `bin`/`lib` runtime/FFI artifacts, summing regular files.
 
 ### `vm/` — VM lifecycle and orchestration (largest)
