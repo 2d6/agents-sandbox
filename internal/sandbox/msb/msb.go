@@ -76,6 +76,7 @@ type SandboxHandle interface {
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
 	Kill(ctx context.Context, opts ...msbSdk.KillOption) error
 	Remove(ctx context.Context) error
+	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
 	Config() (*msbSdk.SandboxConfig, error)
 	Modify(ctx context.Context, opts msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error)
 }
@@ -586,6 +587,10 @@ func (w realSandboxHandle) Kill(ctx context.Context, opts ...msbSdk.KillOption) 
 
 func (w realSandboxHandle) Remove(ctx context.Context) error {
 	return w.handle.Remove(ctx)
+}
+
+func (w realSandboxHandle) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
+	return w.handle.Destroy(ctx, opts...)
 }
 
 func (w realSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {

@@ -149,11 +149,12 @@ func ensureProjectVM(
 	return createOrAttachAfterLock(ctx, client, name, k, imageRef, homeVol, repoPath, opts, imageEnvs, ui)
 }
 
-// replaceSandboxForReconfig stops and removes an existing VM whose config
-// changed, reporting notFound=true so the caller recreates it. An already-gone
-// name is treated like a successful removal. A name whose held identity was
-// replaced now refers to a sandbox this session did not create for this config,
-// so the reconfiguration fails closed rather than silently adopting it.
+// replaceSandboxForReconfig destroys an existing VM whose config changed,
+// reporting notFound=true so the caller recreates it. Destroy is a single
+// identity-safe stop-and-remove: an already-gone name is treated like a
+// successful removal, and a name whose held identity was replaced now refers to
+// a sandbox this session did not create for this config, so the reconfiguration
+// fails closed rather than silently adopting it.
 func replaceSandboxForReconfig(
 	handle msb.SandboxHandle,
 	name string,
@@ -161,23 +162,20 @@ func replaceSandboxForReconfig(
 	spin termio.Spinner,
 ) (bool, error) {
 	ui.Verbosef("config changed; replacing project VM %s", name)
-	if stopErr := handle.Stop(context.Background()); stopErr != nil {
-		ui.Verbosef("stop old VM on reconfig failed (continuing): %v", stopErr)
-	}
-	removeErr := handle.Remove(context.Background())
+	destroyErr := handle.Destroy(context.Background())
 	switch {
-	case msb.IsReplaced(removeErr):
-		spin.StopError(removeErr)
+	case msb.IsReplaced(destroyErr):
+		spin.StopError(destroyErr)
 		return false, fmt.Errorf(
 			"project VM %q was replaced by a different sandbox since it was checked; rerun to reconfigure it: %w",
 			name,
-			removeErr,
+			destroyErr,
 		)
-	case msb.IsNotFound(removeErr):
+	case msb.IsNotFound(destroyErr):
 		ui.Verbosef("project VM %s was already gone; recreating from new config", name)
-	case removeErr != nil:
-		spin.StopError(removeErr)
-		return false, fmt.Errorf("remove old project VM %q: %w", name, removeErr)
+	case destroyErr != nil:
+		spin.StopError(destroyErr)
+		return false, fmt.Errorf("destroy old project VM %q: %w", name, destroyErr)
 	default:
 		ui.Verbosef("replaced project VM %s; recreating from new config", name)
 	}

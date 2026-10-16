@@ -514,8 +514,8 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	if len(client.CreatedSandboxes) != 0 {
 		t.Fatalf("expected no sandbox created, got %v", client.CreatedSandboxes)
 	}
-	if oldHandle.DidRemove() {
-		t.Error("expected existing VM not to be removed when image is unchanged")
+	if oldHandle.DidDestroy() {
+		t.Error("expected existing VM not to be destroyed when image is unchanged")
 	}
 }
 
@@ -712,8 +712,11 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	if sb == nil {
 		t.Error("expected a sandbox after recreate")
 	}
-	if !oldHandle.DidRemove() {
-		t.Error("expected old VM handle.Remove to be called")
+	if !oldHandle.DidDestroy() {
+		t.Error("expected old VM handle.Destroy to be called")
+	}
+	if oldHandle.DidStop {
+		t.Error("expected Destroy to replace the separate Stop call")
 	}
 }
 
@@ -754,8 +757,8 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	if sb == nil {
 		t.Error("expected a sandbox on reuse")
 	}
-	if handle.DidRemove() {
-		t.Error("did not expect Remove on reuse")
+	if handle.DidDestroy() {
+		t.Error("did not expect Destroy on reuse")
 	}
 }
 

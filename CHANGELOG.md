@@ -106,6 +106,8 @@ command reports the bare version (e.g. `0.1.0`).
 
 ### Changed
 
+- Internal: project-VM reconfiguration now replaces the two-step `Stop` + `Remove` with the SDK's single atomic,
+  identity-safe `Destroy` on the `SandboxHandle` seam (#162).
 - Runner image: the node/agent/docker install stages now build on a tool-owned `agents-sandbox-toolbase`
   (`debian:trixie-slim` plus `curl`/`ca-certificates`/`tar`) instead of the user's base, so a custom base no longer needs
   `curl`/`tar` inside the image and the tool layers cache across bases. The docker runtime-prerequisite check no longer
