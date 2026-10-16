@@ -3,8 +3,6 @@ package vm
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -87,8 +85,8 @@ func TestRemoveSandboxForceDeclinedConfirmationDoesNotStop(t *testing.T) {
 
 	ui := &termio.Mock{IsInteractiveResult: true, ConfirmResult: false}
 	err := RemoveSandbox(context.Background(), handle.Name_, true, ui)
-	if err == nil || err.Error() != "cancelled" {
-		t.Fatalf("RemoveSandbox(forced, declined) = %v, want cancelled", err)
+	if !errors.Is(err, termio.ErrCancelled) {
+		t.Fatalf("RemoveSandbox(forced, declined) = %v, want ErrCancelled", err)
 	}
 	if handle.DidStop {
 		t.Error("a declined confirmation must not stop the sandbox")
@@ -98,10 +96,13 @@ func TestRemoveSandboxForceDeclinedConfirmationDoesNotStop(t *testing.T) {
 	}
 }
 
-func TestRemoveSandboxForceDropsState(t *testing.T) {
+func TestRemoveSandboxForceKeepsState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	if err := state.WriteState(key, state.HomeState{}); err != nil {
+	if err := state.WriteState(
+		key,
+		state.HomeState{HomeVolume: "agents-sandbox-home-proj-1mjusbm3wikhb0-opencode-20260812T123456"},
+	); err != nil {
 		t.Fatalf("seed state: %v", err)
 	}
 	handle := &msb.MockSandboxHandle{
@@ -115,8 +116,12 @@ func TestRemoveSandboxForceDropsState(t *testing.T) {
 	if err := RemoveSandbox(context.Background(), handle.Name_, true, assumeYesUI()); err != nil {
 		t.Fatalf("RemoveSandbox(force) = %v", err)
 	}
-	if _, err := state.ReadState(key); !errors.Is(err, state.ErrStateNotFound) {
-		t.Fatalf("ReadState after forced removal = %v, want ErrStateNotFound", err)
+	st, err := state.ReadState(key)
+	if err != nil {
+		t.Fatalf("state must survive a forced removal, got %v", err)
+	}
+	if st.HomeVolume == "" {
+		t.Error("the recorded home volume must survive a forced removal")
 	}
 }
 
@@ -160,29 +165,6 @@ func TestRemoveSandboxReplacedFailsClosed(t *testing.T) {
 	}
 	if handle.DidRmv {
 		t.Error("a replaced handle must not mark the sandbox removed")
-	}
-}
-
-func TestRemoveSandboxNotFoundDropsStateWhenForced(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	if err := state.WriteState(key, state.HomeState{}); err != nil {
-		t.Fatalf("seed state: %v", err)
-	}
-	handle := &msb.MockSandboxHandle{
-		Name_:     naming.VMPrefix + key.Slug + "-" + key.Agent,
-		Status_:   msbSdk.SandboxStatusStopped,
-		RemoveErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no such sandbox"},
-	}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
-
-	if err := RemoveSandbox(context.Background(), handle.Name_, true, assumeYesUI()); err != nil {
-		t.Fatalf("RemoveSandbox(not found, force) = %v", err)
-	}
-	if _, err := state.ReadState(key); !errors.Is(err, state.ErrStateNotFound) {
-		t.Fatalf("ReadState after a not-found forced removal = %v, want ErrStateNotFound", err)
 	}
 }
 
@@ -238,22 +220,7 @@ func TestRemoveSandboxSurfacesRemoveError(t *testing.T) {
 	}
 }
 
-func TestRemoveSandboxLegacyAgentlessNameDropsNoState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	handle := &msb.MockSandboxHandle{Name_: naming.VMPrefix + "proj-aBc1234D", Status_: msbSdk.SandboxStatusStopped}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
-
-	if err := RemoveSandbox(context.Background(), handle.Name_, true, assumeYesUI()); err != nil {
-		t.Fatalf("RemoveSandbox(legacy name, force) = %v", err)
-	}
-	if !handle.DidRmv {
-		t.Error("a legacy agent-less VM must still be removed")
-	}
-}
-
-func TestRemoveSandboxBarePrefixDropsNoState(t *testing.T) {
+func TestRemoveSandboxBarePrefixRemoves(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	handle := &msb.MockSandboxHandle{Name_: naming.VMPrefix, Status_: msbSdk.SandboxStatusStopped}
 	client := &msb.MockMsbClient{}
@@ -263,29 +230,8 @@ func TestRemoveSandboxBarePrefixDropsNoState(t *testing.T) {
 	if err := RemoveSandbox(context.Background(), handle.Name_, true, assumeYesUI()); err != nil {
 		t.Fatalf("RemoveSandbox(bare prefix, force) = %v", err)
 	}
-}
-
-func TestRemoveSandboxSurfacesStateDropError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	slugDir := filepath.Dir(state.KeyDir(key))
-	if err := os.MkdirAll(filepath.Dir(slugDir), 0o750); err != nil {
-		t.Fatalf("mkdir state root: %v", err)
-	}
-	if err := os.WriteFile(slugDir, []byte("not a directory"), 0o600); err != nil {
-		t.Fatalf("block state dir: %v", err)
-	}
-	handle := &msb.MockSandboxHandle{
-		Name_:   naming.VMPrefix + key.Slug + "-" + key.Agent,
-		Status_: msbSdk.SandboxStatusStopped,
-	}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
-
-	err := RemoveSandbox(context.Background(), handle.Name_, true, assumeYesUI())
-	if err == nil || !strings.Contains(err.Error(), "remove state") {
-		t.Fatalf("RemoveSandbox(state drop error) = %v, want a state-drop error", err)
+	if !handle.DidRmv {
+		t.Error("a bare-prefix VM must still be removed")
 	}
 }
 
@@ -314,8 +260,8 @@ func TestRemoveSandboxDeclinedConfirmation(t *testing.T) {
 
 	ui := &termio.Mock{IsInteractiveResult: true, ConfirmResult: false}
 	err := RemoveSandbox(context.Background(), handle.Name_, false, ui)
-	if err == nil || err.Error() != "cancelled" {
-		t.Fatalf("RemoveSandbox(declined) = %v, want cancelled", err)
+	if !errors.Is(err, termio.ErrCancelled) {
+		t.Fatalf("RemoveSandbox(declined) = %v, want ErrCancelled", err)
 	}
 	if handle.DidRmv {
 		t.Error("a declined confirmation must not remove the sandbox")

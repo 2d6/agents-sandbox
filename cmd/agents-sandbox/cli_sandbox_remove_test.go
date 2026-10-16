@@ -61,10 +61,10 @@ func TestSandboxRemove(t *testing.T) {
 		handle := &msb.MockSandboxHandle{Name_: naming.VMPrefix + "proj-aBc1234D", Status_: msbSdk.SandboxStatusRunning}
 		m := &msb.MockMsbClient{}
 		m.SetGotSandbox(handle)
-		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--force", "--yes", handle.Name_)
+		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "-f", "--yes", handle.Name_)
 		msb.WithMsbMock(t, m)
 		if err := cmd.Execute(); err != nil {
-			t.Fatalf("sandbox remove --force: %v", err)
+			t.Fatalf("sandbox remove -f: %v", err)
 		}
 		if !handle.DidStop {
 			t.Error("force on a running VM must stop it first")
@@ -83,8 +83,8 @@ func TestSandboxRemove(t *testing.T) {
 		ui.IsInteractiveResult = true
 		ui.ConfirmResult = false
 		err := cmd.Execute()
-		if err == nil || err.Error() != "cancelled" {
-			t.Fatalf("expected a cancelled error, got %v", err)
+		if !errors.Is(err, termio.ErrCancelled) {
+			t.Fatalf("expected ErrCancelled, got %v", err)
 		}
 		if handle.DidStop {
 			t.Error("a declined confirmation must not stop the sandbox")
@@ -94,7 +94,7 @@ func TestSandboxRemove(t *testing.T) {
 		}
 	})
 
-	t.Run("force drops persisted state", func(t *testing.T) {
+	t.Run("force keeps persisted state", func(t *testing.T) {
 		key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 		name := naming.VMPrefix + key.Slug + "-" + key.Agent
 		handle := &msb.MockSandboxHandle{Name_: name, Status_: msbSdk.SandboxStatusStopped}
@@ -108,8 +108,8 @@ func TestSandboxRemove(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("sandbox remove --force: %v", err)
 		}
-		if _, err := state.ReadState(key); !errors.Is(err, state.ErrStateNotFound) {
-			t.Fatalf("ReadState after forced removal = %v, want ErrStateNotFound", err)
+		if _, err := state.ReadState(key); err != nil {
+			t.Fatalf("state must survive a forced removal, got %v", err)
 		}
 	})
 

@@ -11,11 +11,15 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// RemoveImages removes the named runner image references. Unless force is set,
-// it refuses when a reference is still in use — recorded by a project state or
+// RemoveImages removes the named runner image references. It first refuses any
+// reference that is not an agents-sandbox runner image, then, unless force is
+// set, refuses a reference that is still in use — recorded by a project state or
 // held by a live project/task sandbox — naming the referencing projects, so an
-// in-use image is never silently deleted. The scan fails closed.
+// in-use image is never silently deleted. Both guards fail closed.
 func RemoveImages(ctx context.Context, refs []string, force bool, ui termio.UI) error {
+	if err := refuseNonRunnerRefs(refs); err != nil {
+		return err
+	}
 	if !force {
 		references, err := inUseImageReferences(ctx)
 		if err != nil {
@@ -36,6 +40,26 @@ func RemoveImages(ctx context.Context, refs []string, force bool, ui termio.UI) 
 	return nil
 }
 
+// refuseNonRunnerRefs fails closed on a reference that is not an agents-sandbox
+// runner image. Unlike the in-use guard, this ownership boundary is not
+// overridable by --force: the command removes only the objects agents-sandbox
+// builds, never arbitrary cached images.
+func refuseNonRunnerRefs(refs []string) error {
+	var foreign []string
+	for _, ref := range refs {
+		if !strings.HasPrefix(ref, naming.ImagePrefix) {
+			foreign = append(foreign, ref)
+		}
+	}
+	if len(foreign) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"refusing to remove image(s) not managed by agents-sandbox (want prefix %q): %s",
+		naming.ImagePrefix, strings.Join(foreign, ", "),
+	)
+}
+
 // inUseImageReferences unions the project-state ownership scan with the image
 // references held by the live launcher sandboxes (project VMs and task
 // workers), reusing the fail-closed Slice 1 seam.
@@ -46,8 +70,7 @@ func inUseImageReferences(ctx context.Context) (map[string][]state.Key, error) {
 	}
 	kept := make([]msb.SandboxHandle, 0, len(handles))
 	for _, handle := range handles {
-		name := handle.Name()
-		if strings.HasPrefix(name, naming.VMPrefix) || strings.HasPrefix(name, naming.TaskPrefix) {
+		if naming.IsLauncherSandbox(handle.Name()) {
 			kept = append(kept, handle)
 		}
 	}

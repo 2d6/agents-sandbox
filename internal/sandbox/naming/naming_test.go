@@ -308,3 +308,28 @@ func TestRunnerImageRefRoundTrips(t *testing.T) {
 		t.Fatalf("ParseImageTag(RunnerImageRef(...)) = %+v, want the slug and agent back", info)
 	}
 }
+
+func TestIsLauncherSandbox(t *testing.T) {
+	cases := []struct {
+		name       string
+		wantVM     bool
+		wantTask   bool
+		wantLaunch bool
+	}{
+		{name: VMPrefix + "proj-aBc1234D", wantVM: true, wantLaunch: true},
+		{name: TaskPrefix + "proj-aBc1234D", wantTask: true, wantLaunch: true},
+		{name: "user-sandbox", wantVM: false, wantTask: false, wantLaunch: false},
+		{name: "", wantVM: false, wantTask: false, wantLaunch: false},
+	}
+	for _, c := range cases {
+		if got := IsProjectSandbox(c.name); got != c.wantVM {
+			t.Errorf("IsProjectSandbox(%q) = %v, want %v", c.name, got, c.wantVM)
+		}
+		if got := IsTaskSandbox(c.name); got != c.wantTask {
+			t.Errorf("IsTaskSandbox(%q) = %v, want %v", c.name, got, c.wantTask)
+		}
+		if got := IsLauncherSandbox(c.name); got != c.wantLaunch {
+			t.Errorf("IsLauncherSandbox(%q) = %v, want %v", c.name, got, c.wantLaunch)
+		}
+	}
+}

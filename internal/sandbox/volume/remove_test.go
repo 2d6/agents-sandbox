@@ -122,3 +122,22 @@ func TestRemoveVolumesFailsClosedOnReferenceScanError(t *testing.T) {
 		t.Errorf("RemovedVolumes = %v, want none removed", client.RemovedVolumes)
 	}
 }
+
+func TestRemoveVolumesNonInteractiveRequiresConfirmation(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, client)
+
+	err := RemoveVolumes(
+		context.Background(),
+		[]string{"agents-sandbox-home-a-20260812T123456"},
+		false,
+		&termio.Mock{},
+	)
+	if !errors.Is(err, termio.ErrConfirmationRequired) {
+		t.Fatalf("RemoveVolumes(non-interactive) = %v, want ErrConfirmationRequired", err)
+	}
+	if len(client.RemovedVolumes) != 0 {
+		t.Errorf("RemovedVolumes = %v, want none removed", client.RemovedVolumes)
+	}
+}

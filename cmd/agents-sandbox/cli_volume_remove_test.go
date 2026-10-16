@@ -106,6 +106,24 @@ func TestVolumeRemove(t *testing.T) {
 		}
 	})
 
+	t.Run("-f shorthand overrides the reference", func(t *testing.T) {
+		cmd, _ := setupCommandFixtures(t, "volume", "remove", "-f", "--yes", removeTestVolume)
+		m := &msb.MockMsbClient{}
+		msb.WithMsbMock(t, m)
+		if err := state.WriteState(
+			state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
+			state.HomeState{HomeVolume: removeTestVolume},
+		); err != nil {
+			t.Fatalf("seed state: %v", err)
+		}
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("volume remove -f: %v", err)
+		}
+		if len(m.RemovedVolumes) != 1 {
+			t.Errorf("RemovedVolumes = %v, want one", m.RemovedVolumes)
+		}
+	})
+
 	t.Run("requires at least one name", func(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "volume", "remove")
 		if err := cmd.Execute(); err == nil {

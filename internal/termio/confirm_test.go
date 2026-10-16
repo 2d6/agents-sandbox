@@ -26,9 +26,8 @@ func TestConfirmActionNonInteractiveFails(t *testing.T) {
 
 func TestConfirmActionDeclined(t *testing.T) {
 	ui := &Mock{IsInteractiveResult: true, ConfirmResult: false}
-	if err := ConfirmAction(ui, "Remove it?"); err == nil ||
-		err.Error() != "cancelled" {
-		t.Fatalf("ConfirmAction(declined) = %v, want cancelled", err)
+	if err := ConfirmAction(ui, "Remove it?"); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("ConfirmAction(declined) = %v, want ErrCancelled", err)
 	}
 }
 

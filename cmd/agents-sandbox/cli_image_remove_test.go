@@ -134,3 +134,37 @@ func TestImageRemove(t *testing.T) {
 		}
 	})
 }
+
+func TestImageRemoveOwnershipAndShorthand(t *testing.T) {
+	t.Run("refuses a non-runner reference", func(t *testing.T) {
+		cmd, _ := setupCommandFixtures(t, "image", "remove", "--yes", "docker.io/library/alpine:latest")
+		m := &msb.MockMsbClient{}
+		msb.WithMsbMock(t, m)
+		err := cmd.Execute()
+		if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
+			t.Fatalf("expected an ownership refusal, got %v", err)
+		}
+		if len(m.RemovedImages) != 0 {
+			t.Errorf("RemovedImages = %v, want none", m.RemovedImages)
+		}
+	})
+
+	t.Run("-f shorthand forces removal", func(t *testing.T) {
+		ref := naming.RunnerImageRef("proj-aBc1234D", "opencode")
+		cmd, _ := setupCommandFixtures(t, "image", "remove", "-f", "--yes", ref)
+		m := &msb.MockMsbClient{}
+		msb.WithMsbMock(t, m)
+		if err := state.WriteState(
+			state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
+			state.HomeState{},
+		); err != nil {
+			t.Fatalf("seed state: %v", err)
+		}
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("image remove -f: %v", err)
+		}
+		if len(m.RemovedImages) != 1 || !m.RemovedImages[0].Force {
+			t.Errorf("RemovedImages = %v, want one forced", m.RemovedImages)
+		}
+	})
+}

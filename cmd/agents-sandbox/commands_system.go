@@ -586,7 +586,8 @@ func buildImageRemoveCmd(ui termio.UI) *cobra.Command {
 			return image.RemoveImages(cmd.Context(), args, force, ui)
 		},
 	}
-	cmd.Flags().BoolVar(&force, flagForce, false, "Remove even when a project or sandbox still references the image")
+	cmd.Flags().
+		BoolVarP(&force, flagForce, flagForce[:1], false, "Remove even when a project or sandbox still references the image")
 	return cmd
 }
 
@@ -703,7 +704,8 @@ func buildVolumeRemoveCmd(ui termio.UI) *cobra.Command {
 			return volume.RemoveVolumes(cmd.Context(), args, force, ui)
 		},
 	}
-	cmd.Flags().BoolVar(&force, flagForce, false, "Remove even when a project still references the volume")
+	cmd.Flags().
+		BoolVarP(&force, flagForce, flagForce[:1], false, "Remove even when a project still references the volume")
 	return cmd
 }
 
@@ -727,7 +729,8 @@ func buildSandboxCmd(ui termio.UI) *cobra.Command {
 
 // buildSandboxRemoveCmd builds `sandbox remove <name>`, which removes a project
 // VM by name. It refuses a running VM unless --force is set (which stops it
-// first), and drops the persisted project state only when --force is set.
+// first); the persisted project state is left intact so the next run reuses the
+// recorded home volume.
 func buildSandboxRemoveCmd(ui termio.UI) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
@@ -736,12 +739,12 @@ func buildSandboxRemoveCmd(ui termio.UI) *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		Short:   "Remove a project sandbox VM by name",
 		Long: "Remove an agents-sandbox project VM. Refuses a running VM unless --force is set, " +
-			"which stops it first. --force also drops the project's persisted state. Prompts unless --yes is set.",
+			"which stops it first. The project's persisted state is left intact. Prompts unless --yes is set.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sandbox.RemoveSandbox(cmd.Context(), args[0], force, ui)
 		},
 	}
-	cmd.Flags().BoolVar(&force, flagForce, false, "Remove a running VM and drop its persisted project state")
+	cmd.Flags().BoolVarP(&force, flagForce, flagForce[:1], false, "Remove a running VM (stopping it first)")
 	return cmd
 }
 

@@ -139,3 +139,111 @@ func TestRefuseReferencedImagesAllowsUnreferenced(t *testing.T) {
 		t.Fatalf("refuseReferencedImages() error = %v, want nil for unreferenced refs", err)
 	}
 }
+
+func TestRemoveImagesRefusesNonRunnerRef(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, client)
+
+	ui := &termio.Mock{}
+	ui.SetAssumeYes(true)
+	err := RemoveImages(context.Background(), []string{"docker.io/library/alpine:latest"}, false, ui)
+	if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
+		t.Fatalf("RemoveImages(non-runner) = %v, want an ownership refusal", err)
+	}
+	if len(client.RemovedImages) != 0 {
+		t.Errorf("RemovedImages = %v, want none removed", client.RemovedImages)
+	}
+}
+
+func TestRemoveImagesForceDoesNotBypassOwnershipGuard(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, client)
+
+	ui := &termio.Mock{}
+	ui.SetAssumeYes(true)
+	err := RemoveImages(context.Background(), []string{"docker.io/library/alpine:latest"}, true, ui)
+	if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
+		t.Fatalf("RemoveImages(non-runner, force) = %v, want a hard ownership refusal", err)
+	}
+	if len(client.RemovedImages) != 0 {
+		t.Errorf("RemovedImages = %v, want none removed", client.RemovedImages)
+	}
+}
+
+func TestRemoveImagesGuardSurfacesScanError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{
+		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
+			return nil, errors.New("list boom")
+		},
+	}
+	msb.WithMsbMock(t, client)
+
+	err := RemoveImages(
+		context.Background(),
+		[]string{naming.RunnerImageRef("proj-aBc1234D", "opencode")},
+		false,
+		&termio.Mock{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "check image references") {
+		t.Fatalf("RemoveImages(scan error) = %v, want a wrapped scan error", err)
+	}
+}
+
+func TestInUseImageReferencesSkipsForeignSandbox(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ref := naming.RunnerImageRef("proj-aBc1234D", "opencode")
+	foreign := &msb.MockSandboxHandle{Name_: "user-sandbox", Cfg: &msbSdk.SandboxConfig{Image: ref}}
+	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{foreign}}
+	msb.WithMsbMock(t, client)
+
+	references, err := inUseImageReferences(context.Background())
+	if err != nil {
+		t.Fatalf("inUseImageReferences() = %v", err)
+	}
+	if len(references[ref]) != 0 {
+		t.Fatalf("references[%q] = %v, want none (a non-launcher sandbox must be skipped)", ref, references[ref])
+	}
+}
+
+func TestRemoveImagesNonInteractiveRequiresConfirmation(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, client)
+
+	err := RemoveImages(
+		context.Background(),
+		[]string{naming.RunnerImageRef("proj-aBc1234D", "opencode")},
+		false,
+		&termio.Mock{},
+	)
+	if !errors.Is(err, termio.ErrConfirmationRequired) {
+		t.Fatalf("RemoveImages(non-interactive) = %v, want ErrConfirmationRequired", err)
+	}
+	if len(client.RemovedImages) != 0 {
+		t.Errorf("RemovedImages = %v, want none removed", client.RemovedImages)
+	}
+}
+
+func TestRemoveImagesSurfacesRemoveError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("remove boom")
+	client := &msb.MockMsbClient{
+		ImageRemoveFn: func(context.Context, string, bool) error { return wantErr },
+	}
+	msb.WithMsbMock(t, client)
+
+	ui := &termio.Mock{}
+	ui.SetAssumeYes(true)
+	err := RemoveImages(
+		context.Background(),
+		[]string{naming.RunnerImageRef("proj-aBc1234D", "opencode")},
+		false,
+		ui,
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("RemoveImages() error = %v, want %v", err, wantErr)
+	}
+}
