@@ -41,7 +41,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `msb/` — Microsandbox SDK client
 
-- `msb.go`, `stream.go` — msb client and stream handling; also storage observation (`StorageUsage`), the `IsUnsupportedOperation` classifier, and the detached-job seam (`Sandbox.ExecDetached`/`GetJob`/`ListJobs` + a `Job` adapter over the SDK). See [detached-jobs spec](../specs/detached-jobs.md).
+- `msb.go`, `stream.go` — msb client and stream handling; also storage observation (`StorageUsage`) and the `IsUnsupportedOperation` classifier
 
 ### `naming/` — Naming, labels, artifacts
 
@@ -83,7 +83,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `vm/` — VM lifecycle and orchestration (largest)
 
-- `daemon.go`, `dockerd.go`, `detached.go`, `exit.go`, `inspect.go`, `list.go`, `provenance.go`, `reconfig.go`, `run_envstate.go`, `run_orchestrate.go`, `upgrade.go`, `upgrade_state.go`, `vm_control.go`, `vm_env.go`, `vm_lifecycle.go`, `vm_name.go`, `vm_resources.go`, `worktree.go` (`inspect.go` is `InspectSandbox`: the sandbox-inspect detail seam; `daemon.go`/`dockerd.go` launch the serve daemon and dockerd as runtime-owned detached jobs, with `detached.go` holding the shared readiness/kill helpers)
+- `daemon.go`, `dockerd.go`, `exit.go`, `inspect.go`, `list.go`, `provenance.go`, `reconfig.go`, `run_envstate.go`, `run_orchestrate.go`, `upgrade.go`, `upgrade_state.go`, `vm_control.go`, `vm_env.go`, `vm_lifecycle.go`, `vm_name.go`, `vm_resources.go`, `worktree.go` (`inspect.go` is `InspectSandbox`: the sandbox-inspect detail seam)
 - `create_project_vm_test.go`, `ensure_project_vm_test.go`, `prepare_sandbox_test.go`, `setupsandbox_test.go` — lifecycle setup tests
 
 ### `volume/` — Volume management

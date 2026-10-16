@@ -68,13 +68,13 @@ func TestSessionGuestCWD(t *testing.T) {
 }
 
 func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
-	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	origDaemon := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
+	t.Cleanup(func() { SetDaemonShellFunc(origDaemon) })
 
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}

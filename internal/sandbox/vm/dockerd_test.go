@@ -9,21 +9,23 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
-// countingSandbox is an msb.MockSandbox that records how many detached jobs it
-// launched and models dockerd becoming ready after a number of readiness
-// probes, so tests can assert which branches startDockerdIfPresent took.
+// countingSandbox is an msb.Sandbox stub that records how many times it ran
+// each of the dockerd start/ready commands, so tests can assert which branches
+// startDockerdIfPresent took. The ready command becomes healthy after exceeding
+// readyCallsBeforeHealthy, which models dockerd becoming ready some time after
+// the restart.
 type countingSandbox struct {
-	*msb.MockSandbox
+	msb.Sandbox
 
-	execCalls               int
-	execErr                 error
-	cleanupErr              error
+	restartCalls            int
 	readyCalls              int
 	readyCallsBeforeHealthy int
+	restartShellErr         error
 }
 
 func (s *countingSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecOption) (msb.ShellResult, error) {
@@ -36,30 +38,19 @@ func (s *countingSandbox) Shell(_ context.Context, command string, _ ...msbSdk.E
 			return msb.NewTestResult(true, 0, "", "", nil), nil
 		}
 		return msb.NewTestResult(false, 1, "", "", nil), nil
-	case dockerdCleanupCmd:
-		if s.cleanupErr != nil {
-			return msb.NewTestResult(false, 1, "", "", nil), s.cleanupErr
+	case dockerdRestartCmd:
+		s.restartCalls++
+		if s.restartShellErr != nil {
+			return nil, s.restartShellErr
 		}
+		return msb.NewTestResult(true, 0, "", "", nil), nil
 	}
 	return msb.NewTestResult(true, 0, "", "", nil), nil
 }
 
-func (s *countingSandbox) ExecDetached(
-	ctx context.Context,
-	cmd string,
-	args []string,
-	opts ...msbSdk.JobExecOption,
-) (msb.Job, error) {
-	s.execCalls++
-	if s.execErr != nil {
-		return nil, s.execErr
-	}
-	return s.MockSandbox.ExecDetached(ctx, cmd, args, opts...)
-}
-
 func newCountingSandbox(readyCallsBeforeHealthy int) *countingSandbox {
 	return &countingSandbox{
-		MockSandbox:             &msb.MockSandbox{},
+		Sandbox:                 msb.NewMockSandbox(msb.SandboxOpts{}),
 		readyCallsBeforeHealthy: readyCallsBeforeHealthy,
 	}
 }
@@ -84,8 +75,8 @@ func TestStartDockerdIfPresentAlreadyRunning(t *testing.T) {
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
 		t.Fatalf("startDockerdIfPresent (already running): %v", err)
 	}
-	if sb.execCalls != 0 {
-		t.Errorf("expected no detach when already running, got %d", sb.execCalls)
+	if sb.restartCalls != 0 {
+		t.Errorf("expected no dockerd restart when already running, got %d", sb.restartCalls)
 	}
 }
 
@@ -94,24 +85,24 @@ func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
 	sb := newCountingSandbox(1)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
-		t.Fatalf("startDockerdIfPresent should detach and become ready, got: %v", err)
+		t.Fatalf("startDockerdIfPresent should restart and become ready, got: %v", err)
 	}
-	if sb.execCalls != 1 {
-		t.Errorf("expected one detach attempt, got %d", sb.execCalls)
+	if sb.restartCalls != 1 {
+		t.Errorf("expected restart attempt, got %d", sb.restartCalls)
 	}
 }
 
-func TestStartDockerdIfPresentExecError(t *testing.T) {
+func TestStartDockerdIfPresentShellError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb := newCountingSandbox(1 << 30)
-	sb.execErr = errors.New("connection lost")
+	sb.restartShellErr = errors.New("connection lost")
 
 	err := startDockerdIfPresent(context.Background(), sb, &ui)
 	if err == nil {
-		t.Fatal("expected error when ExecDetached fails")
+		t.Fatal("expected error when the restart Shell call fails")
 	}
-	if sb.execCalls != 1 {
-		t.Errorf("expected 1 detach attempt, got %d", sb.execCalls)
+	if sb.restartCalls != 1 {
+		t.Errorf("expected 1 restart attempt, got %d", sb.restartCalls)
 	}
 }
 
@@ -133,14 +124,14 @@ func TestStartDockerdIfPresentNeverReady(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when dockerd never becomes ready")
 	}
-	if sb.execCalls != 1 {
-		t.Errorf("expected 1 detach attempt before timeout, got %d", sb.execCalls)
+	if sb.restartCalls != 1 {
+		t.Errorf("expected 1 restart attempt before timeout, got %d", sb.restartCalls)
 	}
 }
 
 func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	// The pre-detach check fails once; the first post-detach probe is healthy.
+	// The pre-restart check fails once; the first post-restart probe is healthy.
 	// A long poll interval proves that probe happens immediately, not after the
 	// interval.
 	sb := newCountingSandbox(1)
@@ -162,66 +153,23 @@ func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
 	}
 }
 
-func TestStartDockerdIfPresentKillsStaleJob(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	stale := &msb.MockJob{ID_: "stale-dockerd"}
-	running := &msb.MockJob{ID_: "new-dockerd"}
-	sb := newCountingSandbox(1)
-	sb.Jobs = []msbSdk.JobInfo{
-		{ID: "stale-dockerd", Command: append([]string{dockerdBinary}, dockerdArgs...)},
-	}
-	sb.GetJobFn = func(context.Context, string) (msb.Job, error) { return stale, nil }
-	sb.Job_ = running
-
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
-		t.Fatalf("startDockerdIfPresent: %v", err)
-	}
-	if !stale.DidKill {
-		t.Error("stale dockerd job was not killed before restart")
-	}
-}
-
-func TestStartDockerdIfPresentContinuesAfterCleanupError(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	sb := newCountingSandbox(1)
-	sb.cleanupErr = errors.New("residue boom")
-
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
-		t.Fatalf("residue cleanup failure must be non-fatal, got: %v", err)
-	}
-	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "residue cleanup failed") {
-		t.Errorf("expected a verbose cleanup failure, got %v", ui.VerboseCalls)
-	}
-}
-
-func TestStartDockerdIfPresentReportsCloseFailure(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	sb := newCountingSandbox(1)
-	sb.Job_ = &msb.MockJob{ID_: "new-dockerd", CloseErr: errors.New("close boom")}
-
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
-		t.Fatalf("startDockerdIfPresent: %v", err)
-	}
-	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "closing dockerd job handle") {
-		t.Errorf("expected a verbose close failure, got %v", ui.VerboseCalls)
-	}
-}
-
-func TestDockerdCleanupCmdRemovesContainerdResidue(t *testing.T) {
+func TestDockerdRestartCmdTearsDownContainerd(t *testing.T) {
 	for _, want := range []string{
+		"pkill dockerd",
 		"pkill containerd",
+		"containerd",
 		".sock",
-		".pid",
+		"dockerd -H unix:///var/run/docker.sock",
 	} {
-		if !strings.Contains(dockerdCleanupCmd, want) {
-			t.Errorf("dockerdCleanupCmd missing %q:\n%s", want, dockerdCleanupCmd)
+		if !strings.Contains(dockerdRestartCmd, want) {
+			t.Errorf("dockerdRestartCmd missing %q:\n%s", want, dockerdRestartCmd)
 		}
 	}
-	if strings.Contains(dockerdCleanupCmd, "pkill dockerd") {
-		t.Errorf("dockerdCleanupCmd must not pkill dockerd (job kill owns that):\n%s", dockerdCleanupCmd)
+	if !strings.HasSuffix(dockerdRestartCmd, "&") {
+		t.Errorf("dockerdRestartCmd should start dockerd in background:\n%s", dockerdRestartCmd)
 	}
-	if strings.HasSuffix(dockerdCleanupCmd, "&") {
-		t.Errorf("dockerdCleanupCmd must not background anything:\n%s", dockerdCleanupCmd)
+	if strings.Contains(dockerdRestartCmd, "sleep 1") {
+		t.Errorf("dockerdRestartCmd should not use a fixed sleep:\n%s", dockerdRestartCmd)
 	}
 }
 
@@ -231,7 +179,7 @@ func TestDockerdReadyTimeoutAllowsFailOver(t *testing.T) {
 	}
 }
 
-func TestTimeoutErrorIncludesJobLog(t *testing.T) {
+func TestTimeoutErrorIncludesDockerdLog(t *testing.T) {
 	origTimeout, origInterval := dockerdReadyTimeout, dockerdPollInterval
 	t.Cleanup(func() {
 		dockerdReadyTimeout = origTimeout
@@ -241,9 +189,13 @@ func TestTimeoutErrorIncludesJobLog(t *testing.T) {
 	dockerdPollInterval = time.Millisecond
 
 	const sentinel = "failed to start containerd: timeout waiting for containerd to start"
-	sb := newCountingSandbox(1 << 30)
-	sb.Job_ = &msb.MockJob{
-		Logs_: []msbSdk.JobLogEntry{{Data: []byte(sentinel)}},
+	sb := &countingSandbox{
+		Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+			FSValue: msb.NewTestFS(map[string][]byte{
+				"/var/log/dockerd.log": []byte(sentinel),
+			}, nil),
+		}),
+		readyCallsBeforeHealthy: 1 << 30,
 	}
 	ui := termio.NewTestMock(t)
 
@@ -252,6 +204,6 @@ func TestTimeoutErrorIncludesJobLog(t *testing.T) {
 		t.Fatal("expected error when dockerd never becomes ready")
 	}
 	if !strings.Contains(err.Error(), sentinel) {
-		t.Errorf("timeout error should embed the job log, got: %v", err)
+		t.Errorf("timeout error should embed the dockerd log, got: %v", err)
 	}
 }
