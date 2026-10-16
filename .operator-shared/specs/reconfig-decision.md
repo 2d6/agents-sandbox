@@ -49,12 +49,17 @@ after the first session created the VM but before it persisted fingerprints, and
 env/secret/mount) change — a silent rebuild when alone or a rebuild/restart prompt when another client was attached.
 
 The invariant now held is: **a `HomeState` is never fingerprint-less while a VM exists.** The desired fingerprints are
-seeded as part of the fresh-home write: `volume.Manager.EnsureNewHome` applies a `state.Fingerprints` (built by
-`vm.desiredFingerprints` from the same inputs as `persistConfigHashes`) to the new `HomeState` in one atomic write.
-Because state resolution runs before VM creation, the written state already matches the desired config by the time any
-session can observe the VM, so the empty-applied "changed" rule can never fire spuriously. This closes both the
-concurrent window and the crash/deleted-state route (a process killed before `persistConfigHashes`, or a `state.yaml`
-deleted while a VM survives, now gets a fresh seeded state).
+computed once (`vm.desiredFingerprints`) and seeded as part of the fresh-home write: `volume.Manager.EnsureNewHome`
+applies `state.Fingerprints` to the new `HomeState` in one atomic write, and `persistConfigHashes` persists that same
+value, so the seeded and persisted sets cannot diverge. Because state resolution runs before VM creation, the written
+state already matches the desired config by the time any session can observe the VM, so the empty-applied "changed" rule
+can never fire spuriously. This closes the concurrent window and the crash route (a process killed before
+`persistConfigHashes` now finds a seeded state).
+
+The deleted-state route is only partly addressed: when `state.yaml` is deleted while a VM and its volume survive,
+`ResolveHomeVolume` sees no state, `EnsureNewHome` mints a **new** volume and seeds it, and `homeVolumeChange` then forces
+a rebuild labelled "home volume" — the old volume is orphaned. The spurious "network policy" attribution is gone, but a
+state-loss rebuild remains; that is a pre-existing, separate concern.
 
 The trade-off: the seed write briefly asserts "applied" before the VM exists. If creation then fails the state overstates
 what is baked in, which is harmless because with no VM `PlanReconfig` short-circuits to no recreate. Recreated VMs (a

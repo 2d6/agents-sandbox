@@ -145,7 +145,10 @@ func TestPersistNetworkState_RoundTrip(t *testing.T) {
 	slug := "netproj"
 	policy := network.Policy{Profile: network.ProfileNone, EgressAllow: []string{"api.example.com"}}
 
-	if err := persistNetworkState(state.Key{Slug: slug, Agent: "opencode"}, policy); err != nil {
+	if err := persistNetworkState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.BuildNetworkState(policy),
+	); err != nil {
 		t.Fatalf("persistNetworkState: %v", err)
 	}
 
@@ -943,7 +946,7 @@ func TestPersistMountState_NilStateOnNotFound(t *testing.T) {
 		"/home/dev/.m2": {Source: "/host/.m2"},
 	}
 
-	if err := persistMountState(state.Key{Slug: slug, Agent: "opencode"}, mnts); err != nil {
+	if err := persistMountState(state.Key{Slug: slug, Agent: "opencode"}, state.BuildMountState(mnts)); err != nil {
 		t.Fatalf("persistMountState: %v", err)
 	}
 
@@ -971,7 +974,7 @@ func TestPersistMountStateCorruptState(t *testing.T) {
 	}
 	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
 
-	err := persistMountState(state.Key{Slug: slug, Agent: "opencode"}, nil)
+	err := persistMountState(state.Key{Slug: slug, Agent: "opencode"}, state.BuildMountState(nil))
 	if err == nil {
 		t.Fatal("expected an error for a corrupt state file")
 	}

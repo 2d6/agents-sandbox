@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
@@ -23,7 +21,7 @@ func persistEnvSecrets(k state.Key, envState state.EnvState, secretState state.S
 	return state.WriteState(k, *st)
 }
 
-func persistNetworkState(k state.Key, policy network.Policy) error {
+func persistNetworkState(k state.Key, networkState state.NetworkState) error {
 	st, err := state.ReadState(k)
 	if err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
@@ -32,11 +30,11 @@ func persistNetworkState(k state.Key, policy network.Policy) error {
 			return fmt.Errorf("read state for network persistence: %w", err)
 		}
 	}
-	st.NetworkState = state.BuildNetworkState(policy)
+	st.NetworkState = networkState
 	return state.WriteState(k, *st)
 }
 
-func persistMountState(k state.Key, mounts mounts.Mounts) error {
+func persistMountState(k state.Key, mountState state.MountState) error {
 	st, err := state.ReadState(k)
 	if err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
@@ -45,6 +43,6 @@ func persistMountState(k state.Key, mounts mounts.Mounts) error {
 			return fmt.Errorf("read state for mount persistence: %w", err)
 		}
 	}
-	st.MountState = state.BuildMountState(mounts)
+	st.MountState = mountState
 	return state.WriteState(k, *st)
 }

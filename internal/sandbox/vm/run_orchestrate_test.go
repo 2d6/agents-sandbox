@@ -46,6 +46,7 @@ func TestPrepareHomeVolumeDryRunSkipsRuntimeHomeMigrationOffer(t *testing.T) {
 		k,
 		sandboximage.ImageInfo{},
 		options.RunOptions{DryRun: true},
+		state.Fingerprints{},
 		&ui,
 	); err != nil {
 		t.Fatalf("prepareHomeVolume() error = %v", err)
@@ -85,6 +86,7 @@ func TestPrepareHomeVolumeDryRunVMStillOffers(t *testing.T) {
 		k,
 		sandboximage.ImageInfo{},
 		options.RunOptions{DryRunVM: true},
+		state.Fingerprints{},
 		&ui,
 	); err != nil {
 		t.Fatalf("prepareHomeVolume() error = %v", err)
@@ -115,6 +117,7 @@ func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
 		k,
 		sandboximage.ImageInfo{},
 		options.RunOptions{},
+		state.Fingerprints{},
 		&ui,
 	)
 	if !errors.Is(err, wantErr) {
