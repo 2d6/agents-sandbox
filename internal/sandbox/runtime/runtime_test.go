@@ -229,6 +229,16 @@ func TestDefaultEnsureRuntimeSeamFailsDeterministically(t *testing.T) {
 	}
 }
 
+func TestDefaultInstallRuntimeSeamFailsDeterministically(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MSB_HOME", home)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := installRuntime(ctx); err == nil {
+		t.Fatal("installRuntime() error = nil, want canceled setup error")
+	}
+}
+
 func TestPrepareRuntimePublicGateSkipsMockClient(t *testing.T) {
 	oldReal := runtimeClientIsReal
 	runtimeClientIsReal = func() bool { return false }
