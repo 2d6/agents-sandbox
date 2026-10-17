@@ -73,10 +73,13 @@ never a patch.
 - Every deprecation has a regression test asserting it still resolves with lower
   precedence and emits one warning. `cmd/agents-sandbox/cli_deprecations_test.go`
   (#202) covers the flag/env/config aliases and asserts the warning fires exactly
-  once; the image-reference aliases are silent by design and are covered by the
-  image-package tests. A deprecation without a test is incomplete.
-- The docs "Deprecations" page (issue #205) is updated from the register by hand
-  (small, curated) and checked by `make check`'s docs linkcheck.
+  once. The project-Dockerfile spellings (`runner-base-dind` base and the
+  `# agents-sandbox:dind` marker) have no lower-precedence replacement to resolve
+  against; they warn on every `EnsureImage` (including cached reuse) and are
+  covered by `internal/sandbox/image/deprecation_test.go`. A deprecation without a
+  test is incomplete.
+- The docs `deprecations.md` page (added in #206) is updated from the register by
+  hand (small, curated) and checked by `make check`'s docs linkcheck.
 
 ## Non-goals
 
