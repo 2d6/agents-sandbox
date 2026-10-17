@@ -84,6 +84,11 @@ command reports the bare version (e.g. `0.1.0`).
   exactly one warning — the CLI flags `--dind`, `--opencode-version`, `--age`/`-a`, and `sandbox list --names`, plus the
   `OPENCODE_SANDBOX_` env prefix, `AGENTS_SANDBOX_DIND`, and the `dind` config key (#202).
 
+### Changed
+
+- Runner image: the interactive agent-upgrade prompt now names both the available release and the version currently baked
+  into the image, so the choice to rebuild or keep the current version is informed.
+
 ### Fixed
 
 - `/workspace` bind mount: guest `rwx` permission bits now mirror onto the real host files (`host-permissions=mirror`),
