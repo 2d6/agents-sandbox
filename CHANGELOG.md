@@ -180,7 +180,7 @@ command reports the bare version (e.g. `0.1.0`).
   upgrade resolution, and `dockerfile-id` identity are unchanged (#133).
 - Runner image: renamed the `dind` capability to `docker` — canonical `--docker` (on `build`, `run`, `shell`, and
   `build dockerfile`), the `docker` config key, and `AGENTS_SANDBOX_DOCKER`. The old `--dind` flag, `dind` config key,
-  and   `AGENTS_SANDBOX_DIND` env var remain as deprecated aliases with lower precedence and a one-time warning. The legacy
+  and `AGENTS_SANDBOX_DIND` env var remain as deprecated aliases with lower precedence and a one-time warning. The legacy
   `# agents-sandbox:dind` marker and a `FROM .../runner-base-dind` base also imply docker and now warn when the runner
   image is ensured.
 - Runner image: `vfs` is now forced by adding `--storage-driver=vfs` to the dockerd start command inside the VM, instead
@@ -241,6 +241,8 @@ command reports the bare version (e.g. `0.1.0`).
   still honored, but warns when used. Removable at its 0.8.0 eligibility.
 - CLI: `prune --age` (and its `-a` short form) is deprecated in favour of `--older-than`. It is hidden and still
   honored, but warns when used; setting both flags together is an error. Removable at its 0.8.0 eligibility.
+- CLI: `--opencode-version` is deprecated in favour of `--agent-version`. It is hidden and still honored, but warns when
+  used. Removable at its 0.7.0 eligibility.
 - CLI: `volume migrate`/`reset`/`edit` `--rebuild` is restored as a hidden deprecated no-op that warns — the volume
   operations ensure the runner image but never force a clean rebuild. Run `agents-sandbox build` first to force one.
   Removable at its 0.8.0 eligibility.

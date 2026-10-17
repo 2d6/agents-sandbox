@@ -2,7 +2,7 @@
 title: Deprecations
 description: "Every deprecated agents-sandbox flag, config key, environment variable, and project-Dockerfile spelling, with its replacement and removal target."
 layout: default
-nav_order: 110
+nav_order: 115
 ---
 # Deprecations
 
@@ -11,10 +11,13 @@ working with a one-time warning before it is removed.
 
 **How a deprecation behaves:**
 
-- The old spelling still works with **lower precedence** than its replacement and prints a **one-time warning** to stderr.
-- It is **hidden from `--help`** but still honored.
-- It survives **at least one minor release** after the release that introduces it, and its removal is announced in the
-  release notes. A removal only lands in a minor release, never a patch.
+- A renamed flag, config key, or environment variable still works with **lower precedence** than its replacement and
+  prints a **one-time warning** to stderr.
+- A deprecated project-Dockerfile spelling has no replacement to resolve against, so it warns on **every** ensure that
+  uses the Dockerfile (see [Project Dockerfiles](#project-dockerfiles)).
+- Deprecated forms are **hidden from `--help`** but still honored.
+- A deprecated form survives **at least one minor release** after the release that introduces it, and its removal is
+  announced in the release notes. A removal only lands in a minor release, never a patch.
 
 The list below is the current register. It is also recorded in the `Deprecated` section of the
 [changelog](https://github.com/inoio/agents-sandbox/blob/main/CHANGELOG.md).
