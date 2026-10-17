@@ -180,18 +180,32 @@ func legacyDockerfileWarnings(projectDockerfile []byte) []string {
 			"project Dockerfile uses the deprecated agents-sandbox/runner-base-dind base image; switch to agents-sandbox/runner-base-docker",
 		)
 	}
-	if hasLine(projectDockerfile, legacyDockerMarker) {
+	if hasDockerMarker(projectDockerfile, legacyDockerMarker) {
 		warnings = append(warnings,
 			"project Dockerfile uses the deprecated # agents-sandbox:dind marker; switch to # agents-sandbox:docker")
 	}
 	return warnings
 }
 
-// hasLine reports whether any line of data, ignoring surrounding whitespace,
-// equals want.
-func hasLine(data []byte, want string) bool {
+// dockerMarkerKind reports whether line, ignoring surrounding whitespace, is
+// the current or legacy docker injection marker, returning the matched marker.
+// It is the single place the marker comparison lives, shared by the warning
+// scan and injectDockerBlock so the two cannot drift.
+func dockerMarkerKind(line string) (string, bool) {
+	marker := strings.TrimSpace(line)
+	switch marker {
+	case dockerMarker, legacyDockerMarker:
+		return marker, true
+	default:
+		return "", false
+	}
+}
+
+// hasDockerMarker reports whether any line of data carries want as a docker
+// injection marker.
+func hasDockerMarker(data []byte, want string) bool {
 	for line := range strings.SplitSeq(string(data), "\n") {
-		if strings.TrimSpace(line) == want {
+		if marker, ok := dockerMarkerKind(line); ok && marker == want {
 			return true
 		}
 	}
@@ -436,7 +450,7 @@ func injectDockerBlock(body string, docker bool) (string, bool) {
 	block := dockerMergeBlock()
 	lines := strings.SplitAfter(body, "\n")
 	for i, line := range lines {
-		if marker := strings.TrimSpace(line); marker == dockerMarker || marker == legacyDockerMarker {
+		if _, ok := dockerMarkerKind(line); ok {
 			return strings.Join(lines[:i], "") + block + strings.Join(lines[i+1:], ""), true
 		}
 	}

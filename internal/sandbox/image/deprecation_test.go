@@ -107,3 +107,51 @@ func TestEnsureImageWarnsOnLegacyDockerfileForms(t *testing.T) {
 		}
 	}
 }
+
+// TestEnsureImageWarnsOnEveryEnsure pins the documented behavior that the
+// project-Dockerfile deprecations warn on every ensure, including a cached
+// reuse: a Dockerfile carrying both legacy forms yields two warnings per call.
+func TestEnsureImageWarnsOnEveryEnsure(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	WithMockAgentVersion(t, "1.2.3")
+	a := agentOpencode(t)
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			if ref == "debian:trixie-slim" {
+				return client.ImageInspectResult{ID: "sha256:base"}, nil
+			}
+			return client.ImageInspectResult{
+				ID: "sha256:existing",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{dockerfileIDLabelKey: "stale"},
+				},
+			}, nil
+		},
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+	})
+
+	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
+	ui := &termio.Mock{}
+	for range 2 {
+		if _, err := EnsureImageWithClient(context.Background(), a, project, "proj", BuildOptions{}, ui); err != nil {
+			t.Fatalf("EnsureImageWithClient: %v", err)
+		}
+	}
+
+	count := 0
+	for _, warning := range ui.WarnCalls {
+		if strings.Contains(warning, "runner-base-dind") || strings.Contains(warning, "# agents-sandbox:dind") {
+			count++
+		}
+	}
+	if count != 4 {
+		t.Errorf(
+			"expected 2 deprecation warnings per ensure across 2 ensures (4 total), got %d: %v",
+			count,
+			ui.WarnCalls,
+		)
+	}
+}
