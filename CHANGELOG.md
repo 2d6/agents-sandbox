@@ -80,6 +80,9 @@ command reports the bare version (e.g. `0.1.0`).
   (`configpaths.MSBHome()`), so they no longer depend on `MSB_HOME` having been applied first; `MSB_HOME` still governs
   the FFI cache and non-setup SDK operations. `configpaths.MSBHome` is the single source of truth and
   `runtime.PrivateHome` delegates to it. #160.
+- Internal: add a regression test asserting every deprecated alias in the deprecation register still resolves and emits
+  exactly one warning — the CLI flags `--dind`, `--opencode-version`, `--age`/`-a`, and `sandbox list --names`, plus the
+  `OPENCODE_SANDBOX_` env prefix, `AGENTS_SANDBOX_DIND`, and the `dind` config key (#202).
 
 ### Fixed
 
