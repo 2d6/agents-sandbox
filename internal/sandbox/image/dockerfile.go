@@ -168,6 +168,36 @@ func effectiveDocker(projectDockerfile []byte, docker bool) bool {
 		referencesImage(projectDockerfile, managedBaseDockerRef)
 }
 
+// LegacyDockerfileWarnings returns one deprecation warning per legacy dind
+// spelling a project Dockerfile still carries: the runner-base-dind base image
+// and the # agents-sandbox:dind injection marker. It returns nil when the
+// Dockerfile uses neither. The -docker spellings do not warn.
+func LegacyDockerfileWarnings(projectDockerfile []byte) []string {
+	var warnings []string
+	if referencesImage(projectDockerfile, managedBaseDindRef) {
+		warnings = append(
+			warnings,
+			"project Dockerfile uses the deprecated agents-sandbox/runner-base-dind base image; switch to agents-sandbox/runner-base-docker",
+		)
+	}
+	if hasLine(projectDockerfile, legacyDockerMarker) {
+		warnings = append(warnings,
+			"project Dockerfile uses the deprecated # agents-sandbox:dind marker; switch to # agents-sandbox:docker")
+	}
+	return warnings
+}
+
+// hasLine reports whether any line of data, ignoring surrounding whitespace,
+// equals want.
+func hasLine(data []byte, want string) bool {
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
+	}
+	return false
+}
+
 // RenderDockerfile composes the per-project runner Dockerfile from per-tool
 // multistage stages. The node/agent/docker stages build on a tool-owned
 // agents-sandbox-toolbase (pinned debian:trixie-slim plus curl, ca-certificates,
