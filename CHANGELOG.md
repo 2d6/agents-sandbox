@@ -228,6 +228,14 @@ command reports the bare version (e.g. `0.1.0`).
   still honored, but warns when used.
 - CLI: `prune --age` (and its `-a` short form) is deprecated in favour of `--older-than`. It is hidden and still
   honored, but warns when used; setting both flags together is an error.
+- CLI: `volume migrate`/`reset`/`edit` `--rebuild` is restored as a hidden deprecated no-op that warns — the volume
+  operations ensure the runner image but never force a clean rebuild. Run `agents-sandbox build` first to force one.
+  Removable at its 0.8.0 eligibility.
+- Runner image: a project Dockerfile that still uses the legacy dind spellings — the `agents-sandbox/runner-base-dind`
+  base image or the `# agents-sandbox:dind` marker — now warns when the runner image is composed. Switch to
+  `agents-sandbox/runner-base-docker` and `# agents-sandbox:docker`.
+- Docs: every current deprecation and its removal target is now listed on the
+  [Deprecations](https://inoio.github.io/agents-sandbox/deprecations.html) page, alongside the `Deprecated` entries here.
 
 ### Fixed
 
