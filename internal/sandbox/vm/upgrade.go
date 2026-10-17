@@ -102,12 +102,7 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 		return current, nil
 	}
 
-	prompt := fmt.Sprintf(
-		"Rebuild the runner image with %s %s? (current image has %s)",
-		a.Name(),
-		latest,
-		current,
-	)
+	prompt := fmt.Sprintf("Rebuild the runner image with %s %s? (current image has %s)", a.Name(), latest, current)
 	choices := []termio.Choice{
 		{Label: "Rebuild", Key: "r", Description: "Upgrade " + a.Name() + " " + current + " → " + latest},
 		{Label: "Keep", Key: "k", Description: "Keep " + a.Name() + " " + current + ", don't remind again"},
