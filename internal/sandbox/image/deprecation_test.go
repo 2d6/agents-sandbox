@@ -61,9 +61,9 @@ func TestLegacyDockerfileWarnings(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := LegacyDockerfileWarnings([]byte(tc.project))
+			got := legacyDockerfileWarnings([]byte(tc.project))
 			if strings.Join(got, "|") != strings.Join(tc.want, "|") {
-				t.Errorf("LegacyDockerfileWarnings = %q, want %q", got, tc.want)
+				t.Errorf("legacyDockerfileWarnings = %q, want %q", got, tc.want)
 			}
 		})
 	}

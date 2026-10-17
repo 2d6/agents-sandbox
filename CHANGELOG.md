@@ -180,8 +180,9 @@ command reports the bare version (e.g. `0.1.0`).
   upgrade resolution, and `dockerfile-id` identity are unchanged (#133).
 - Runner image: renamed the `dind` capability to `docker` — canonical `--docker` (on `build`, `run`, `shell`, and
   `build dockerfile`), the `docker` config key, and `AGENTS_SANDBOX_DOCKER`. The old `--dind` flag, `dind` config key,
-  and `AGENTS_SANDBOX_DIND` env var remain as deprecated aliases with lower precedence and a one-time warning. The legacy
-  `# agents-sandbox:dind` marker and a `FROM .../runner-base-dind` still imply docker without a warning.
+  and   `AGENTS_SANDBOX_DIND` env var remain as deprecated aliases with lower precedence and a one-time warning. The legacy
+  `# agents-sandbox:dind` marker and a `FROM .../runner-base-dind` base also imply docker and now warn when the runner
+  image is ensured.
 - Runner image: `vfs` is now forced by adding `--storage-driver=vfs` to the dockerd start command inside the VM, instead
   of writing `/etc/docker/daemon.json` at image build time, so a user's edits to `daemon.json` are preserved.
 - Launcher environment variables now use the `AGENTS_SANDBOX_` prefix instead of the historical
@@ -210,8 +211,8 @@ command reports the bare version (e.g. `0.1.0`).
 - Internal: a rebuild triggered by a stale image (changed Dockerfile, agent version, or base) now reuses Docker's layer cache;
   only an explicit `--rebuild` bypasses it. An accepted agent upgrade is a version change, so it rebuilds the install layer
   while keeping earlier layers cached.
-- Internal: `volume migrate`, `volume reset`, and `volume edit` no longer expose `--rebuild`; they ensure the runner image but
-  never force a clean rebuild.
+- Internal: `volume migrate`, `volume reset`, and `volume edit` ensure the runner image but never force a clean rebuild;
+  `--rebuild` is accepted on them only as a hidden deprecated no-op (see Deprecated).
 - `--rebuild` on `run`/`shell` now only forces a clean rebuild; it no longer suppresses the agent upgrade check. A pinned
   `--agent-version` is now ignored for a user-provided agent, matching the documented contract.
 - Development: add a `make bootstrap` target that installs the pinned toolchain (Go from `.go-version` via goenv, plus golangci-lint and Zig for cross-compilation) and a read-only `make verify` target for CI parity. Bump the toolchain to Go 1.27.1, golangci-lint 2.14.0, gotestsum 1.13.0, and Zig 0.17.0. The `.agents-sandbox/Dockerfile` pins matching versions for the runtime runner image.
@@ -220,22 +221,29 @@ command reports the bare version (e.g. `0.1.0`).
 - Docs: `make check` now validates documentation links and linking style via `ci/check-docs.sh` (with tests in
   `ci/test-check-docs.sh`); root-level files link into the docs with rendered HTML links and `docs/` pages link with Jekyll
   `{% link %}` tags.
+- Docs: add a [Deprecations](https://inoio.github.io/agents-sandbox/deprecations.html) page listing every current
+  deprecated flag, config key, environment variable, and project-Dockerfile spelling with its replacement and removal
+  target.
 - Internal: collapse run/shell option resolution into `viperconfig.Resolver.BuildRunOptions` (no behavior change).
 
 ### Deprecated
 
+- Capability spelling: `dind` is renamed to `docker` — `--dind` → `--docker`, the `dind` config key → `docker`, and
+  `AGENTS_SANDBOX_DIND` → `AGENTS_SANDBOX_DOCKER`. The old spellings still work with lower precedence and a one-time
+  warning. Removable at their 0.8.0 eligibility.
+- Runner image: the `agents-sandbox/runner-base-dind` base image is deprecated in favour of
+  `agents-sandbox/runner-base-docker`, and the `# agents-sandbox:dind` marker in favour of `# agents-sandbox:docker`. Both
+  are still accepted and now warn whenever the project Dockerfile is used to ensure the runner image (including when the
+  cached image is reused). Removable at their 0.8.0 eligibility.
+- Environment variables: the `OPENCODE_SANDBOX_*` prefix is deprecated in favour of `AGENTS_SANDBOX_*`. The old prefix
+  still works with lower precedence and a one-time warning (#120). Removable at its 0.8.0 eligibility.
 - CLI: `sandbox list --names` is deprecated in favour of the global `-q`/`--quiet` (identifiers only). It is hidden and
-  still honored, but warns when used.
+  still honored, but warns when used. Removable at its 0.8.0 eligibility.
 - CLI: `prune --age` (and its `-a` short form) is deprecated in favour of `--older-than`. It is hidden and still
-  honored, but warns when used; setting both flags together is an error.
+  honored, but warns when used; setting both flags together is an error. Removable at its 0.8.0 eligibility.
 - CLI: `volume migrate`/`reset`/`edit` `--rebuild` is restored as a hidden deprecated no-op that warns — the volume
   operations ensure the runner image but never force a clean rebuild. Run `agents-sandbox build` first to force one.
   Removable at its 0.8.0 eligibility.
-- Runner image: a project Dockerfile that still uses the legacy dind spellings — the `agents-sandbox/runner-base-dind`
-  base image or the `# agents-sandbox:dind` marker — now warns when the runner image is composed. Switch to
-  `agents-sandbox/runner-base-docker` and `# agents-sandbox:docker`.
-- Docs: every current deprecation and its removal target is now listed on the
-  [Deprecations](https://inoio.github.io/agents-sandbox/deprecations.html) page, alongside the `Deprecated` entries here.
 
 ### Fixed
 

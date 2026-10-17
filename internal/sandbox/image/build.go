@@ -341,7 +341,7 @@ func EnsureImageWithClient(
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
-	for _, warning := range LegacyDockerfileWarnings(projectDockerfile) {
+	for _, warning := range legacyDockerfileWarnings(projectDockerfile) {
 		ui.Warn(warning)
 	}
 

@@ -168,11 +168,11 @@ func effectiveDocker(projectDockerfile []byte, docker bool) bool {
 		referencesImage(projectDockerfile, managedBaseDockerRef)
 }
 
-// LegacyDockerfileWarnings returns one deprecation warning per legacy dind
+// legacyDockerfileWarnings returns one deprecation warning per legacy dind
 // spelling a project Dockerfile still carries: the runner-base-dind base image
 // and the # agents-sandbox:dind injection marker. It returns nil when the
 // Dockerfile uses neither. The -docker spellings do not warn.
-func LegacyDockerfileWarnings(projectDockerfile []byte) []string {
+func legacyDockerfileWarnings(projectDockerfile []byte) []string {
 	var warnings []string
 	if referencesImage(projectDockerfile, managedBaseDindRef) {
 		warnings = append(

@@ -19,7 +19,7 @@ working with a one-time warning before it is removed.
 The list below is the current register. It is also recorded in the `Deprecated` section of the
 [changelog](https://github.com/inoio/agents-sandbox/blob/main/CHANGELOG.md).
 
-| Deprecated form | Replacement | Removed in |
+| Deprecated form | Replacement | Eligible removal |
 |---|---|---|
 | `--dind` flag, `dind` config key, `AGENTS_SANDBOX_DIND` | `--docker`, `docker`, `AGENTS_SANDBOX_DOCKER` | 0.8.0 |
 | `agents-sandbox/runner-base-dind` base image | `agents-sandbox/runner-base-docker` | 0.8.0 |
@@ -30,10 +30,14 @@ The list below is the current register. It is also recorded in the `Deprecated` 
 | `volume migrate` / `reset` / `edit` `--rebuild` | run `agents-sandbox build` first | 0.8.0 |
 | `--opencode-version` | `--agent-version` | 0.7.0 |
 
+The removal column is an **eligibility floor, not a promise**: a removed form only disappears in a minor release, never a
+patch.
+
 ## Project Dockerfiles
 
 A project Dockerfile can still reference the managed docker base or place the injection marker with the legacy `dind`
-spelling. agents-sandbox accepts both and warns when it composes the runner image. Prefer the `docker` spelling:
+spelling. agents-sandbox accepts both and warns whenever the project Dockerfile is used to ensure the runner image
+(including when the cached image is reused). Prefer the `docker` spelling:
 
 ```dockerfile
 FROM agents-sandbox/runner-base-docker
