@@ -65,3 +65,39 @@ func TestVolumeMigrateRebuildIsDeprecatedNoOp(t *testing.T) {
 		t.Errorf("expected a --rebuild deprecation warning, got output %q", captured)
 	}
 }
+
+// TestVolumeOpsRebuildDeprecatedAcrossOps verifies the deprecated --rebuild is a
+// working no-op on all three volume ops, warning exactly once. It runs with
+// --dry-run so the shared path (warn, ensure the image, stop before touching
+// volumes) is exercised for reset and edit too, while the full migrate run is
+// covered by TestVolumeMigrateRebuildIsDeprecatedNoOp.
+func TestVolumeOpsRebuildDeprecatedAcrossOps(t *testing.T) {
+	for _, name := range []string{cmdMigrate, cmdReset, cmdEdit} {
+		t.Run(name, func(t *testing.T) {
+			initTestProjectDir(t)
+			configpaths.WithMockConfigPaths(t)
+			ui := &termio.Mock{}
+			mock := &msb.MockMsbClient{}
+			doctor.MockedCheckAll(t, true)
+			image.WithMockAgentVersion(t, "0.0.0-test")
+			docker.WithNoopDockerMock(t)
+			slug := git.ProjectSlug()
+			state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
+				HomeVolume: fmt.Sprintf("agents-sandbox-home-%s-20260101T000000", slug),
+			})
+			msb.WithMsbMock(t, mock)
+
+			root := buildRootCmd(ui)
+			root.SetOut(ui.StdOut())
+			root.SetErr(ui.StdErr())
+			root.SetArgs([]string{"volume", name, "--rebuild", "--dry-run"})
+			if err := root.Execute(); err != nil {
+				t.Fatalf("volume %s --rebuild --dry-run: %v", name, err)
+			}
+			captured := ui.StdOutBuffer.String() + ui.StdErrBuffer.String()
+			if got := strings.Count(captured, "--rebuild has been deprecated"); got != 1 {
+				t.Errorf("--rebuild deprecation warning emitted %d times, want exactly 1; output %q", got, captured)
+			}
+		})
+	}
+}
