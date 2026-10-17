@@ -151,6 +151,12 @@ func buildVolumeOpsCmd(
 	cmd.Flags().BoolVar(rmVar, rmFlag, false, rmHelp)
 	cmd.Flags().Bool(flagDryRun, false, "Show what would be done")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
+	// --rebuild was dropped from these volume ops without a deprecation cycle
+	// (migrate/reset shipped it in 0.5.0). Restore it on all three as a hidden
+	// no-op for one cycle: they ensure the runner image but never force a clean
+	// rebuild.
+	cmd.Flags().Bool(flagRebuild, false, "Deprecated no-op; run 'agents-sandbox build' to rebuild the runner image")
+	_ = cmd.Flags().MarkDeprecated(flagRebuild, "run 'agents-sandbox build' to rebuild the runner image")
 	return cmd
 }
 
