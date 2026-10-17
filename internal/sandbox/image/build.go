@@ -341,6 +341,10 @@ func EnsureImageWithClient(
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
+	for _, warning := range legacyDockerfileWarnings(projectDockerfile) {
+		ui.Warn(warning)
+	}
+
 	agentVersion, identityVersion, deferResolve := initialBuildVersions(buildOpts)
 	if !deferResolve {
 		resolved, err := resolveAgentVersion(ctx, a, agentVersion)

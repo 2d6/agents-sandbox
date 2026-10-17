@@ -16,10 +16,10 @@ import (
 // emitting exactly one warning. A change that drops an alias or its one-time
 // warning breaks one of these tests.
 //
-// The image-reference aliases (`runner-base-dind` and the `# agents-sandbox:dind`
-// Dockerfile marker) are intentionally silent and have no warning to assert;
-// their resolution is covered by the image-package tests (render_test.go,
-// identity_test.go).
+// The project-Dockerfile spellings (`runner-base-dind` base image and the
+// `# agents-sandbox:dind` marker) have no lower-precedence replacement to
+// resolve against; they warn on every ensure and are covered by
+// internal/sandbox/image/deprecation_test.go.
 
 // countFlagDeprecationWarnings counts the pflag "Flag --<name> has been
 // deprecated" lines in s. pflag writes this line to the command's flag output

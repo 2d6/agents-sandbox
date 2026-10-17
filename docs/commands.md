@@ -6,7 +6,8 @@ nav_order: 60
 ---
 # Commands Reference
 
-This document lists all agents-sandbox subcommands, aliases, and flags.
+This document lists all agents-sandbox subcommands, aliases, and flags. Deprecated flags, config keys, and environment
+variables are listed in [Deprecations]({% link deprecations.md %}).
 
 ## Global Flags
 

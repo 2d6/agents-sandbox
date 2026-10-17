@@ -126,8 +126,9 @@ commands, not only in non-login agent-executed commands.
 Enable the Docker engine (Docker-in-Docker) in the runner image with the `--docker` flag (on `build`, `run`, `shell`, or
 `build dockerfile`) or the `docker: true` config key, or the `AGENTS_SANDBOX_DOCKER` environment variable. The
 deprecated aliases `--dind`, the `dind` config key, and `AGENTS_SANDBOX_DIND` still work with lower precedence and print a
-one-time warning. A project Dockerfile still starting `FROM .../runner-base-dind:latest` keeps working and implies it, as
-does the newer `FROM .../runner-base-docker:latest`; neither prints a warning.
+one-time warning. A project Dockerfile still starting `FROM .../runner-base-dind:latest` keeps working and implies it, but
+warns on every run that ensures the runner image (including cached reuse); the newer `FROM .../runner-base-docker:latest`
+implies it silently.
 
 The Docker stage installs the engine from a docker static binary tarball. The `vfs` storage driver is always forced by
 adding `--storage-driver=vfs` to the dockerd start command **inside the VM** — the image no longer writes
@@ -138,7 +139,7 @@ install them in your project Dockerfile if you need them. The static tarball's p
 With a custom base, a thin `COPY --from=agents-sandbox-docker` plus an adopt step is appended after your Dockerfile body
 by default, so steps after it see `docker` (the heavy download stays in the cacheable Docker stage). To run your own steps
 immediately after the engine is installed, place a `# agents-sandbox:docker` comment line in the final stage where the
-block should be injected (the legacy `# agents-sandbox:dind` marker is still recognized):
+block should be injected (the legacy `# agents-sandbox:dind` marker is still recognized, but warns on every ensure):
 
 ```dockerfile
 FROM ubuntu:24.04
