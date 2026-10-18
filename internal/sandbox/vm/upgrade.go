@@ -149,9 +149,12 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 // The two documents are written in two separate transactions, never nested: the
 // host-only root lock is held only for the network-check bookkeeping (see
 // checkAgentUpgrade), then released before the home transaction records the
-// offered mark. A held root lock (e.g. an in-flight runtime-home copy campaign)
-// defers the whole step to the next run rather than racing it. An offline or
-// failed check never fails the session and leaves the once-per-day window open.
+// offered mark. Within the home document, reading the offered set and appending
+// the new release happen in one transaction, so the offer is claimed atomically
+// and concurrent launches cannot both prompt. A held root lock (e.g. an
+// in-flight runtime-home copy campaign) defers the whole step to the next run
+// rather than racing it. An offline or failed check never fails the session and
+// leaves the once-per-day window open.
 func pendingUpgrade(
 	ctx context.Context,
 	a agent.Agent,
@@ -175,30 +178,30 @@ func pendingUpgrade(
 		return "", false
 	}
 
-	hs, hsErr := state.ReadState(k)
-	if hsErr != nil {
-		if !errors.Is(hsErr, state.ErrStateNotFound) {
-			ui.Warnf("could not read project state: %v (continuing)", hsErr)
-			return "", false
-		}
-		hs = nil
-	}
-	if hs != nil && hs.Offered(latest) {
-		return "", false
-	}
-
-	// Record the offered mark in a separate home transaction, never nested
-	// inside the root lock. Update an existing state only: this runs before home
-	// resolution, so creating a state here would leave a fingerprint-less
-	// partial state that poisons that step's recovery (#183).
+	// Claim the offer for this (project, release) atomically: check and mark
+	// inside a single home transaction, so two concurrent launches of the same
+	// project cannot both pass the "already offered" gate and show the prompt.
+	// The transaction never creates a state — it runs before home resolution, so
+	// creating one here would leave a fingerprint-less partial state that poisons
+	// that step's recovery (#183). When no state exists yet we still offer; the
+	// deferred persistOfferedVersion records the mark after home resolution.
+	offer := false
 	if writeErr := state.WithHomeState(k, func(hs *state.HomeState, exists bool) (bool, error) {
 		if !exists {
+			offer = true
+			return false, nil
+		}
+		if hs.Offered(latest) {
 			return false, nil
 		}
 		hs.MarkOffered(latest)
+		offer = true
 		return true, nil
 	}); writeErr != nil {
-		ui.Warnf("could not persist project state: %v (continuing)", writeErr)
+		ui.Warnf("could not read or persist project state: %v (continuing)", writeErr)
+	}
+	if !offer {
+		return "", false
 	}
 	return latest, true
 }
